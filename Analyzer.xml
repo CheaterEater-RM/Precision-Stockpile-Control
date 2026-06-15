@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Dubs Performance Analyzer profiling tab for Precision Stockpile Control.
+  Dev-only file: remove before public release if the tab should not appear for players.
+
+  Keep comments outside the <Analyzer> root. Dubs Performance Analyzer parses direct
+  children as dynamic type names and can crash on comments there.
+-->
+<Analyzer>
+    <PrecisionStockpileControl>
+        <Types>
+        </Types>
+        <Methods>
+        </Methods>
+        <NestedTypes>
+        </NestedTypes>
+    </PrecisionStockpileControl>
+</Analyzer>

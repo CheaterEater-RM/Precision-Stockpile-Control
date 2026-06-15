@@ -1,0 +1,48 @@
+# =========================
+# RimWorld Mod .gitignore
+# =========================
+
+# Machine-specific game paths (lives outside repo but just in case)
+RimWorld.Paths.props
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.cache
+*.rsuser
+
+# Build artifacts
+[Oo]bj/
+[Bb]in/
+[Dd]ebug/
+[Rr]elease/
+*.pdb
+
+# NuGet
+*.nuget.props
+*.nuget.targets
+*.nuget.dgspec.json
+*.nuget.cache
+project.assets.json
+project.lock.json
+
+# Rider
+.idea/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Build logs
+build.log
+build_err.log
+build_restore.log
+build_restore_err.log
+*.binlog
+
+.github/
+CLAUDE.md
+AGENTS.md
+
+.dotnet/
