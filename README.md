@@ -6,10 +6,9 @@ Precision Stockpile Control is a RimWorld 1.6 mod planned around opt-in, low-ove
 
 - Per-item stockpile maximums and refill thresholds (per stockpile / shelf / linked group)
 - Batch hauling (never make a trip smaller than N)
+- Feeder source/destination links between stockpiles
+- Fine-grained ordering within a priority band: a–z subpriority and an optional 1–10 priority mode
 - Pick Up And Haul and LWM Deep Storage / multi-stack aware
-
-Planned for later updates: feeder source/destination links, and fine-grained stockpile ordering
-within vanilla priority bands.
 
 ### About "maximum" (please read)
 
@@ -25,9 +24,10 @@ until you set a limit. Removed, limited items simply become "allowed" (unlimited
 
 ## Development Status
 
-M1 (core limits) and M2 (focused hard cap, batch, Pick Up And Haul / multi-stack integration) are
-code complete and pending in-game verification. The authoritative design is in `04_PSC_DESIGN.md`;
-build progress is tracked in `MILESTONES.md`.
+M1 (core limits), M2 (focused hard cap, batch, Pick Up And Haul / multi-stack integration), M3
+(feeder links), and M4 (fine ordering — a–z subpriority and 1–10 priority) are code complete and
+pending in-game verification. The authoritative design is in `04_PSC_DESIGN.md`; build progress is
+tracked in `MILESTONES.md`.
 
 ## License
 

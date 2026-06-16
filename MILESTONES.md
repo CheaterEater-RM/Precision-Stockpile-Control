@@ -173,16 +173,61 @@ own-contents validity, loose-item rejection, opportunistic duplicates, red inval
 and vanilla link/unlink carry, save-compat). Known TODO: gizmo icons reuse vanilla command textures
 (swap in custom art later).
 
+### M4 - Fine Order (code complete; pending in-game verification)
+
+Builds clean, `net48`, Harmony 2.4, 0 warnings. Scope this slice: **a-z subpriority + 1-10
+numbering**, on the **Full** mechanism (sort baseline + transpiler). Auto-priority (D4) and the
+dev-mode self-test/debug overlay from the design's M4 slice are **deferred** (not built).
+
+- **Fine-order engine.** `PscOrder` (new) owns the key and comparison. Ordering is a "rank within
+  band" (lower = better) composed of effective sub-tier then letter. The vanilla `StoragePriority`
+  enum is never touched (D6): sub-tier `0` = unset = band anchor; 1-10 numbering off collapses sub-tier
+  to tier 1 so only letters refine, and mod removal leaves both fields inert. Includes the 1-10
+  mapping (anchors `{1,3,5,7,10}`; Low anchors at tier 2) and the reverse-order **label-only** flip.
+- **Sort tiebreak (baseline).** Postfix on `HaulDestinationManager.CompareSlotGroupPrioritiesDescending`
+  breaks same-band ties by fine-order so newly-hauled / unstored items prefer the finer-ranked group.
+  Not a transpiler — never IL-conflicts; this is the conflict-proof floor.
+- **Fail-closed transpiler.** Narrow `CodeMatcher`-style transpiler on
+  `StoreUtility.TryFindBestBetterStoreCellFor` injects a guard before the `priority <= currentPriority`
+  break (mirrors LWM's proven minimal `ble`-only edit) so an already-stored item can relocate to a
+  strictly-better same-band group. If the 1.6.4850 IL fingerprint (`ldloc priority; ldarg.3; ble`)
+  isn't found, it logs **one** error, sets `PscOrder.TranspilerFailed`, yields original IL, and
+  disables relocation only (sort baseline still works).
+- **LWM Deep Storage composition.** LWM's transpiler on this method is dormant (`[HarmonyPatch]`
+  commented out, applied via `PatchAll`); its live capacity enforcement is on `IsGoodStoreCell` /
+  `NoStorageBlockersIn`. PSC only changes which groups the search considers — every candidate cell
+  still passes `IsGoodStoreCell`, so PSC never overfills a DSU. Stockpile Limit / Variety Matters
+  patch the same method as **prefixes**, which compose fine.
+- **Per-map gate.** `PscMapComponent.anyFineOrderActive` (a unit has `subTier != 0` or a letter) gates
+  the transpiler helper; `NotifyOrderChanged` updates tracking and calls
+  `Notify_HaulDestinationChangedPriority` so the sorted list rebuilds on an edit.
+- **Feeders unified onto the key (D5).** `HasFunctionalFeederEdge` now requires the destination to
+  strictly outrank the source by full key (`PscOrder.Outranks`) instead of vanilla band only, so
+  same-band feeders work with 1-10 / letters. With no fine-order set, behavior is identical to M3.
+- **UI.** `PscPriorityBox` (new) draws beside the vanilla Priority button (tab is 300 wide; button is
+  160, leaving room): an always-on **letter box** (a-z menu) and, when 1-10 numbering is on, a **level
+  box** (1-10 menu that sets band + sub-tier). The vanilla button is left intact (D6/§10.7).
+- **Settings.** `priorityNumbering` + `reverseOrder` added to `PscSettings` (+ "Fine order" header in
+  the settings window). Toggling 1-10 re-sorts every map. `autosetSourcePriority` stays a persisted
+  no-op (auto-priority still deferred); `linkSubpriorities` unused this slice (a `StorageGroup` shares
+  one key already).
+
+New files: `Source/Core/PscOrder.cs`, `Source/Patches/FineOrder_Patches.cs`,
+`Source/UI/PscPriorityBox.cs`. Edits: `PscMapComponent` (anyFineOrderActive + NotifyOrderChanged +
+fine-order feeder edge), `PscMod` (settings + UI), `ITab_Storage_FillTab_Patch` (draw priority box),
+`Keys.xml`.
+
+Remaining before M4 is "done": in-game verification of the design §14 M4 scenarios (same-band
+relocation selected/not-selected, Low-band floor, transpiler-mismatch fail-closed), 1-10 collapse,
+unified same-band feeders, no equal-key churn, LWM capacity respected.
+
 ## Planned
 
-### M4 - Fine Order
+### M4 follow-ups (deferred)
 
-- Fine-order search transpiler
-- Priority-list tie-break postfix
-- Subpriority and 1-10 priority UI
-- Version-gated fail-closed behavior
-
-Dependencies: M3 complete.
+- Auto-priority (D4): auto-nudge a feeder source one fine-order step below its destination on link
+  (needs the now-built fine-order key; `autosetSourcePriority` setting is wired but inert).
+- Dev-mode self-test for the transpiler match + a fine-order key debug overlay.
 
 ### M5 - Migration and Flickable Storage
 

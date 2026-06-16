@@ -9,6 +9,18 @@
   <PSC_SettingsDefaultOnlyFromSourceTip>When you link a source to a stockpile for the first time, automatically turn on "Only from source" for it. You can still toggle it per stockpile.</PSC_SettingsDefaultOnlyFromSourceTip>
   <PSC_SettingsDefaultOnlyToDestinations>Restrict new sources to their destinations</PSC_SettingsDefaultOnlyToDestinations>
   <PSC_SettingsDefaultOnlyToDestinationsTip>When you link a destination to a stockpile for the first time, automatically turn on "Only to destinations" for it. You can still toggle it per stockpile.</PSC_SettingsDefaultOnlyToDestinationsTip>
+  <PSC_SettingsFineOrderHeader>Fine order</PSC_SettingsFineOrderHeader>
+  <PSC_SettingsPriorityNumbering>Use 1–10 priority levels</PSC_SettingsPriorityNumbering>
+  <PSC_SettingsPriorityNumberingTip>Split each of the five vanilla priority bands into two levels, giving 1 (highest) to 10 (lowest). Existing stockpiles land on 1, 3, 5, 7 and 10. Turn this off to collapse back to the five bands; your letters still apply, but any feeder link that relied only on a sub-tier difference within the same band will stop working until you turn numbering back on.</PSC_SettingsPriorityNumberingTip>
+  <PSC_SettingsReverseOrder>Reverse 1–10 numbering</PSC_SettingsReverseOrder>
+  <PSC_SettingsReverseOrderTip>Show the highest priority as 10 instead of 1. This only flips the displayed numbers; it does not change how stockpiles are ordered.</PSC_SettingsReverseOrderTip>
+
+  <!-- Fine order: priority box beside the vanilla Priority button -->
+  <PSC_LevelShort>Lvl {0}</PSC_LevelShort>
+  <PSC_LevelTip>Fine priority level (1 = highest, 10 = lowest). Two levels share each vanilla band; setting a level also sets the band.</PSC_LevelTip>
+  <PSC_LevelOption>{0} — {1}</PSC_LevelOption>
+  <PSC_LetterTip>Subpriority letter. Within the same priority, "a" outranks "b" outranks "c". No letter is highest.</PSC_LetterTip>
+  <PSC_LetterNone>No letter</PSC_LetterNone>
 
   <!-- Feeder link gizmos -->
   <PSC_ConnectSource>Connect source</PSC_ConnectSource>

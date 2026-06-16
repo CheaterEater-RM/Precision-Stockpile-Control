@@ -37,8 +37,8 @@ PSC adds **one button** to the vanilla stockpile tab. Everything else is behind 
 | D1 | On PSC removal, a limited item degrades to plain **allowed** (unlimited). |
 | D2 | **Hard cap contract.** Upper limit = the maximum. M2 realizes this as a **focused** hard cap (see §8.1 "M2 Hard Cap — Focused Scope"): the haul/drop path and Pick Up And Haul are capped; rare direct-spawn paths stay soft and are documented. UI uses "maximum" (not "target maximum") once M2 ships. |
 | D3 | Click vs. click-drag handled like Material Filter (Harmony). |
-| D4 | Auto-priority sets the **source** one fine-order step lower. Destination never modified. *(Implementation deferred to M4 — it needs the fine-order letter mechanism. M3 ships the `autosetSourcePriority` setting as a no-op and enforces link validity only: an invalid link draws red and is not a functional feeder edge.)* |
-| D5 | Destination must outrank source — **enforced.** A link where destination ≤ source priority is non-functional (drawn red). Prevents cycles and reverse-grab. |
+| D4 | Auto-priority sets the **source** one fine-order step lower. Destination never modified. *(Still deferred after M4. M4 builds the fine-order key mechanism it needs, but the auto-nudge-on-link behavior is not yet wired; `autosetSourcePriority` remains a persisted no-op.)* |
+| D5 | Destination must outrank source — **enforced.** *(M4: unified onto the full fine-order key — `PscOrder.Outranks` requires the destination to strictly outrank the source by band, then sub-tier, then letter, so same-band feeders work with 1–10 / letters. With no fine-order set, identical to the M3 band-only rule.)* A non-functional link is drawn red. Prevents cycles and reverse-grab. |
 | D6 | 1–10 priority is **distinct when active** (realized via the fine-order machinery, §6.4); collapses to the 5 vanilla bands when the setting is off or the mod is removed. Internal `StoragePriority` enum never changes. |
 | D7 | Feeder endpoint = the **haul unit**: `member.Group` when linked, else the standalone slot group / zone. Stored by `GetUniqueLoadID()` string handle; resolves lazily on load. |
 | D8 | Migration from other limit mods = later milestone. |
@@ -179,7 +179,7 @@ Without counting in-flight reservations, multiple pawns can briefly overshoot th
 | SplitOff drift correction | `Thing.SplitOff` | — | Postfix (dirty unit/def) |
 | Absorption drift correction | `Thing.TryAbsorbStack` | — | Postfix (dirty both units/defs) |
 | Link/unlink count rebuild | `StorageGroupUtility.SetStorageGroup` | — | Postfix (rebuild from HeldThings) |
-| Fine-order within band | `StoreUtility.TryFindBestBetterStoreCellFor` | `RimWorld/StoreUtility.cs:173` | **Narrow transpiler** — replace `priority <= currentPriority` break with `PscOrder.ShouldBreakSearch(...)` |
+| Fine-order within band | `StoreUtility.TryFindBestBetterStoreCellFor` | `RimWorld/StoreUtility.cs:173` | **Narrow transpiler (M4, fail-closed)** — inject a continue-override before the `priority <= currentPriority` break: `PscOrder.ShouldContinueSearch(...)` |
 | Fine-order list sort | `HaulDestinationManager.CompareSlotGroupPrioritiesDescending` | `RimWorld/HaulDestinationManager.cs:153` | Postfix (tie-break by fine-order key) |
 | PUAH count clamp | `WorkGiver_HaulToInventory.CapacityAt` | reference mod | Postfix, soft-dep guarded |
 | Tab top row (PSC button) | `ITab_Storage.FillTab` + `ThingFilterUI.DoThingFilterConfigWindow` | `RimWorld/ITab_Storage.cs:104`, `Verse/ThingFilterUI.cs:29` | Postfix button in a reserved row under priority; prefix shifts vanilla filter controls down |
@@ -258,21 +258,27 @@ Vanilla `TryFindBestBetterStoreCellFor` initializes `foundPriority = currentPrio
 
 ### Solution: narrow transpiler
 
-Replace the single break comparison:
+**As built (M4):** rather than replacing the whole compound condition, the transpiler injects a
+*continue-override* immediately before the `priority <= currentPriority` break — the minimal,
+LWM-proven shape (touch only the `ble` half; leave the `blt` "strictly lower band" half intact):
 
 ```csharp
 // vanilla
-if ((int)priority < (int)foundPriority || (int)priority <= (int)currentPriority)
-    break;
+if ((int)priority < (int)foundPriority) break;            // ldloc priority; ldloc.1; blt BREAK   (kept)
+if ((int)priority <= (int)currentPriority) break;         // ldloc priority; ldarg.3; ble BREAK
 
-// PSC replacement (when fine-order active)
-if (PscOrder.ShouldBreakSearch(slotGroup, foundPriority, currentPriority, t, map))
-    break;
+// PSC injects before the second break:
+if (PscOrder.ShouldContinueSearch(priority, currentPriority, slotGroup, t, map))
+    goto evaluateThisGroup;                               // skip the ble break
 ```
 
-`PscOrder.ShouldBreakSearch` mirrors vanilla logic when fine-order is inactive (exact same result, no behavior change). When active, it permits continuing into groups that share the item's current vanilla band, but only if they outrank the current unit by full PSC key `(vanilla band, sub-tier, letter)`.
-
-For `Low` band, `currentPriority` must be temporarily treated as `Unstored` to permit the search floor; the helper handles this.
+`ShouldContinueSearch` returns `false` when fine-order is inactive (vanilla `ble` runs unchanged —
+byte-identical). When active it returns `true` only for a candidate in the item's **same** band that
+strictly outranks the item's current unit by full key `(band, sub-tier, letter)`; a strictly lower
+band still breaks via the untouched `blt`. The `Low`-band floor is handled implicitly — same-band
+comparison among `Low` units needs no `Unstored` substitution under the continue-override shape.
+Correctness depends on the sort tiebreak ordering same-band groups so the strictly-better ones are
+visited first.
 
 **Version-gate:** match against 1.6.4850 IL shape. If the pattern is not found, log one warning and disable fine-order (fail closed — no stream of errors).
 

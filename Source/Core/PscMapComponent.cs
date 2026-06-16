@@ -18,6 +18,10 @@ namespace PrecisionStockpileControl
         // the admission feeder block so plain colonies pay nothing for it.
         public bool anyFeederActive;
 
+        // True when any tracked unit has a non-default fine-order key (subTier != 0 or a letter).
+        // Gates the fine-order transpiler helper so plain colonies pay one bool check (design §9).
+        public bool anyFineOrderActive;
+
         // Authoritative directed feeder-link store for this map (design §4.2). Scribed below.
         private PscFeederLinks feederLinks = new PscFeederLinks();
         public PscFeederLinks Links => feederLinks;
@@ -66,6 +70,7 @@ namespace PrecisionStockpileControl
             }
             anyPscActive = tracked.Count > 0;
             RecomputeFeederActive();
+            RecomputeFineOrderActive();
             RebuildDemand();
         }
 
@@ -78,6 +83,17 @@ namespace PrecisionStockpileControl
                 if (d != null && (d.onlyFromSource || d.onlyToDestinations)) { any = true; break; }
             }
             anyFeederActive = any;
+        }
+
+        public void RecomputeFineOrderActive()
+        {
+            bool any = false;
+            foreach (var s in tracked)
+            {
+                var d = PscStorageDataStore.TryGet(s);
+                if (d != null && (d.subTier != 0 || !string.IsNullOrEmpty(d.letter))) { any = true; break; }
+            }
+            anyFineOrderActive = any;
         }
 
         private void RebuildDemand()
@@ -126,7 +142,19 @@ namespace PrecisionStockpileControl
             }
             anyPscActive = tracked.Count > 0;
             RecomputeFeederActive();
+            RecomputeFineOrderActive();
             RebuildDemand();
+        }
+
+        // Called after a fine-order edit (sub-tier / letter / band via the level box). Updates
+        // tracking + anyFineOrderActive, then re-sorts the haul-destination list so the new key
+        // takes effect (vanilla only re-sorts on this notify).
+        public static void NotifyOrderChanged(StorageSettings settings)
+        {
+            NotifyPolicyChanged(settings);
+            var unit = PscHaulUnit.ResolveSettings(settings);
+            if (unit.IsValid)
+                unit.Map?.haulDestinationManager?.Notify_HaulDestinationChangedPriority();
         }
 
         public override void ExposeData()
@@ -278,7 +306,9 @@ namespace PrecisionStockpileControl
             var sourceSettings = source.Settings;
             var destSettings = dest.Settings;
             if (sourceSettings == null || destSettings == null) return false;
-            if ((int)destSettings.Priority <= (int)sourceSettings.Priority) return false;
+            // D5 unified onto the fine-order key (M4): the destination must strictly outrank the
+            // source by full priority (band, then sub-tier, then letter), not just by vanilla band.
+            if (!PscOrder.Outranks(destSettings, sourceSettings)) return false;
             return feederLinks.HasEdge(source.UniqueLoadID, dest.UniqueLoadID);
         }
 

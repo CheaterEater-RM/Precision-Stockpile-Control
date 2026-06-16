@@ -49,6 +49,9 @@ namespace PrecisionStockpileControl
         {
             if (__state.settings == null) return;
 
+            // Fine-order controls (letter / 1-10 level) beside the vanilla Priority button.
+            PscPriorityBox.Draw(__state.settings);
+
             var rect = PscUiWidgets.EntryButtonRect();
             if (Widgets.ButtonText(rect, "PSC_ButtonLabel".Translate()))
             {
