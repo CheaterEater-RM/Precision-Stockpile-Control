@@ -35,7 +35,7 @@ PSC adds **one button** to the vanilla stockpile tab. Everything else is behind 
 | ID | Decision |
 |---|---|
 | D1 | On PSC removal, a limited item degrades to plain **allowed** (unlimited). |
-| D2 | **Hard cap contract.** Upper limit = physical maximum. Direct-drop/merge patches are M2 scope (see §8). UI must never use "limit" language implying soft planning; use "maximum." |
+| D2 | **Hard cap contract.** Upper limit = the maximum. M2 realizes this as a **focused** hard cap (see §8.1 "M2 Hard Cap — Focused Scope"): the haul/drop path and Pick Up And Haul are capped; rare direct-spawn paths stay soft and are documented. UI uses "maximum" (not "target maximum") once M2 ships. |
 | D3 | Click vs. click-drag handled like Material Filter (Harmony). |
 | D4 | Auto-priority sets the **source** one fine-order step lower. Destination never modified. |
 | D5 | Destination must outrank source — **enforced.** A link where destination ≤ source priority is non-functional (drawn red). Prevents cycles and reverse-grab. |
@@ -227,7 +227,22 @@ HaulToCellStorageJob postfix:
     if batch set and job.count < batch:   job = null (cancel)
 ```
 
-**Drop-time note (D2, M2):** until M2 hard-cap patches land, `AllowedToAccept` is a planning gate. Carried things are unspawned (`ResolveCurrentHaulUnit` returns null); vanilla still attempts `TryDropCarriedThing` regardless. The UI must call limits "target maximum" until M2 ships, then "maximum."
+**Drop-time note (D2):** `AllowedToAccept` is only a *planning* gate — carried things are unspawned and vanilla attempts `TryDropCarriedThing` regardless. M1 used this gate alone, so the cap was soft ("target maximum"). M2 adds drop-time enforcement (§8.1) and the UI now says "maximum."
+
+### 8.1 M2 Hard Cap — Focused Scope (as built)
+
+M2's hard cap is **focused** (a deliberate scope choice over a full placement-path rewrite). It makes the upper limit a real maximum for the **normal colony flow** while leaving a small, documented set of edge paths soft.
+
+**Mechanism — per-unit live-count cap at the drop seam.** PSC limits are per *haul unit*; every vanilla/precedent capacity seam is per *cell*. So PSC enforces at the carry-drop choke point using the live unit count from the M1 count cache:
+
+- **Carry-drop cap** — prefix on `Pawn_CarryTracker.TryDropCarriedThing(IntVec3, ThingPlaceMode, out Thing, Action<Thing,int>)` (the no-count overload). When dropping into a PSC-capped unit, drop only `room = max(0, upper − liveUnitCount)` via the count overload (which routes through `innerContainer.TryDrop`, not back through the patched method — no recursion), leaving the remainder carried for vanilla `PlaceHauledThingInCell`'s existing fallback (find better storage → haul aside → last-resort). This is chosen over the design's `PlaceHauledThingInCell`-lambda transpiler (Stockpile Limit precedent): a tightly-gated prefix on the public method is more robust (no compiler-lambda reflection), version-resilient, and also catches manual/drafted drops into a capped stockpile.
+- **No haul loop.** Admission (`AllowedToAccept`) and the drop prefix read the **same** live count cache, so planning and enforcement are consistent: once a unit is full, no new haul-to-it jobs are created, so a reduced/zero drop never feeds a re-haul loop. The carry-drop prefix is the *true* enforcement against reservation overshoot, opportunistic duplicates, and plan-vs-drop drift that the M1 `job.count` clamp alone cannot stop.
+- **Pick Up And Haul** — postfix on `WorkGiver_HaulToInventory.CapacityAt` (soft-dep via `Prepare()`/reflection) reduces reported capacity to the unit room. Best-effort: PUAH probes multiple cells before executing, so transient multi-cell overshoot within one unit is possible and self-corrects once the unit hits the cap and the drop prefix blocks further drops.
+- **Multi-stack (LWM / Ogre)** — free: PSC counts and caps are in **items** (via `HeldThings`), and PUAH already queries `IHoldMultipleThings` capacity first. Nothing assumes one stack per cell.
+
+**What is left soft (documented limitation):** items spawned **directly** into storage rather than hauled in — e.g. a workbench standing inside the stockpile dropping its product on the spot, map-generation scatter, or other mods spawning via `GenPlace.TryPlaceDirect` — bypass the carry-drop seam and can momentarily exceed the maximum. Normal crafting is **not** in this set: bill products spawn at the bench and are then *hauled* to storage, so they pass through the capped haul/drop path. Closing the direct-spawn gap would require patching `GenPlace.TryPlaceDirect` (per-unit live-count cap with spill handling) and is deferred; it can be added later without disturbing the focused seams.
+
+**Batch (D12), as built:** two gates — a source-stack gate in `AllowedToAccept` (`t.stackCount < batch ⇒ reject`) and a final-count cancel in `HaulToCellStorageJob` (`job.count < batch ⇒ null`). Consequence: when remaining room `< batch` (a near-full capped unit), the last `< batch` items are intentionally not hauled ("no small trips"). Opportunistic duplicates are left at vanilla behavior.
 
 ---
 
@@ -416,7 +431,8 @@ Share `DoThingDef` row space. Filters compose: material AND count. Tab order: `P
 | Fine-order transpiler conflicts with other hauling transpilers | Medium | Test Harmony priority and call-chain composition; Storage Sorting precedent |
 | Count cache drift from unpatched drift sources | **High** | All known drift sources patched in M1 (D18); staggered resync as backstop |
 | Feeder `onlyToDestinations` making source reject own contents | **High** | D16 context guard; test case required before M3 ships |
-| Hard cap not enforced until M2 (direct-drop bypass) | Medium | UI says "target maximum" until M2; document in release notes |
+| Hard cap not enforced until M2 (direct-drop bypass) | Medium | **Resolved in M2 (focused, §8.1):** haul/drop + PUAH capped via `TryDropCarriedThing` prefix. Direct-spawn paths (`GenPlace.TryPlaceDirect`) remain soft — documented in README + UI footnote |
+| Cancelling prefix on hot `TryDropCarriedThing` (M2) | Medium | `PscStorageDataStore.IsEmpty` int-compare early-out first, then a tight cell→unit→has-limit gate; faithfully replicates the drop (`innerContainer.TryDrop` via the count overload). Stockpile Limit precedent does the identical reduced drop |
 | Reservation overshoot past upper limit | Low | Self-corrects via drain; reservation counting deferred |
 | `StorageGroup.CellsList` retained after iteration | Low | Helper never retains; only iterates immediately or via `HeldThings` |
 | Batch undershoot from opportunistic-duplicate aggregation | Low | Final job count cancel gate (D12); WorkGiver gate deferred |
@@ -463,7 +479,7 @@ These must pass before any milestone is considered shippable.
 | Milestone | Contents |
 |---|---|
 | **M1 — Core limits** | `StorageSettings` attached data + ExposeData/clipboard + count cache + demand index + all Notify hooks + `SplitOff` / absorption / AddCell / RemoveCell / link-unlink patches + `AllowedToAccept` upper/lower/hysteresis + `HaulToCellStorageJob` clamp+cancel + PSC side button + control window + per-row UI |
-| **M2 — Hard caps + batch + integration** | Direct-drop/merge transpilers (Stack Gap / Stockpile Limit precedent); batch final-count enforcement; PUAH `CapacityAt` postfix; LWM/Ogre capacity correctness; UI updated from "target maximum" to "maximum" |
+| **M2 — Hard caps + batch + integration** | **Focused hard cap (§8.1):** per-unit live-count cap via a `Pawn_CarryTracker.TryDropCarriedThing` prefix (covers hauling, manual/drafted drops, and bill products hauled from benches); batch source-stack + final-count enforcement; PUAH `CapacityAt` postfix (soft-dep); LWM/Ogre capacity correctness (free — counts in items); UI "target maximum" → "maximum". **Left soft:** direct-spawn into storage (`GenPlace.TryPlaceDirect` — workbench-in-stockpile, map-gen, mod spawns), deferred |
 | **M3 — Feeder links** | `PSC_MapComponent` link store; feeder rules in admission with D16 context guard; Contagion-style overlay; auto-priority; opportunistic-duplicate control |
 | **M4 — Fine-order** | Narrow transpiler on `TryFindBestBetterStoreCellFor`; `CompareSlotGroupPrioritiesDescending` postfix tie-break; subpriority letter box UI; 1-10 relabel UI; `anyFineOrderActive` guard; dev-mode self-test and debug overlay |
 | **M5 — Migration + Flickable** | Import other mods' limits; Flickable Storage integration |

@@ -1,4 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LanguageData>
-  <!-- Settings UI strings will be added with the first implementation milestone. -->
+
+  <!-- Mod settings -->
+  <PSC_SettingsCategory>Precision Stockpile Control</PSC_SettingsCategory>
+  <PSC_SettingsM1Note>More options arrive in later updates. The current release adds per-item maximums, refill thresholds, and batch hauling to stockpiles and shelves.</PSC_SettingsM1Note>
+
+  <!-- Storage tab button -->
+  <PSC_ButtonLabel>PSC</PSC_ButtonLabel>
+
+  <!-- Control window -->
+  <PSC_WindowTitle>Precision Stockpile Control</PSC_WindowTitle>
+  <PSC_Mode>Measure by</PSC_Mode>
+  <PSC_ModeItems>items</PSC_ModeItems>
+  <PSC_ModeStacks>stacks</PSC_ModeStacks>
+  <PSC_Upper>Maximum</PSC_Upper>
+  <PSC_UpperUnlimited>No maximum (unlimited)</PSC_UpperUnlimited>
+  <PSC_Lower>Refill threshold</PSC_Lower>
+  <PSC_LowerAlways>Always refill</PSC_LowerAlways>
+  <PSC_Always>always</PSC_Always>
+  <PSC_Batch>Batch (minimum per trip)</PSC_Batch>
+  <PSC_Preview>Will set: {0}</PSC_Preview>
+  <PSC_SoftCapNote>Pawns keep each item at or below its maximum when hauling. Rarely, items spawned straight into storage (such as from a workbench standing inside the stockpile) can still exceed it.</PSC_SoftCapNote>
+  <PSC_ApplyToSearch>Apply to search</PSC_ApplyToSearch>
+  <PSC_RemoveFromSearch>Remove from search</PSC_RemoveFromSearch>
+  <PSC_SearchHint>Type in the storage tab's search box to choose which items these limits apply to.</PSC_SearchHint>
+
+  <!-- Per-item / category limit submenu (right-click a filter row or category) -->
+  <PSC_Apply>Apply</PSC_Apply>
+  <PSC_Cancel>Cancel</PSC_Cancel>
+  <PSC_AllowClear>✓ Allow, no limit</PSC_AllowClear>
+  <PSC_DisallowClear>✗ Disallow</PSC_DisallowClear>
+
 </LanguageData>
