@@ -14,6 +14,9 @@
   <PSC_SettingsPriorityNumberingTip>Split each of the five vanilla priority bands into two levels, giving 1 (highest) to 10 (lowest). Existing stockpiles land on 1, 3, 5, 7 and 10. Turn this off to collapse back to the five bands; your letters still apply, but any feeder link that relied only on a sub-tier difference within the same band will stop working until you turn numbering back on.</PSC_SettingsPriorityNumberingTip>
   <PSC_SettingsReverseOrder>Reverse 1–10 numbering</PSC_SettingsReverseOrder>
   <PSC_SettingsReverseOrderTip>Show the highest priority as 10 instead of 1. This only flips the displayed numbers; it does not change how stockpiles are ordered.</PSC_SettingsReverseOrderTip>
+  <PSC_SettingsDebugHeader>Debugging</PSC_SettingsDebugHeader>
+  <PSC_SettingsDebugLogging>Verbose debug logging</PSC_SettingsDebugLogging>
+  <PSC_SettingsDebugLoggingTip>Log PSC's feeder, link, and ordering decisions to the dev console / Player.log. Only useful for diagnosing bugs; leave off for normal play.</PSC_SettingsDebugLoggingTip>
 
   <!-- Fine order: priority box beside the vanilla Priority button -->
   <PSC_LevelShort>Lvl {0}</PSC_LevelShort>

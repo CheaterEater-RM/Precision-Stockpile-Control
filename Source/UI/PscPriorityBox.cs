@@ -92,6 +92,7 @@ namespace PrecisionStockpileControl
             if (data == null) return;
             settings.Priority = band;       // keep the vanilla enum authoritative (D6)
             data.subTier = subTier;
+            PscLog.Msg($"order: set level {level} -> band {band} subTier {subTier}");
             PscMapComponent.NotifyOrderChanged(settings);
         }
 
@@ -119,6 +120,7 @@ namespace PrecisionStockpileControl
             var data = PscStorageDataStore.GetOrCreate(settings);
             if (data == null) return;
             data.letter = string.IsNullOrEmpty(letter) ? null : letter;
+            PscLog.Msg($"order: set letter {(string.IsNullOrEmpty(letter) ? "(none)" : letter)}");
             PscMapComponent.NotifyOrderChanged(settings);
         }
     }

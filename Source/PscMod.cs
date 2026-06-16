@@ -14,6 +14,7 @@ namespace PrecisionStockpileControl
         public bool defaultOnlyToDestinations = true; // M3 — seed strictness on first destination link
         public bool priorityNumbering = false;        // M4 — show 1-10 levels (two sub-tiers per band)
         public bool reverseOrder = false;             // M4 — 1-10 label flip only (ordering unchanged)
+        public bool debugLogging = false;             // dev-mode diagnostic logging (PscLog)
 
         public override void ExposeData()
         {
@@ -24,6 +25,7 @@ namespace PrecisionStockpileControl
             Scribe_Values.Look(ref defaultOnlyToDestinations, "defaultOnlyToDestinations", true);
             Scribe_Values.Look(ref priorityNumbering, "priorityNumbering", false);
             Scribe_Values.Look(ref reverseOrder, "reverseOrder", false);
+            Scribe_Values.Look(ref debugLogging, "debugLogging", false);
         }
     }
 
@@ -34,6 +36,7 @@ namespace PrecisionStockpileControl
         public PscMod(ModContentPack content) : base(content)
         {
             Settings = GetSettings<PscSettings>();
+            PscLog.Enabled = Settings.debugLogging;   // seed the cached gate from the loaded setting
         }
 
         public override string SettingsCategory()
@@ -64,6 +67,19 @@ namespace PrecisionStockpileControl
             if (Settings.priorityNumbering != prevNumbering) ResortAllMaps();
             listing.CheckboxLabeled("PSC_SettingsReverseOrder".Translate(), ref Settings.reverseOrder,
                 "PSC_SettingsReverseOrderTip".Translate());
+
+            // Developer-only diagnostic logging. Hidden outside RimWorld dev mode so it never clutters
+            // a normal player's settings; logs gate purely on the setting (dev mode only controls
+            // visibility), so a player who turns it on can leave dev mode and still capture a trace.
+            if (Prefs.DevMode)
+            {
+                listing.Gap(12f);
+                listing.Label("PSC_SettingsDebugHeader".Translate());
+                listing.Gap(6f);
+                listing.CheckboxLabeled("PSC_SettingsDebugLogging".Translate(), ref Settings.debugLogging,
+                    "PSC_SettingsDebugLoggingTip".Translate());
+                PscLog.Enabled = Settings.debugLogging;   // keep the cached gate in sync with the toggle
+            }
 
             listing.End();
         }

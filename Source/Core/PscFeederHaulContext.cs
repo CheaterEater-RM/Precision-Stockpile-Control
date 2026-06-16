@@ -22,6 +22,8 @@ namespace PrecisionStockpileControl
             if (thing == null || map == null || sourceId == null || destId == null)
                 return;
             routes[thing] = new Route { map = map, sourceId = sourceId, destId = destId };
+            if (PscLog.Enabled)
+                PscLog.Msg($"feeder: ctx register {thing.def?.defName} ({sourceId} -> {destId})");
         }
 
         public static bool TryGet(Thing thing, out Route route)
@@ -38,11 +40,16 @@ namespace PrecisionStockpileControl
             if (!routes.TryGetValue(from, out var route)) return;
             routes[to] = route;
             routes.Remove(from);
+            if (PscLog.Enabled)
+                PscLog.Msg($"feeder: ctx transfer {from.def?.defName} -> carried {to.def?.defName} ({route.sourceId} -> {route.destId})");
         }
 
         public static void Clear(Thing thing)
         {
-            if (thing != null) routes.Remove(thing);
+            // Clear is called for every haul job (most aren't feeder routes); only log when a route
+            // actually existed, so the common no-op stays silent even with logging on.
+            if (thing != null && routes.Remove(thing) && PscLog.Enabled)
+                PscLog.Msg($"feeder: ctx cleared route for {thing.def?.defName}");
         }
 
         public static void ClearForEndpoint(string id)

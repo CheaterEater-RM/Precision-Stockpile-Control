@@ -32,6 +32,13 @@ namespace PrecisionStockpileControl
             var sb = b?.Settings;
             if (sa == null || sb == null) return;
             __result = PscOrder.CompareWithinBand(sa, sb);
+            if (__result != 0 && PscLog.Enabled)
+            {
+                string aId = PscHaulUnit.ResolveSettings(sa).UniqueLoadID;
+                string bId = PscHaulUnit.ResolveSettings(sb).UniqueLoadID;
+                PscLog.MsgThrottled($"cmp:{aId}:{bId}",
+                    $"order: same-band tiebreak {aId} vs {bId} -> {(__result < 0 ? "a first" : "b first")}");
+            }
         }
     }
 

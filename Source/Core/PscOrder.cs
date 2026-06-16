@@ -107,7 +107,11 @@ namespace PrecisionStockpileControl
 
             int candidateRank = RankWithinBand(candidateUnit.Settings);
             int currentRank = RankWithinBand(currentUnit.Settings);
-            return candidateRank < currentRank; // candidate strictly better
+            bool continueSearch = candidateRank < currentRank; // candidate strictly better
+            if (continueSearch && PscLog.Enabled)
+                PscLog.MsgThrottled($"scs:{candidateUnit.UniqueLoadID}:{currentUnit.UniqueLoadID}",
+                    $"order: relocate {t?.def?.defName}? candidate {candidateUnit.UniqueLoadID} rank {candidateRank} < current {currentUnit.UniqueLoadID} rank {currentRank} -> continue search");
+            return continueSearch;
         }
 
         // ---- 1-10 numbering mapping (design §9) ----

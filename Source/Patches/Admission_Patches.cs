@@ -53,15 +53,30 @@ namespace PrecisionStockpileControl
                         if (source.IsValid)
                         {
                             var srcData = PscStorageDataStore.TryGet(source.Settings);
-                            if (srcData != null && srcData.onlyToDestinations) { __result = false; return; }
+                            if (srcData != null && srcData.onlyToDestinations)
+                            {
+                                if (PscLog.Enabled) PscLog.MsgThrottled(
+                                    $"adm:{t.def.defName}:{unit.UniqueLoadID}:onlyToDestinations",
+                                    $"feeder: rejected {t.def.defName} -> {unit.UniqueLoadID} (source onlyToDestinations, no functional edge)");
+                                __result = false; return;
+                            }
                         }
                         else if (PscFeederHaulContext.TryGet(t, out var carriedRoute) && carriedRoute.map == unit.Map)
                         {
+                            if (PscLog.Enabled) PscLog.MsgThrottled(
+                                $"adm:{t.def.defName}:{unit.UniqueLoadID}:carriedRoute",
+                                $"feeder: rejected carried {t.def.defName} -> {unit.UniqueLoadID} (planned route no longer a functional edge)");
                             __result = false;
                             return;
                         }
                         data = PscStorageDataStore.TryGet(__instance);
-                        if (data != null && data.onlyFromSource) { __result = false; return; }
+                        if (data != null && data.onlyFromSource)
+                        {
+                            if (PscLog.Enabled) PscLog.MsgThrottled(
+                                $"adm:{t.def.defName}:{unit.UniqueLoadID}:onlyFromSource",
+                                $"feeder: rejected {t.def.defName} -> {unit.UniqueLoadID} (target onlyFromSource, no functional edge)");
+                            __result = false; return;
+                        }
                     }
                 }
             }
@@ -79,14 +94,32 @@ namespace PrecisionStockpileControl
                 int n = data.GetCount(t.def, unit);
 
                 // Upper — the maximum (M2 makes this a hard cap at drop time via HardCap_Patches)
-                if (lim.Upper.HasValue && n >= lim.Upper.Value) { __result = false; return; }
+                if (lim.Upper.HasValue && n >= lim.Upper.Value)
+                {
+                    if (PscLog.Enabled) PscLog.MsgThrottled(
+                        $"adm:{t.def.defName}:{unit.UniqueLoadID}:overCap",
+                        $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (at/over cap {n}/{lim.Upper.Value})");
+                    __result = false; return;
+                }
 
                 // Lower / hysteresis (D15): lower unset => always refill; otherwise require refill state
-                if (lim.Lower.HasValue && !data.IsRefilling(t.def)) { __result = false; return; }
+                if (lim.Lower.HasValue && !data.IsRefilling(t.def))
+                {
+                    if (PscLog.Enabled) PscLog.MsgThrottled(
+                        $"adm:{t.def.defName}:{unit.UniqueLoadID}:hysteresis",
+                        $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (not refilling; above lower threshold {lim.Lower.Value})");
+                    __result = false; return;
+                }
             }
 
             // Batch (D12): never start a trip with a source stack smaller than the batch size.
-            if (data.batch > 0 && t.stackCount < data.batch) { __result = false; return; }
+            if (data.batch > 0 && t.stackCount < data.batch)
+            {
+                if (PscLog.Enabled) PscLog.MsgThrottled(
+                    $"adm:{t.def.defName}:{unit.UniqueLoadID}:underBatch",
+                    $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (source stack {t.stackCount} < batch {data.batch})");
+                __result = false; return;
+            }
         }
     }
 
@@ -133,7 +166,12 @@ namespace PrecisionStockpileControl
                 if (lim.Upper.HasValue)
                 {
                     int room = Math.Max(0, lim.Upper.Value - data.GetCount(t.def, targetUnit));
-                    if (__result.count > room) __result.count = room;
+                    if (__result.count > room)
+                    {
+                        if (PscLog.Enabled) PscLog.Msg(
+                            $"limit: clamped haul of {t.def.defName} -> {targetUnit.UniqueLoadID} from {__result.count} to {room} (cap room)");
+                        __result.count = room;
+                    }
                 }
             }
 
@@ -142,6 +180,8 @@ namespace PrecisionStockpileControl
             // intentionally not hauled ("no small trips"). Opportunistic duplicates are left as vanilla.
             if (data.batch > 0 && __result.count < data.batch)
             {
+                if (PscLog.Enabled) PscLog.Msg(
+                    $"limit: cancelled under-batch haul of {t.def.defName} -> {targetUnit.UniqueLoadID} ({__result.count} < batch {data.batch})");
                 PscFeederHaulContext.Clear(t);
                 __result = null;
             }

@@ -82,6 +82,8 @@ namespace PrecisionStockpileControl
                 var d = PscStorageDataStore.TryGet(s);
                 if (d != null && (d.onlyFromSource || d.onlyToDestinations)) { any = true; break; }
             }
+            if (PscLog.Enabled && any != anyFeederActive)
+                PscLog.Msg($"feeder: gate anyFeederActive {anyFeederActive} -> {any}");
             anyFeederActive = any;
         }
 
@@ -93,6 +95,8 @@ namespace PrecisionStockpileControl
                 var d = PscStorageDataStore.TryGet(s);
                 if (d != null && (d.subTier != 0 || !string.IsNullOrEmpty(d.letter))) { any = true; break; }
             }
+            if (PscLog.Enabled && any != anyFineOrderActive)
+                PscLog.Msg($"order: gate anyFineOrderActive {anyFineOrderActive} -> {any}");
             anyFineOrderActive = any;
         }
 
@@ -187,12 +191,19 @@ namespace PrecisionStockpileControl
 
             bool destHadSource = feederLinks.HasAnySource(d);
             bool sourceHadDest = feederLinks.HasAnyDestination(s);
-            if (!feederLinks.AddEdge(s, d)) return;   // already linked
+            if (!feederLinks.AddEdge(s, d)) { PscLog.Msg($"link: edge already exists {s} -> {d}"); return; }
+            PscLog.Msg($"link: created {s} -> {d}");
 
             if (!destHadSource && PscMod.Settings.defaultOnlyFromSource)
+            {
                 SetFeederFlag(dest.Settings, fromSource: true);
+                PscLog.Msg($"link: seeded onlyFromSource on {d}");
+            }
             if (!sourceHadDest && PscMod.Settings.defaultOnlyToDestinations)
+            {
                 SetFeederFlag(source.Settings, fromSource: false);
+                PscLog.Msg($"link: seeded onlyToDestinations on {s}");
+            }
         }
 
         private static void SetFeederFlag(StorageSettings settings, bool fromSource)
@@ -212,11 +223,12 @@ namespace PrecisionStockpileControl
             if (a == null || b == null || a == b) return;
             bool removed = feederLinks.RemoveEdge(a, b);
             removed |= feederLinks.RemoveEdge(b, a);
-            if (removed) PruneFeederLinksAndFlags();
+            if (removed) { PscLog.Msg($"link: broke {a} <-> {b}"); PruneFeederLinksAndFlags(); }
         }
 
         public void ClearAllFeederLinks()
         {
+            PscLog.Msg("link: clearing all feeder links on map");
             feederLinks.ClearAll();
             PruneFeederLinksAndFlags();
         }
@@ -227,7 +239,7 @@ namespace PrecisionStockpileControl
         {
             string id = unit.UniqueLoadID;
             if (id == null) return;
-            if (feederLinks.RemoveAllFor(id)) PruneFeederLinksAndFlags();
+            if (feederLinks.RemoveAllFor(id)) { PscLog.Msg($"link: cleared all links for {id}"); PruneFeederLinksAndFlags(); }
         }
 
         // Copy/paste "duplicate" (replace semantics): the pasted-onto unit adopts the copied unit's
@@ -236,6 +248,7 @@ namespace PrecisionStockpileControl
         {
             string id = unit.UniqueLoadID;
             if (id == null) return;
+            PscLog.Msg($"link: applying clipboard links to {id} ({sources?.Count ?? 0} src, {dests?.Count ?? 0} dst)");
             var liveIds = BuildLiveIds();
             feederLinks.RemoveAllFor(id);
             if (sources != null)
@@ -254,6 +267,7 @@ namespace PrecisionStockpileControl
         public void RemoveFeederEndpoint(string id)
         {
             if (id == null) return;
+            PscLog.Msg($"link: removing endpoint {id} (storage despawn/delete)");
             feederLinks.RemoveAllFor(id);
             PscFeederHaulContext.ClearForEndpoint(id);
             PruneFeederLinksAndFlags();
@@ -262,7 +276,13 @@ namespace PrecisionStockpileControl
         public void PruneFeederLinksAndFlags(bool markDirty = false)
         {
             var liveIds = BuildLiveIds();
+            int before = PscLog.Enabled ? feederLinks.Links.Count : 0;
             feederLinks.PruneToLiveIds(liveIds);
+            if (PscLog.Enabled)
+            {
+                int removed = before - feederLinks.Links.Count;
+                if (removed > 0) PscLog.Msg($"link: pruned {removed} dead edge(s)");
+            }
             ClearOrphanedFeederFlags(liveIds);
             PscFeederHaulContext.PruneForMap(map, this);
             RebuildTrackingFromStore(markDirty);
