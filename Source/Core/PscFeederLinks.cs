@@ -41,6 +41,13 @@ namespace PrecisionStockpileControl
         public bool IsEmpty => links.Count == 0;
         public List<PscFeederLink> Links => links;   // read-only iteration for the overlay
 
+        // An edge is well-formed when both endpoint ids are present. Self-loops are rejected separately
+        // at AddEdge time (a persisted self-loop, if one ever existed, is harmless to index/query).
+        private static bool IsValidEdge(string sourceId, string destId)
+            => !string.IsNullOrEmpty(sourceId) && !string.IsNullOrEmpty(destId);
+
+        private static bool IsValidEdge(PscFeederLink l) => l != null && IsValidEdge(l.sourceId, l.destId);
+
         // ---- derived index ----
         private void EnsureIndex()
         {
@@ -50,7 +57,7 @@ namespace PrecisionStockpileControl
             sourcesByDest.Clear();
             foreach (var l in links)
             {
-                if (string.IsNullOrEmpty(l.sourceId) || string.IsNullOrEmpty(l.destId)) continue;
+                if (!IsValidEdge(l)) continue;
                 edgeSet.Add((l.sourceId, l.destId));
                 AddAdj(destsBySource, l.sourceId, l.destId);
                 AddAdj(sourcesByDest, l.destId, l.sourceId);
@@ -67,7 +74,7 @@ namespace PrecisionStockpileControl
         // ---- queries ----
         public bool HasEdge(string sourceId, string destId)
         {
-            if (string.IsNullOrEmpty(sourceId) || string.IsNullOrEmpty(destId)) return false;
+            if (!IsValidEdge(sourceId, destId)) return false;
             EnsureIndex();
             return edgeSet.Contains((sourceId, destId));
         }
@@ -87,7 +94,7 @@ namespace PrecisionStockpileControl
         // ---- mutations (all mark the index dirty) ----
         public bool AddEdge(string sourceId, string destId)
         {
-            if (string.IsNullOrEmpty(sourceId) || string.IsNullOrEmpty(destId) || sourceId == destId) return false;
+            if (!IsValidEdge(sourceId, destId) || sourceId == destId) return false;
             if (HasEdge(sourceId, destId)) return false;
             links.Add(new PscFeederLink(sourceId, destId));
             dirty = true;
@@ -122,7 +129,7 @@ namespace PrecisionStockpileControl
         // member adoption). This is the prompt's "update across more than one stockpile's pairs."
         public void AdoptLinks(string fromId, string toId)
         {
-            if (string.IsNullOrEmpty(fromId) || string.IsNullOrEmpty(toId) || fromId == toId) return;
+            if (!IsValidEdge(fromId, toId) || fromId == toId) return;
             // Snapshot first — AddEdge mutates `links` while we read it.
             List<PscFeederLink> additions = null;
             foreach (var l in links)
@@ -152,7 +159,7 @@ namespace PrecisionStockpileControl
             if (Scribe.mode == LoadSaveMode.PostLoadInit)
             {
                 if (links == null) links = new List<PscFeederLink>();
-                links.RemoveAll(l => l == null || string.IsNullOrEmpty(l.sourceId) || string.IsNullOrEmpty(l.destId));
+                links.RemoveAll(l => !IsValidEdge(l));
                 dirty = true;
             }
         }

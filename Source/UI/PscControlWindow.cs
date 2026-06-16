@@ -71,7 +71,7 @@ namespace PrecisionStockpileControl
             list.Label("PSC_Preview".Translate(editor.PreviewString(target)));
 
             Text.Font = GameFont.Tiny;
-            GUI.color = new Color(0.75f, 0.75f, 0.6f);
+            GUI.color = PscUiTheme.NoteText;
             list.Label("PSC_SoftCapNote".Translate());
             GUI.color = Color.white;
             Text.Font = GameFont.Small;
@@ -88,7 +88,7 @@ namespace PrecisionStockpileControl
             if (!canApply)
             {
                 Text.Font = GameFont.Tiny;
-                GUI.color = new Color(0.7f, 0.7f, 0.7f);
+                GUI.color = PscUiTheme.DisabledHintText;
                 list.Gap(4f);
                 list.Label("PSC_SearchHint".Translate());
                 GUI.color = Color.white;

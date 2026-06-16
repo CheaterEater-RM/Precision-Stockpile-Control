@@ -10,7 +10,7 @@ namespace PrecisionStockpileControl
     // Connect source, Connect destination, Only-from-source (toggle), Only-to-destinations (toggle),
     // Show connections (toggle), Clear all connections (right-click required).
     //
-    // TODO(art): icons reuse vanilla command textures for now; swap in custom art later.
+    // Icons currently reuse vanilla command textures (custom art is tracked in 05_WISHLIST.md).
     [StaticConstructorOnStartup]
     public static class PscFeederGizmos
     {

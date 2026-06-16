@@ -2,6 +2,7 @@ This is just a brainstorming list of possible future ideas to implement, we don'
 
 - Alerts for stockpiles low/high
 - Drag-apply priorities in order, so if first stockpile is a, second then is b, third is c, etc.
+- Custom art for the feeder gizmo icons (Connect source/destination, Break, Only-from/to, Show, Clear) — currently reuse vanilla command textures (PscFeederGizmos).
 
 
 

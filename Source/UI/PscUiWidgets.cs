@@ -28,13 +28,10 @@ namespace PrecisionStockpileControl
         private static readonly Texture2D SliderHandle =
             ContentFinder<Texture2D>.Get("UI/Buttons/SliderHandle", false);
 
-        public static readonly Color LimitColor = new Color(1f, 0.82f, 0.16f);
-        public static readonly Color LimitTextColor = new Color(0.45f, 0.8f, 1f);
-
         public static void DrawLimitI(Rect rect)
         {
             var prev = GUI.color;
-            GUI.color = LimitColor;
+            GUI.color = PscUiTheme.LimitColor;
             if (LimitI != null)
             {
                 GUI.DrawTexture(rect, LimitI, ScaleMode.ScaleToFit);
@@ -49,7 +46,7 @@ namespace PrecisionStockpileControl
         public static void DrawLimitMarker(Rect rect)
         {
             var prev = GUI.color;
-            GUI.color = LimitColor;
+            GUI.color = PscUiTheme.LimitColor;
             DrawIBeamFallback(rect.ContractedBy(3f));
             GUI.color = prev;
         }
@@ -60,7 +57,7 @@ namespace PrecisionStockpileControl
             else
             {
                 var prev = GUI.color;
-                GUI.color = new Color(0.75f, 0.75f, 0.75f);
+                GUI.color = PscUiTheme.SliderRailFallback;
                 GUI.DrawTexture(rect, BaseContent.WhiteTex);
                 GUI.color = prev;
             }

@@ -12,18 +12,9 @@ namespace PrecisionStockpileControl
     [HarmonyPatch(typeof(Listing_TreeThingFilter), "DoCategory")]
     public static class Listing_TreeThingFilter_DoCategory_Patch
     {
-        private static readonly AccessTools.FieldRef<Listing, float> CurYRef =
-            AccessTools.FieldRefAccess<Listing, float>("curY");
-
-        private static Rect CheckboxRect(Listing_TreeThingFilter inst, float rowY)
-        {
-            float lh = ((Listing_Lines)inst).lineHeight;
-            return new Rect(inst.ColumnWidth - 26f, rowY, lh, lh);
-        }
-
         public static void Prefix(Listing_TreeThingFilter __instance, TreeNode_ThingCategory node, out float __state)
         {
-            __state = CurYRef(__instance);
+            __state = PscReflection.GetListingCurY(__instance);
             PscFilterPaint.ClearOwnedCheckbox();
             if (!PscUiContext.Active || node?.catDef == null) return;
 
@@ -33,7 +24,7 @@ namespace PrecisionStockpileControl
                 bool hasPscState = TryGetCategoryLimitState(node.catDef, out _, out _);
                 if (hasPscState)
                 {
-                    var checkRect = CheckboxRect(__instance, __state);
+                    var checkRect = PscFilterRow.CheckboxRect(__instance, __state);
                     PscFilterPaint.OwnCheckbox(checkRect);
                     if (e != null && e.type == EventType.MouseDown && e.button == 0 && checkRect.Contains(e.mousePosition))
                     {
@@ -44,8 +35,7 @@ namespace PrecisionStockpileControl
                 }
 
                 if (e == null || e.type != EventType.MouseDown || e.button != 1) return;
-                var rowRect = new Rect(0f, __state, __instance.ColumnWidth, ((Listing_Lines)__instance).lineHeight);
-                if (rowRect.Contains(e.mousePosition))
+                if (PscFilterRow.RowRect(__instance, __state).Contains(e.mousePosition))
                 {
                     OpenCategoryMenu(node.catDef);
                     e.Use();
@@ -68,8 +58,7 @@ namespace PrecisionStockpileControl
                 var e = Event.current;
                 if (e != null && PscFilterPaint.Active)
                 {
-                    var rowRect = new Rect(0f, __state, __instance.ColumnWidth, ((Listing_Lines)__instance).lineHeight);
-                    if (e.type == EventType.MouseDrag && rowRect.Contains(e.mousePosition))
+                    if (e.type == EventType.MouseDrag && PscFilterRow.RowRect(__instance, __state).Contains(e.mousePosition))
                     {
                         foreach (var d in StorableDescendants(node.catDef))
                             PscFilterPaint.PaintRow(d, e.mousePosition);
@@ -83,10 +72,12 @@ namespace PrecisionStockpileControl
 
                 if (!TryGetCategoryLimitState(node.catDef, out var shared, out bool mixed, out int? sharedStackLimit)) return;
 
+                var iconRect = PscFilterRow.CheckboxRect(__instance, __state);
+
                 // A vanilla left-drag allow/disallow paint over a category overwrites every descendant's
                 // limit with the plain painted state (mirrors vanilla's category-paint cascade). The
                 // category checkbox is suppressed while it has PSC state, so we apply it ourselves.
-                if (PscFilterPaint.VanillaPaintActive && Mouse.IsOver(CheckboxRect(__instance, __state)))
+                if (PscFilterPaint.VanillaPaintActive && Mouse.IsOver(iconRect))
                 {
                     bool allow = PscFilterPaint.VanillaPaintAllow;
                     foreach (var d in StorableDescendants(node.catDef))
@@ -96,31 +87,13 @@ namespace PrecisionStockpileControl
                 }
 
                 float lh = ((Listing_Lines)__instance).lineHeight;
-                var iconRect = CheckboxRect(__instance, __state);
                 PscUiWidgets.DrawLimitMarker(iconRect);
 
                 if (!mixed)
                 {
-                    var labelRect = new Rect(iconRect.xMin - 132f, __state, 128f, lh);
-                    var pf = Text.Font;
-                    var pa = Text.Anchor;
-                    var pc = GUI.color;
-                    try
-                    {
-                        GUI.color = new Color(0f, 0f, 0f, 0.45f);
-                        GUI.DrawTexture(labelRect.ContractedBy(0f, 2f), BaseContent.WhiteTex);
-                        Text.Font = GameFont.Tiny;
-                        Text.Anchor = TextAnchor.MiddleRight;
-                        GUI.color = PscUiWidgets.LimitTextColor;
-                        Widgets.Label(labelRect, PscUiWidgets.CompactLimit(shared, sharedStackLimit).Truncate(labelRect.width));
-                        TooltipHandler.TipRegion(labelRect, PscUiWidgets.FullLimit(shared, sharedStackLimit));
-                    }
-                    finally
-                    {
-                        Text.Font = pf;
-                        Text.Anchor = pa;
-                        GUI.color = pc;
-                    }
+                    PscFilterRow.DrawLimitLabel(iconRect, __state, lh,
+                        PscUiWidgets.CompactLimit(shared, sharedStackLimit),
+                        PscUiWidgets.FullLimit(shared, sharedStackLimit));
                 }
             }
             catch (Exception ex)

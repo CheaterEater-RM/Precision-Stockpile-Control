@@ -16,20 +16,7 @@ namespace PrecisionStockpileControl
     [HarmonyPatch]
     public static class Widgets_Checkbox_Patch
     {
-        public static MethodBase TargetMethod()
-        {
-            return AccessTools.Method(typeof(Widgets), nameof(Widgets.Checkbox), new[]
-            {
-                typeof(float),
-                typeof(float),
-                typeof(bool).MakeByRefType(),
-                typeof(float),
-                typeof(bool),
-                typeof(bool),
-                typeof(Texture2D),
-                typeof(Texture2D)
-            });
-        }
+        public static MethodBase TargetMethod() => PscReflection.CheckboxMethod();
 
         public static bool Prefix(float x, float y, float size)
         {
@@ -41,15 +28,7 @@ namespace PrecisionStockpileControl
     [HarmonyPatch]
     public static class Widgets_CheckboxMulti_Patch
     {
-        public static MethodBase TargetMethod()
-        {
-            return AccessTools.Method(typeof(Widgets), nameof(Widgets.CheckboxMulti), new[]
-            {
-                typeof(Rect),
-                typeof(MultiCheckboxState),
-                typeof(bool)
-            });
-        }
+        public static MethodBase TargetMethod() => PscReflection.CheckboxMultiMethod();
 
         public static bool Prefix(Rect rect, MultiCheckboxState state, ref MultiCheckboxState __result)
         {

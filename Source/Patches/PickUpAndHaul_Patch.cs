@@ -15,13 +15,9 @@ namespace PrecisionStockpileControl
     [HarmonyPatch]
     public static class PickUpAndHaul_CapacityAt_Patch
     {
-        private static MethodBase Target()
-            => AccessTools.Method("PickUpAndHaul.WorkGiver_HaulToInventory:CapacityAt",
-                new[] { typeof(Thing), typeof(IntVec3), typeof(Map) });
+        public static bool Prepare() => PscReflection.PuahCapacityAt() != null;
 
-        public static bool Prepare() => Target() != null;
-
-        public static MethodBase TargetMethod() => Target();
+        public static MethodBase TargetMethod() => PscReflection.PuahCapacityAt();
 
         public static void Postfix(Thing thing, IntVec3 storeCell, Map map, ref int __result)
         {

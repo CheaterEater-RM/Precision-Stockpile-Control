@@ -44,6 +44,8 @@ namespace PrecisionStockpileControl
     public class PscStorageData : IExposable
     {
         // ---- Persistent policy ----
+        // Invariant: non-null. Set at construction, re-created by CopyPolicyFrom, and restored on load
+        // by the PostLoadInit guard in ExposeData. Runtime reads therefore skip container null-checks.
         public Dictionary<ThingDef, PscDefLimit> limits = new Dictionary<ThingDef, PscDefLimit>();
         public int batch;                 // groundwork (M2): 0 = off, never bring fewer than N
         public bool onlyFromSource;       // groundwork (M3)
@@ -58,17 +60,17 @@ namespace PrecisionStockpileControl
         private bool allDirty = true;
 
         public bool HasPersistentPolicy =>
-            (limits != null && limits.Count > 0) || batch > 0 || onlyFromSource || onlyToDestinations
+            limits.Count > 0 || batch > 0 || onlyFromSource || onlyToDestinations
             || subTier != 0 || !string.IsNullOrEmpty(letter);
 
         public bool HasLimit(ThingDef def)
         {
-            return def != null && limits != null && limits.TryGetValue(def, out var l) && l != null && !l.IsDefault;
+            return def != null && limits.TryGetValue(def, out var l) && l != null && !l.IsDefault;
         }
 
         public PscDefLimit GetLimit(ThingDef def)
         {
-            return (def != null && limits != null && limits.TryGetValue(def, out var l)) ? l : null;
+            return (def != null && limits.TryGetValue(def, out var l)) ? l : null;
         }
 
         // ---- Dirty marking (cheap; called from drift-seam patches) ----
@@ -103,13 +105,10 @@ namespace PrecisionStockpileControl
             }
             allDirty = false;
             dirtyDefs.Clear();
-            if (limits != null)
+            foreach (var kv in limits)
             {
-                foreach (var kv in limits)
-                {
-                    counts.TryGetValue(kv.Key, out var c);
-                    UpdateRefilling(kv.Key, c, kv.Value);
-                }
+                counts.TryGetValue(kv.Key, out var c);
+                UpdateRefilling(kv.Key, c, kv.Value);
             }
         }
 
@@ -160,13 +159,10 @@ namespace PrecisionStockpileControl
         public void CopyPolicyFrom(PscStorageData other)
         {
             limits = new Dictionary<ThingDef, PscDefLimit>();
-            if (other.limits != null)
+            foreach (var kv in other.limits)
             {
-                foreach (var kv in other.limits)
-                {
-                    if (kv.Key != null && kv.Value != null && !kv.Value.IsDefault)
-                        limits[kv.Key] = kv.Value.Clone();
-                }
+                if (kv.Key != null && kv.Value != null && !kv.Value.IsDefault)
+                    limits[kv.Key] = kv.Value.Clone();
             }
             batch = other.batch;
             onlyFromSource = other.onlyFromSource;

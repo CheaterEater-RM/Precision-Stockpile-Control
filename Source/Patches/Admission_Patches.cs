@@ -30,55 +30,11 @@ namespace PrecisionStockpileControl
             bool sourceIsTarget = source.IsValid && source.Equals(unit);
             PscStorageData data = null;
 
-            // --- Feeder gates (M3, D11/D16). Evaluated before the target-data early-out: a SOURCE's
-            // onlyToDestinations must block hauling its items even into a target with no PSC policy.
-            // Both rules reduce to the same functional directed edge (source -> target). Loose items
-            // have no source edge, so onlyFromSource rejects them.
-            if (!sourceIsTarget)
+            // Feeder gates first (a source's onlyToDestinations blocks the haul even into a no-policy
+            // target). targetData is reused by the limit gate when the feeder gate had to resolve it.
+            if (!sourceIsTarget && TryFeederReject(__instance, t, unit, source, ref data))
             {
-                var psc = PscMapComponent.For(unit.Map);
-                if (psc != null && psc.anyFeederActive)
-                {
-                    bool hasFunctionalEdge = source.IsValid && psc.HasFunctionalFeederEdge(source, unit);
-                    if (!hasFunctionalEdge && !source.IsValid
-                        && PscFeederHaulContext.TryGet(t, out var route)
-                        && route.map == unit.Map
-                        && route.destId == unit.UniqueLoadID
-                        && psc.HasFunctionalFeederEdge(route.sourceId, route.destId))
-                    {
-                        hasFunctionalEdge = true;
-                    }
-                    if (!hasFunctionalEdge)
-                    {
-                        if (source.IsValid)
-                        {
-                            var srcData = PscStorageDataStore.TryGet(source.Settings);
-                            if (srcData != null && srcData.onlyToDestinations)
-                            {
-                                if (PscLog.Enabled) PscLog.MsgThrottled(
-                                    $"adm:{t.def.defName}:{unit.UniqueLoadID}:onlyToDestinations",
-                                    $"feeder: rejected {t.def.defName} -> {unit.UniqueLoadID} (source onlyToDestinations, no functional edge)");
-                                __result = false; return;
-                            }
-                        }
-                        else if (PscFeederHaulContext.TryGet(t, out var carriedRoute) && carriedRoute.map == unit.Map)
-                        {
-                            if (PscLog.Enabled) PscLog.MsgThrottled(
-                                $"adm:{t.def.defName}:{unit.UniqueLoadID}:carriedRoute",
-                                $"feeder: rejected carried {t.def.defName} -> {unit.UniqueLoadID} (planned route no longer a functional edge)");
-                            __result = false;
-                            return;
-                        }
-                        data = PscStorageDataStore.TryGet(__instance);
-                        if (data != null && data.onlyFromSource)
-                        {
-                            if (PscLog.Enabled) PscLog.MsgThrottled(
-                                $"adm:{t.def.defName}:{unit.UniqueLoadID}:onlyFromSource",
-                                $"feeder: rejected {t.def.defName} -> {unit.UniqueLoadID} (target onlyFromSource, no functional edge)");
-                            __result = false; return;
-                        }
-                    }
-                }
+                __result = false; return;
             }
 
             // --- Limit / batch gates (M1/M2) ---
@@ -96,8 +52,7 @@ namespace PrecisionStockpileControl
                 // Upper — the maximum (M2 makes this a hard cap at drop time via HardCap_Patches)
                 if (lim.Upper.HasValue && n >= lim.Upper.Value)
                 {
-                    if (PscLog.Enabled) PscLog.MsgThrottled(
-                        $"adm:{t.def.defName}:{unit.UniqueLoadID}:overCap",
+                    LogReject(t, unit, "overCap",
                         $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (at/over cap {n}/{lim.Upper.Value})");
                     __result = false; return;
                 }
@@ -105,8 +60,7 @@ namespace PrecisionStockpileControl
                 // Lower / hysteresis (D15): lower unset => always refill; otherwise require refill state
                 if (lim.Lower.HasValue && !data.IsRefilling(t.def))
                 {
-                    if (PscLog.Enabled) PscLog.MsgThrottled(
-                        $"adm:{t.def.defName}:{unit.UniqueLoadID}:hysteresis",
+                    LogReject(t, unit, "hysteresis",
                         $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (not refilling; above lower threshold {lim.Lower.Value})");
                     __result = false; return;
                 }
@@ -115,11 +69,66 @@ namespace PrecisionStockpileControl
             // Batch (D12): never start a trip with a source stack smaller than the batch size.
             if (data.batch > 0 && t.stackCount < data.batch)
             {
-                if (PscLog.Enabled) PscLog.MsgThrottled(
-                    $"adm:{t.def.defName}:{unit.UniqueLoadID}:underBatch",
+                LogReject(t, unit, "underBatch",
                     $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (source stack {t.stackCount} < batch {data.batch})");
                 __result = false; return;
             }
+        }
+
+        // Feeder gates (M3, D11/D16). Evaluated before the target-data early-out: a SOURCE's
+        // onlyToDestinations must block hauling its items even into a target with no PSC policy. Both
+        // rules reduce to the same functional directed edge (source -> target); loose items have no
+        // source edge, so onlyFromSource rejects them. Returns true when the haul must be rejected,
+        // and sets targetData if it resolved the target's PSC data (reused by the limit gate).
+        private static bool TryFeederReject(StorageSettings target, Thing t, PscHaulUnit unit,
+            PscHaulUnit source, ref PscStorageData targetData)
+        {
+            var psc = PscMapComponent.For(unit.Map);
+            if (psc == null || !psc.anyFeederActive) return false;
+
+            bool hasFunctionalEdge = source.IsValid && psc.HasFunctionalFeederEdge(source, unit);
+            if (!hasFunctionalEdge && !source.IsValid
+                && PscFeederHaulContext.TryGet(t, out var route)
+                && route.map == unit.Map
+                && route.destId == unit.UniqueLoadID
+                && psc.HasFunctionalFeederEdge(route.sourceId, route.destId))
+            {
+                hasFunctionalEdge = true;
+            }
+            if (hasFunctionalEdge) return false;
+
+            if (source.IsValid)
+            {
+                var srcData = PscStorageDataStore.TryGet(source.Settings);
+                if (srcData != null && srcData.onlyToDestinations)
+                {
+                    LogReject(t, unit, "onlyToDestinations",
+                        $"feeder: rejected {t.def.defName} -> {unit.UniqueLoadID} (source onlyToDestinations, no functional edge)");
+                    return true;
+                }
+            }
+            else if (PscFeederHaulContext.TryGet(t, out var carriedRoute) && carriedRoute.map == unit.Map)
+            {
+                LogReject(t, unit, "carriedRoute",
+                    $"feeder: rejected carried {t.def.defName} -> {unit.UniqueLoadID} (planned route no longer a functional edge)");
+                return true;
+            }
+
+            targetData = PscStorageDataStore.TryGet(target);
+            if (targetData != null && targetData.onlyFromSource)
+            {
+                LogReject(t, unit, "onlyFromSource",
+                    $"feeder: rejected {t.def.defName} -> {unit.UniqueLoadID} (target onlyFromSource, no functional edge)");
+                return true;
+            }
+            return false;
+        }
+
+        // Throttled dev-log of an admission rejection. Keyed per (def, unit, reason) so a steady haul
+        // scan logs each distinct rejection at most once per throttle window.
+        private static void LogReject(Thing t, PscHaulUnit unit, string reason, string msg)
+        {
+            if (PscLog.Enabled) PscLog.MsgThrottled($"adm:{t.def?.defName}:{unit.UniqueLoadID}:{reason}", msg);
         }
     }
 

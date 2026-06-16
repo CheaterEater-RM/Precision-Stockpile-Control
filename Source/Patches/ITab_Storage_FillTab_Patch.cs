@@ -26,14 +26,12 @@ namespace PrecisionStockpileControl
             __state = default;
             try
             {
-                var parent = Traverse.Create(__instance).Property("SelStoreSettingsParent")
-                    .GetValue<IStoreSettingsParent>();
+                var parent = PscReflection.GetSelStoreSettingsParent(__instance);
                 if (parent == null) return;
                 var settings = parent.GetStoreSettings();
                 if (settings == null) return;
                 __state.settings = settings;
-                __state.search = Traverse.Create(__instance).Field("thingFilterState")
-                    .Field("quickSearch").Field("filter").GetValue<QuickSearchFilter>();
+                __state.search = PscReflection.GetQuickSearchFilter(__instance);
 
                 // Always set the context (even with no PSC data yet) so right-click on a row can
                 // create a first limit. The per-row label still only draws when a limit exists.

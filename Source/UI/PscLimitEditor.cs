@@ -1,7 +1,6 @@
 using RimWorld;
 using UnityEngine;
 using Verse;
-using Verse.Sound;
 
 namespace PrecisionStockpileControl
 {
@@ -39,15 +38,11 @@ namespace PrecisionStockpileControl
 
     // Shared working-state widget for editing one (lower?, upper?) limit pair. Limits are stored
     // as items; stacks mode is converted per ThingDef at apply time using the def's live stackLimit.
+    // The dual-handle slider itself lives in PscLimitSlider; this class owns the values, the numeric
+    // fields, and the items/stacks conversions.
     public class PscLimitEditor
     {
-        private const float NullBuffer = 0.06f;
         private const int GenericItemMax = 5000;
-
-        private enum DragEnd : byte { None, Lower, Upper }
-
-        private static int draggingId;
-        private static DragEnd draggingEnd;
 
         public bool stacksMode = true;
         public int? lowerVal;
@@ -79,7 +74,7 @@ namespace PrecisionStockpileControl
             {
                 TooltipHandler.TipRegion(modeButton, "PSC_ItemsModeMixedStacksTip".Translate());
                 Text.Font = GameFont.Tiny;
-                GUI.color = new Color(0.75f, 0.75f, 0.65f);
+                GUI.color = PscUiTheme.NoteText;
                 list.Label("PSC_ItemsModeMixedStacksTip".Translate());
                 GUI.color = Color.white;
                 Text.Font = GameFont.Small;
@@ -89,7 +84,7 @@ namespace PrecisionStockpileControl
             ClampValues(sliderMax);
 
             list.Gap(6f);
-            Rect row = list.GetRect(82f);
+            Rect row = list.GetRect(PscUiTheme.EditorRowHeight);
             DrawEditorRow(row, sliderMax, target);
             list.Gap(2f);
         }
@@ -134,14 +129,14 @@ namespace PrecisionStockpileControl
 
         private void DrawEditorRow(Rect row, int sliderMax, PscLimitEditorTarget target)
         {
-            const float fieldW = 72f;
-            Rect lowerLabel = new Rect(row.x, row.y, fieldW, 20f);
-            Rect upperLabel = new Rect(row.xMax - fieldW, row.y, fieldW, 20f);
-            Rect lowerField = new Rect(row.x, row.y + 22f, fieldW, 28f);
-            Rect upperField = new Rect(row.xMax - fieldW, row.y + 22f, fieldW, 28f);
-            Rect sliderRect = new Rect(lowerField.xMax + 12f, row.y + 26f,
-                row.width - fieldW * 2f - 24f, 24f);
-            Rect hintRect = new Rect(sliderRect.x, row.y + 54f, sliderRect.width, 24f);
+            float fieldW = PscUiTheme.FieldWidth;
+            Rect lowerLabel = new Rect(row.x, row.y, fieldW, PscUiTheme.EditorLabelHeight);
+            Rect upperLabel = new Rect(row.xMax - fieldW, row.y, fieldW, PscUiTheme.EditorLabelHeight);
+            Rect lowerField = new Rect(row.x, row.y + PscUiTheme.FieldTopOffset, fieldW, PscUiTheme.FieldHeight);
+            Rect upperField = new Rect(row.xMax - fieldW, row.y + PscUiTheme.FieldTopOffset, fieldW, PscUiTheme.FieldHeight);
+            Rect sliderRect = new Rect(lowerField.xMax + PscUiTheme.SliderSideGap, row.y + PscUiTheme.SliderTopOffset,
+                row.width - fieldW * 2f - PscUiTheme.SliderSideGap * 2f, PscUiTheme.SliderHeight);
+            Rect hintRect = new Rect(sliderRect.x, row.y + PscUiTheme.HintTopOffset, sliderRect.width, PscUiTheme.HintHeight);
 
             var pf = Text.Font;
             var pa = Text.Anchor;
@@ -156,147 +151,17 @@ namespace PrecisionStockpileControl
             DrawNullableField(lowerField, ref lowerVal, ref lowerBuf, 0, sliderMax);
             DrawNullableField(upperField, ref upperVal, ref upperBuf, 1, sliderMax);
 
-            if (DrawDualSlider(sliderRect, sliderMax, target)) SyncBuffers();
+            if (PscLimitSlider.Draw(sliderRect, sliderMax, target, stacksMode, ref lowerVal, ref upperVal)) SyncBuffers();
             ClampValues(sliderMax);
             SyncBuffers();
 
             Text.Font = GameFont.Tiny;
             Text.Anchor = TextAnchor.UpperCenter;
-            GUI.color = new Color(0.72f, 0.72f, 0.72f);
+            GUI.color = PscUiTheme.HintText;
             Widgets.Label(hintRect, SliderHint(target));
             GUI.color = Color.white;
             Text.Font = pf;
             Text.Anchor = pa;
-        }
-
-        private bool DrawDualSlider(Rect rect, int sliderMax, PscLimitEditorTarget target)
-        {
-            int id = Mathf.RoundToInt(rect.x * 17f + rect.y * 31f + rect.width * 43f + rect.height * 59f);
-            Rect rail = new Rect(rect.x + 6f, rect.center.y - 4f, rect.width - 12f, 8f);
-            PscUiWidgets.DrawSliderRail(rail);
-            DrawTicks(rail, sliderMax, target);
-
-            float lowerN = ValueToNorm(lowerVal, true, sliderMax);
-            float upperN = ValueToNorm(upperVal, false, sliderMax);
-            Rect lowerHandle = HandleRect(rail, lowerN);
-            Rect upperHandle = HandleRect(rail, upperN);
-
-            PscUiWidgets.DrawSliderHandle(lowerHandle);
-            PscUiWidgets.DrawSliderHandle(upperHandle);
-
-            var e = Event.current;
-            if (e == null) return false;
-            if ((e.type == EventType.MouseUp || e.rawType == EventType.MouseUp) && draggingId == id)
-            {
-                draggingId = 0;
-                draggingEnd = DragEnd.None;
-                SoundDefOf.DragSlider.PlayOneShotOnCamera();
-                return false;
-            }
-
-            bool changed = false;
-            if (e.type == EventType.MouseDown && e.button == 0 && Mouse.IsOver(rect))
-            {
-                draggingId = id;
-                float x = e.mousePosition.x;
-                draggingEnd = Mathf.Abs(x - lowerHandle.center.x) <= Mathf.Abs(x - upperHandle.center.x)
-                    ? DragEnd.Lower : DragEnd.Upper;
-                changed = SetDraggedValue(rail, sliderMax, target);
-                SoundDefOf.DragSlider.PlayOneShotOnCamera();
-                e.Use();
-            }
-            else if (draggingId == id && e.type == EventType.MouseDrag)
-            {
-                changed = SetDraggedValue(rail, sliderMax, target);
-                e.Use();
-            }
-            return changed;
-        }
-
-        private bool SetDraggedValue(Rect rail, int sliderMax, PscLimitEditorTarget target)
-        {
-            float norm = Mathf.InverseLerp(rail.xMin, rail.xMax, Event.current.mousePosition.x);
-            if (draggingEnd == DragEnd.Lower)
-            {
-                int? next = NormToValue(norm, true, sliderMax, target);
-                if (next == lowerVal) return false;
-                lowerVal = next;
-            }
-            else if (draggingEnd == DragEnd.Upper)
-            {
-                int? next = NormToValue(norm, false, sliderMax, target);
-                if (next == upperVal) return false;
-                upperVal = next;
-            }
-            ClampValues(sliderMax);
-            return true;
-        }
-
-        private void DrawTicks(Rect rail, int sliderMax, PscLimitEditorTarget target)
-        {
-            // Endpoints (extreme rail ends) are the "blank" ends — always-refill / fill-to-maximum.
-            // Bright and thick so they read as the special unbounded ends.
-            DrawTick(rail, 0f, 18f, PscUiWidgets.LimitColor, 3f);
-            DrawTick(rail, 1f, 18f, PscUiWidgets.LimitColor, 3f);
-
-            // The first "real" value on each side sits just inside the null buffer. Mark these with the
-            // limit-text accent so the jump from "blank end" to "first concrete value" is legible.
-            DrawTick(rail, NullBuffer, 14f, PscUiWidgets.LimitTextColor, 2f);
-            DrawTick(rail, 1f - NullBuffer, 14f, PscUiWidgets.LimitTextColor, 2f);
-
-            if (!stacksMode && !target.HasStackContext) return;
-            int step = stacksMode ? 1 : target.StackLimit;
-            int maxTicks = 24;
-            int tickCount = sliderMax / step;
-            int stride = Mathf.Max(1, Mathf.CeilToInt(tickCount / (float)maxTicks));
-            for (int v = step * stride; v < sliderMax; v += step * stride)
-            {
-                DrawTick(rail, ValueToNorm(v, true, sliderMax), 9f, new Color(0.5f, 0.5f, 0.5f), 1f);
-            }
-        }
-
-        private static void DrawTick(Rect rail, float norm, float height, Color color, float width = 2f)
-        {
-            var prev = GUI.color;
-            GUI.color = color;
-            float x = Mathf.Lerp(rail.xMin, rail.xMax, norm);
-            GUI.DrawTexture(new Rect(x - width / 2f, rail.center.y - height / 2f, width, height), BaseContent.WhiteTex);
-            GUI.color = prev;
-        }
-
-        private static Rect HandleRect(Rect rail, float norm)
-        {
-            float x = Mathf.Lerp(rail.xMin, rail.xMax, norm);
-            return new Rect(x - 6f, rail.center.y - 6f, 12f, 12f);
-        }
-
-        private static float ValueToNorm(int? value, bool lower, int max)
-        {
-            if (!value.HasValue) return lower ? 0f : 1f;
-            float clamped = Mathf.Clamp(value.Value, 0, max);
-            return Mathf.Lerp(NullBuffer, 1f - NullBuffer, max <= 0 ? 0f : clamped / max);
-        }
-
-        private int? NormToValue(float norm, bool lower, int max, PscLimitEditorTarget target)
-        {
-            if (lower && norm <= NullBuffer * 0.5f) return null;
-            if (!lower && norm >= 1f - NullBuffer * 0.5f) return null;
-            float t = Mathf.InverseLerp(NullBuffer, 1f - NullBuffer, Mathf.Clamp01(norm));
-            int raw = Mathf.RoundToInt(t * max);
-            if (!lower) raw = Mathf.Max(1, raw);
-            return StickyStackValue(raw, max, target);
-        }
-
-        private int StickyStackValue(int raw, int max, PscLimitEditorTarget target)
-        {
-            if (!target.HasStackContext || stacksMode) return Mathf.Clamp(raw, 0, max);
-            int stack = target.StackLimit;
-            int stick = Mathf.Max(1, Mathf.RoundToInt(stack * 0.1f));
-            for (int boundary = stack; boundary < max; boundary += stack)
-            {
-                if (raw > boundary && raw <= boundary + stick) return boundary;
-            }
-            return Mathf.Clamp(raw, 0, max);
         }
 
         private static void DrawNullableField(Rect rect, ref int? value, ref string buffer, int min, int max)
@@ -345,12 +210,7 @@ namespace PrecisionStockpileControl
             upperVal = upperVal.HasValue ? Mathf.CeilToInt(upperVal.Value / (float)stack) : (int?)null;
         }
 
-        private void ClampValues(int max)
-        {
-            if (lowerVal.HasValue) lowerVal = Mathf.Clamp(lowerVal.Value, 0, max);
-            if (upperVal.HasValue) upperVal = Mathf.Clamp(upperVal.Value, 1, max);
-            if (lowerVal.HasValue && upperVal.HasValue && lowerVal.Value > upperVal.Value) lowerVal = upperVal;
-        }
+        private void ClampValues(int max) => PscLimitSlider.Clamp(ref lowerVal, ref upperVal, max);
 
         private void SyncBuffers()
         {
@@ -411,34 +271,6 @@ namespace PrecisionStockpileControl
         private static string FormatItemsPreview(int value, PscLimitEditorTarget target)
         {
             return target.HasStackContext ? PscUiWidgets.FormatItemsStacks(value, target.StackLimit) : value.ToString();
-        }
-    }
-
-    // Single place that mutates a unit's policy for one def + keeps the vanilla filter in sync.
-    // Callers batch several defs then call PscMapComponent.NotifyPolicyChanged once.
-    internal static class PscEdit
-    {
-        public static void ApplyLimit(StorageSettings settings, PscHaulUnit unit, ThingDef def, PscDefLimit lim)
-        {
-            var data = PscStorageDataStore.GetOrCreate(settings);
-            if (lim == null || lim.IsDefault) data.limits.Remove(def);
-            else data.limits[def] = lim;
-            settings.filter.SetAllow(def, true);
-            data.Notify_LimitSet(def, unit);
-        }
-
-        public static void ClearLimit(StorageSettings settings, ThingDef def, bool allow)
-        {
-            PscStorageDataStore.TryGet(settings)?.limits.Remove(def);
-            settings.filter.SetAllow(def, allow);
-        }
-
-        public static void ClearAllLimits(StorageSettings settings)
-        {
-            var data = PscStorageDataStore.TryGet(settings);
-            if (data?.limits == null || data.limits.Count == 0) return;
-            data.limits.Clear();
-            PscMapComponent.NotifyPolicyChanged(settings);
         }
     }
 }

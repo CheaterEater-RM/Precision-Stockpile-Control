@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using HarmonyLib;
 using RimWorld;
 using UnityEngine;
 using Verse;
@@ -25,15 +24,11 @@ namespace PrecisionStockpileControl
         private static Rect ownedCheckboxRect;
         private static readonly HashSet<ThingDef> applied = new HashSet<ThingDef>();
 
-        // Vanilla's paintable-checkbox state. checkboxPainting is set when a left-drag paint begins and
-        // reset on MouseUp in Widgets.WidgetsOnGUI; checkboxPaintingState is the value being painted
-        // (true = allow). Both are shared by Widgets.Checkbox and Widgets.CheckboxMulti. We read
-        // checkboxPainting directly (not Widgets.Painting) so a dropdown paint can't false-trigger.
-        private static readonly AccessTools.FieldRef<bool> CheckboxPaintingRef =
-            AccessTools.StaticFieldRefAccess<bool>(AccessTools.Field(typeof(Widgets), "checkboxPainting"));
-        private static readonly AccessTools.FieldRef<bool> CheckboxPaintStateRef =
-            AccessTools.StaticFieldRefAccess<bool>(AccessTools.Field(typeof(Widgets), "checkboxPaintingState"));
-
+        // Vanilla's paintable-checkbox state (checkboxPainting / checkboxPaintingState) is read through
+        // PscReflection so the private-field seam lives in one place. checkboxPainting is set when a
+        // left-drag paint begins and reset on MouseUp; checkboxPaintingState is the value being painted
+        // (true = allow). We read checkboxPainting directly (not Widgets.Painting) so a dropdown paint
+        // can't false-trigger.
         private static bool vanillaPaintDirty;
         private static StorageSettings vanillaPaintSettings;
 
@@ -42,8 +37,8 @@ namespace PrecisionStockpileControl
         public static bool HasOwnedCheckbox => ownedCheckboxActive;
 
         // A vanilla left-drag allow/disallow paint is in progress and is NOT our own marker drag.
-        public static bool VanillaPaintActive => !active && CheckboxPaintingRef() && Input.GetMouseButton(0);
-        public static bool VanillaPaintAllow => CheckboxPaintStateRef();
+        public static bool VanillaPaintActive => !active && PscReflection.WidgetsCheckboxPainting && Input.GetMouseButton(0);
+        public static bool VanillaPaintAllow => PscReflection.WidgetsCheckboxPaintingState;
 
         // Records that a vanilla paint cleared one or more limits on this storage. The expensive
         // NotifyPolicyChanged (RebuildDemand is O(all limits)) is deferred and flushed once per drag.
@@ -59,7 +54,7 @@ namespace PrecisionStockpileControl
         public static void FlushPendingVanillaPaint()
         {
             if (!vanillaPaintDirty) return;
-            if (CheckboxPaintingRef() && Input.GetMouseButton(0)) return;
+            if (PscReflection.WidgetsCheckboxPainting && Input.GetMouseButton(0)) return;
             if (vanillaPaintSettings != null) PscMapComponent.NotifyPolicyChanged(vanillaPaintSettings);
             vanillaPaintDirty = false;
             vanillaPaintSettings = null;
