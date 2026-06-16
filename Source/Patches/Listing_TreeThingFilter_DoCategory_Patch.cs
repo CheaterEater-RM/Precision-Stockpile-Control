@@ -6,33 +6,49 @@ using Verse;
 
 namespace PrecisionStockpileControl
 {
-    // Depth-scaling category UI (design §10.4). On a category row: a small I-beam badge when its
-    // limited items have MIXED limits, or the shared limit text when they all share one; a
-    // right-click opens the limit submenu scoped to the category's storable descendant defs (so a
-    // category limit propagates to all children). Drawn in the row's right margin — never over the
-    // vanilla allow-state checkbox. The prefix captures the row Y in __state so the postfix can
-    // overdraw at the category row after vanilla has drawn it (immediate-mode GUI).
+    // Category rows summarize PSC state across currently allowed, storable descendants. Disallowed
+    // descendants do not prevent a category from showing a shared range.
     [HarmonyPatch(typeof(Listing_TreeThingFilter), "DoCategory")]
     public static class Listing_TreeThingFilter_DoCategory_Patch
     {
         private static readonly AccessTools.FieldRef<Listing, float> CurYRef =
             AccessTools.FieldRefAccess<Listing, float>("curY");
 
-        private static readonly Color LimitColor = new Color(0.45f, 0.8f, 1f);
+        private static Rect CheckboxRect(Listing_TreeThingFilter inst, float rowY)
+        {
+            float lh = ((Listing_Lines)inst).lineHeight;
+            return new Rect(inst.ColumnWidth - 26f, rowY, lh, lh);
+        }
 
         public static void Prefix(Listing_TreeThingFilter __instance, TreeNode_ThingCategory node, out float __state)
         {
             __state = CurYRef(__instance);
+            PscFilterPaint.ClearOwnedCheckbox();
             if (!PscUiContext.Active || node?.catDef == null) return;
 
             var e = Event.current;
-            if (e == null || e.type != EventType.MouseDown || e.button != 1) return;
             try
             {
+                bool hasPscState = TryGetCategoryLimitState(node.catDef, out _, out _);
+                if (hasPscState)
+                {
+                    var checkRect = CheckboxRect(__instance, __state);
+                    PscFilterPaint.OwnCheckbox(checkRect);
+                    if (e != null && e.type == EventType.MouseDown && e.button == 0 && checkRect.Contains(e.mousePosition))
+                    {
+                        OpenCategoryMenu(node.catDef);
+                        e.Use();
+                        return;
+                    }
+                }
+
+                if (e == null || e.type != EventType.MouseDown || e.button != 1) return;
                 var rowRect = new Rect(0f, __state, __instance.ColumnWidth, ((Listing_Lines)__instance).lineHeight);
-                if (!rowRect.Contains(e.mousePosition)) return;
-                OpenCategoryMenu(node.catDef);
-                e.Use();
+                if (rowRect.Contains(e.mousePosition))
+                {
+                    OpenCategoryMenu(node.catDef);
+                    e.Use();
+                }
             }
             catch { }
         }
@@ -40,44 +56,101 @@ namespace PrecisionStockpileControl
         public static void Postfix(Listing_TreeThingFilter __instance, TreeNode_ThingCategory node, float __state)
         {
             if (!PscUiContext.Active || node?.catDef == null) return;
-            var data = PscUiContext.Data;
-            if (data == null || data.limits == null || data.limits.Count == 0) return;
-
             try
             {
-                // Limit-state across this category's limited descendants (cheap: iterate the few
-                // limited defs, not the whole subtree).
-                PscDefLimit shared = null;
-                bool mixed = false, any = false;
-                foreach (var kv in data.limits)
-                {
-                    if (kv.Value == null || kv.Value.IsDefault || kv.Key == null) continue;
-                    if (!kv.Key.IsWithinCategory(node.catDef)) continue;
-                    any = true;
-                    if (shared == null) shared = kv.Value;
-                    else if (shared.lowerRaw != kv.Value.lowerRaw || shared.upperRaw != kv.Value.upperRaw) { mixed = true; break; }
-                }
-                if (!any) return;
+                if (!TryGetCategoryLimitState(node.catDef, out var shared, out bool mixed, out int? sharedStackLimit)) return;
 
-                float colW = __instance.ColumnWidth;
                 float lh = ((Listing_Lines)__instance).lineHeight;
-                if (mixed)
+                var iconRect = CheckboxRect(__instance, __state);
+                PscUiWidgets.DrawLimitMarker(iconRect);
+
+                if (!mixed)
                 {
-                    var box = new Rect(colW - 74f, __state + (lh - 12f) / 2f, 12f, 12f);
-                    DrawIBeam(box, LimitColor);
-                }
-                else
-                {
-                    var rect = new Rect(0f, __state, colW - 60f, lh);
-                    var pf = Text.Font; var pa = Text.Anchor; var pc = GUI.color;
-                    Text.Font = GameFont.Tiny;
-                    Text.Anchor = TextAnchor.MiddleRight;
-                    GUI.color = LimitColor;
-                    Widgets.Label(rect, Compact(shared));
-                    Text.Font = pf; Text.Anchor = pa; GUI.color = pc;
+                    var labelRect = new Rect(iconRect.xMin - 132f, __state, 128f, lh);
+                    var pf = Text.Font;
+                    var pa = Text.Anchor;
+                    var pc = GUI.color;
+                    try
+                    {
+                        GUI.color = new Color(0f, 0f, 0f, 0.45f);
+                        GUI.DrawTexture(labelRect.ContractedBy(0f, 2f), BaseContent.WhiteTex);
+                        Text.Font = GameFont.Tiny;
+                        Text.Anchor = TextAnchor.MiddleRight;
+                        GUI.color = PscUiWidgets.LimitTextColor;
+                        Widgets.Label(labelRect, PscUiWidgets.CompactLimit(shared, sharedStackLimit).Truncate(labelRect.width));
+                        TooltipHandler.TipRegion(labelRect, PscUiWidgets.FullLimit(shared, sharedStackLimit));
+                    }
+                    finally
+                    {
+                        Text.Font = pf;
+                        Text.Anchor = pa;
+                        GUI.color = pc;
+                    }
                 }
             }
             catch { }
+            finally
+            {
+                PscFilterPaint.ClearOwnedCheckbox();
+            }
+        }
+
+        private static bool TryGetCategoryLimitState(ThingCategoryDef cat, out PscDefLimit shared, out bool mixed)
+        {
+            return TryGetCategoryLimitState(cat, out shared, out mixed, out _);
+        }
+
+        private static bool TryGetCategoryLimitState(ThingCategoryDef cat, out PscDefLimit shared, out bool mixed, out int? sharedStackLimit)
+        {
+            shared = null;
+            mixed = false;
+            sharedStackLimit = null;
+            var data = PscUiContext.Data;
+            var filter = PscUiContext.Settings?.filter;
+            var parentFilter = PscUiContext.Settings?.owner?.GetParentStoreSettings()?.filter;
+            if (filter == null) return false;
+
+            bool anyAllowed = false;
+            bool anyNonDefault = false;
+            int sharedLower = -1;
+            int sharedUpper = -1;
+            int stackLimit = -1;
+            bool stackMixed = false;
+            bool initialized = false;
+
+            foreach (var d in cat.DescendantThingDefs)
+            {
+                if (d == null || !d.EverStorable(false)) continue;
+                if (parentFilter != null && !parentFilter.Allows(d)) continue;
+                if (!filter.Allows(d)) continue;
+
+                anyAllowed = true;
+                int dStack = Mathf.Max(1, d.stackLimit);
+                if (stackLimit < 0) stackLimit = dStack;
+                else if (stackLimit != dStack) stackMixed = true;
+
+                var lim = data != null ? data.GetLimit(d) : null;
+                int lower = lim != null ? lim.lowerRaw : -1;
+                int upper = lim != null ? lim.upperRaw : -1;
+                if (lower >= 0 || upper >= 0) anyNonDefault = true;
+
+                if (!initialized)
+                {
+                    sharedLower = lower;
+                    sharedUpper = upper;
+                    initialized = true;
+                }
+                else if (sharedLower != lower || sharedUpper != upper)
+                {
+                    mixed = true;
+                    break;
+                }
+            }
+
+            if (!anyAllowed || !anyNonDefault) return false;
+            if (!stackMixed && stackLimit > 0) sharedStackLimit = stackLimit;
+            shared = new PscDefLimit { lowerRaw = sharedLower, upperRaw = sharedUpper };
+            return true;
         }
 
         private static void OpenCategoryMenu(ThingCategoryDef cat)
@@ -93,28 +166,6 @@ namespace PrecisionStockpileControl
             if (defs.Count == 0) return;
             Find.WindowStack.WindowOfType<PscItemLimitMenu>()?.Close(false);
             Find.WindowStack.Add(new PscItemLimitMenu(PscUiContext.Settings, PscUiContext.Unit, defs, cat.LabelCap));
-        }
-
-        // ⊤—⊥ style limiting glyph drawn with GUI primitives (no texture asset).
-        private static void DrawIBeam(Rect box, Color color)
-        {
-            var prev = GUI.color;
-            GUI.color = color;
-            float cx = box.center.x;
-            float top = box.yMin, bot = box.yMax;
-            const float t = 2f;
-            float halfW = box.width * 0.5f;
-            GUI.DrawTexture(new Rect(cx - halfW, top, halfW * 2f, t), BaseContent.WhiteTex);          // top bar
-            GUI.DrawTexture(new Rect(cx - halfW, bot - t, halfW * 2f, t), BaseContent.WhiteTex);       // bottom bar
-            GUI.DrawTexture(new Rect(cx - t / 2f, top, t, box.height), BaseContent.WhiteTex);          // vertical
-            GUI.color = prev;
-        }
-
-        private static string Compact(PscDefLimit lim)
-        {
-            string lo = lim.Lower.HasValue ? lim.Lower.Value.ToString() : "";
-            string hi = lim.Upper.HasValue ? lim.Upper.Value.ToString() : "";
-            return lo + "–" + hi;
         }
     }
 }

@@ -14,12 +14,19 @@
   <PSC_ModeItems>items</PSC_ModeItems>
   <PSC_ModeStacks>stacks</PSC_ModeStacks>
   <PSC_Upper>Maximum</PSC_Upper>
+  <PSC_UpperShort>Upper</PSC_UpperShort>
   <PSC_UpperUnlimited>No maximum (unlimited)</PSC_UpperUnlimited>
   <PSC_Lower>Refill threshold</PSC_Lower>
+  <PSC_LowerShort>Lower</PSC_LowerShort>
   <PSC_LowerAlways>Always refill</PSC_LowerAlways>
   <PSC_Always>always</PSC_Always>
+  <PSC_Maximum>maximum</PSC_Maximum>
   <PSC_Batch>Batch (minimum per trip)</PSC_Batch>
   <PSC_Preview>Will set: {0}</PSC_Preview>
+  <PSC_SliderHintGlobal>Blank ends mean always refill / fill to maximum.</PSC_SliderHintGlobal>
+  <PSC_SliderHintItem>Blank ends mean always refill / fill to maximum. Tick marks follow stacks of {0} items.</PSC_SliderHintItem>
+  <PSC_SliderHintMixedStacks>Blank ends mean always refill / fill to maximum. Items mode is disabled because this selection contains different stack sizes.</PSC_SliderHintMixedStacks>
+  <PSC_ItemsModeMixedStacksTip>Items mode is disabled because this selection contains items with different stack sizes. Use stacks mode so each item keeps the same number of stacks.</PSC_ItemsModeMixedStacksTip>
   <PSC_SoftCapNote>Pawns keep each item at or below its maximum when hauling. Rarely, items spawned straight into storage (such as from a workbench standing inside the stockpile) can still exceed it.</PSC_SoftCapNote>
   <PSC_ApplyToSearch>Apply to search</PSC_ApplyToSearch>
   <PSC_RemoveFromSearch>Remove from search</PSC_RemoveFromSearch>

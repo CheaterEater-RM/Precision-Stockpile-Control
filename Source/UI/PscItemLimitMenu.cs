@@ -15,8 +15,9 @@ namespace PrecisionStockpileControl
         private readonly List<ThingDef> defs;
         private readonly string title;
         private readonly PscLimitEditor editor = new PscLimitEditor();
+        private readonly PscLimitEditorTarget target;
 
-        public override Vector2 InitialSize => new Vector2(340f, 330f);
+        public override Vector2 InitialSize => new Vector2(520f, 310f);
 
         public PscItemLimitMenu(StorageSettings settings, PscHaulUnit unit, List<ThingDef> defs, string title)
         {
@@ -24,9 +25,10 @@ namespace PrecisionStockpileControl
             this.unit = unit;
             this.defs = defs;
             this.title = title;
+            target = PscLimitEditorTarget.FromDefs(defs);
 
             var data = PscStorageDataStore.TryGet(settings);
-            editor.LoadFrom(data != null && defs.Count > 0 ? data.GetLimit(defs[0]) : null);
+            editor.LoadFrom(data != null && defs.Count > 0 ? data.GetLimit(defs[0]) : null, target);
 
             doCloseX = true;
             draggable = true;
@@ -43,9 +45,9 @@ namespace PrecisionStockpileControl
             list.Label(title);
             list.GapLine();
 
-            editor.Draw(list);
+            editor.Draw(list, unit, target);
             list.Gap(6f);
-            list.Label("PSC_Preview".Translate(editor.PreviewString()));
+            list.Label("PSC_Preview".Translate(editor.PreviewString(target)));
 
             list.Gap(10f);
             var r1 = list.GetRect(30f);

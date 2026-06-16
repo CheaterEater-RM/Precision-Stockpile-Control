@@ -10,8 +10,8 @@ namespace PrecisionStockpileControl
     // the read-only limit label); the finalizer clears it even if FillTab throws.
     //
     // The vanilla FillTab draws inside a BeginGroup contracted by 10 and EndGroups before our
-    // postfix runs, so the button is drawn in window-space coordinates to the right of the
-    // priority box.
+    // postfix runs. ThingFilterUI_Patch reserves a strip under the priority button; this postfix
+    // draws the PSC entry button into that strip in window-space coordinates.
     [HarmonyPatch(typeof(ITab_Storage), "FillTab")]
     public static class ITab_Storage_FillTab_Patch
     {
@@ -49,7 +49,7 @@ namespace PrecisionStockpileControl
         {
             if (__state.settings == null) return;
 
-            var rect = new Rect(185f, 10f, 105f, 23f);
+            var rect = new Rect(10f, 45f, 196f, 24f);
             if (Widgets.ButtonText(rect, "PSC_ButtonLabel".Translate()))
             {
                 // Always (re)open for the currently selected storage, replacing any prior window.

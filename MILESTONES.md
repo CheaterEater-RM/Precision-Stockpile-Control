@@ -84,29 +84,43 @@ blocked, batch ≥ N, PUAH no overfill, LWM multi-stack, PUAH-absent soft-dep lo
 
 Built after M2, per the sequencing decision. Builds clean.
 
-- **Shared limit editor.** `PscLimitEditor` (items/stacks + max/refill controls) extracted from the
-  control window and reused by the per-item submenu, plus a `PscEdit` helper that mutates one def's
-  policy and keeps the vanilla filter in sync. `PscControlWindow` refactored onto it.
-- **Right-click submenu.** `PscItemLimitMenu` (Apply / Cancel / ✓ allow-clear / ✗ disallow) opens
-  from a right-click on a filter row (single def) or a category (its storable descendants → category
-  propagation). `PscUiContext` now carries the unit even with no data yet, so right-click can create
-  a first limit.
-- **Limit propagation drag.** `PscFilterPaint`: right-drag copies the start row's limit across rows
-  the cursor passes (left button stays pure vanilla allow/disallow to avoid conflicts — a deliberate
-  deviation from the design's left-drag, chosen for robustness).
-- **Category I-beam / shared label.** `DoCategory` postfix draws a ⊤—⊥ I-beam glyph (GUI primitives,
-  no texture) when a category's limited items disagree, or the shared limit text when they match.
+Polish update: PSC-limited I-beam markers now own left-click and left-drag in the vanilla filter
+checkbox slot. Left-click opens the limit menu, left-drag propagates the starting limit as stack
+ratios across rows, untouched rows keep vanilla allow/disallow paint-drag, and right-click/right-drag
+remain compatibility paths.
+
+- **Shared limit editor.** `PscLimitEditor` (items/stacks + dual-handle nullable lower/upper
+  slider, direct entry boxes, stack-aware ticks, mixed-stack items-mode disable notice) is reused by
+  the control window and per-item submenu. `PscEdit` mutates one def's policy and keeps the vanilla
+  filter in sync.
+- **Per-row submenu.** `PscItemLimitMenu` opens from a left-click on a PSC-limited row's I-beam or
+  category marker; right-click remains a compatibility path and can still create a first limit.
+- **Limit propagation drag.** `PscFilterPaint`: left-drag from a PSC-limited marker copies the start
+  row's limit across rows the cursor passes, converting item counts through source/target stack
+  ratios so mixed stack sizes keep the same stack fraction. Untouched rows keep vanilla
+  allow/disallow paint-drag; right-drag remains a PSC compatibility path.
+- **Storage tab polish.** `ThingFilterUI` is shifted down while PSC context is active, reserving a
+  row for the PSC button under Priority and above Clear all / Allow all. The global control window
+  closes when its original storage is deselected or replaced by a different selection. Vanilla
+  Clear all / Allow all clear per-def PSC limits while preserving stockpile-wide PSC policy.
+- **Shelf / multi-stack capacity.** The limit editor sizes stack-mode maxima from live per-cell stack
+  capacity (`GetMaxItemsAllowedInCell`) instead of cell count, with a held-stack fallback.
+- **Category I-beam / shared label.** `DoCategory` postfix evaluates currently allowed storable
+  descendants only. It draws a yellow I-beam texture/fallback when allowed children have mixed
+  limits, or the shared limit text when all allowed children share the same non-null range. Item
+  rows use the same inline item/stack format as the main editor when stack context is available.
 - **Row-Y fix.** `DoThingDef`/`DoCategory` capture the row's Y in a prefix `__state` because vanilla
   `EndLine()` advances `curY` before the postfix runs (the M1 read-only label was off by one row).
 
 New files: `Source/UI/PscLimitEditor.cs` (+`PscEdit`), `Source/UI/PscItemLimitMenu.cs`,
-`Source/UI/PscFilterPaint.cs`, `Source/Patches/Listing_TreeThingFilter_DoCategory_Patch.cs`; edits to
-the `DoThingDef` patch, `PscControlWindow`, `PscUiContext`, the `FillTab` patch, `Keys.xml`, and
-`.csproj` (+`UnityEngine.InputLegacyModule`).
+`Source/UI/PscFilterPaint.cs`, `Source/UI/PscUiWidgets.cs`,
+`Source/Patches/Listing_TreeThingFilter_DoCategory_Patch.cs`, `Source/Patches/ThingFilterUI_Patch.cs`,
+`Source/Patches/ThingFilter_AllowAll_Patches.cs`;
+edits to the `DoThingDef` patch, `PscControlWindow`, `PscUiContext`, the `FillTab` patch, `Keys.xml`,
+and `.csproj` (+`UnityEngine.InputLegacyModule`).
 
-Deferred (not done): the design's left-click-opens-submenu-when-limited nicety (replaced by
-right-click for robustness); per-category limit-state caching (recomputed each frame — fine for
-typical limit counts).
+Deferred (not done): per-category limit-state caching (recomputed each frame — fine for typical
+limit counts).
 
 ## Planned
 

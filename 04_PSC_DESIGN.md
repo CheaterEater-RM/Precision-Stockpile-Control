@@ -182,8 +182,8 @@ Without counting in-flight reservations, multiple pawns can briefly overshoot th
 | Fine-order within band | `StoreUtility.TryFindBestBetterStoreCellFor` | `RimWorld/StoreUtility.cs:173` | **Narrow transpiler** — replace `priority <= currentPriority` break with `PscOrder.ShouldBreakSearch(...)` |
 | Fine-order list sort | `HaulDestinationManager.CompareSlotGroupPrioritiesDescending` | `RimWorld/HaulDestinationManager.cs:153` | Postfix (tie-break by fine-order key) |
 | PUAH count clamp | `WorkGiver_HaulToInventory.CapacityAt` | reference mod | Postfix, soft-dep guarded |
-| Tab top row (PSC button) | `ITab_Storage.FillTab` | `RimWorld/ITab_Storage.cs:104` | Postfix (draw beside priority box) |
-| Per-item row (limit label, I-beam, right-click) | `Listing_TreeThingFilter.DoThingDef` / `DoCategory` | — | Postfix |
+| Tab top row (PSC button) | `ITab_Storage.FillTab` + `ThingFilterUI.DoThingFilterConfigWindow` | `RimWorld/ITab_Storage.cs:104`, `Verse/ThingFilterUI.cs:29` | Postfix button in a reserved row under priority; prefix shifts vanilla filter controls down |
+| Per-item row (limit label, I-beam, click/drag) | `Listing_TreeThingFilter.DoThingDef` / `DoCategory` | — | Postfix |
 | **M2: Hard cap on carry drop** | `Toils_Haul.PlaceHauledThingInCell` / `Pawn_CarryTracker.TryDropCarriedThing` | — | Transpiler (Stack Gap / Stockpile Limit precedent) |
 | **M2: Hard cap on direct placement** | `GenPlace.TryPlaceDirect` | — | Transpiler (Stack Gap precedent) |
 
@@ -311,7 +311,7 @@ a-z subpriority stacks below sub-tier: full key `(band, sub-tier, letter)`. Reve
 
 ### 10.1 Depth-scaling entry point
 
-One PSC button on the stockpile tab, placed below the MFH button. Opens the PSC control window. No PSC controls are visible at the vanilla level except effects already applied (see §10.4).
+One PSC button on the stockpile tab, placed in a reserved row under the vanilla Priority button and above Clear all / Allow all. Opens the PSC control window. No PSC controls are visible at the vanilla level except effects already applied (see §10.4).
 
 ### 10.2 Limit input
 
@@ -319,11 +319,13 @@ Limits tracked in items; stacks are display only.
 
 Format: `A (B) — X (Y)` where A = lower limit, B = `ceil(A / stackLimit)`, X = upper limit, Y = `ceil(X / stackLimit)`. If one side is unset: `A (B) —` or `— X (Y)`.
 
-**Slider:** left toggle switches between items mode and stacks mode.
+**Slider:** left toggle switches between items mode and stacks mode. The editor uses a dual-handle range control with direct entry boxes on the left (lower) and right (upper). Blank lower = always refill (null); blank upper = fill to current maximum (null).
 
-- *Items mode:* smooth from 0, with "stickiness buffer" of ~10% of stack size at each stack boundary (e.g. for stackLimit 75: smooth 0→75, then resist until 75+7 to cross to 76) so players land on round-stack values naturally. Far-right position = unlimited (null).
-- *Stacks mode:* integer stacks. Rightmost = unlimited (null). Second-from-right = current maximum stack count − 1.
-- Right-click either end number to type a value directly.
+- *Items mode:* smooth from 0, with "stickiness buffer" of ~10% of stack size at each stack boundary (e.g. for stackLimit 75: smooth 0→75, then resist until 75+7 to cross to 76) so players land on round-stack values naturally.
+- *Stacks mode:* integer stacks. Far-right buffer = current maximum stack count; rightmost = null upper (fill to maximum as storage changes).
+- Type directly in either entry box; deleting the entry sets that side to null.
+- Multi-def editors with mixed child stack sizes force stacks mode and explain why items mode is disabled.
+- Stack-mode maximum is based on live physical stack slots: sum each storage cell's `GetMaxItemsAllowedInCell(map)`, not just cell count, with current held stacks as a fallback.
 
 **Lower limit slider positions (D15):**
 - Leftmost = "always" (null) — always refilling.
@@ -337,21 +339,23 @@ Separate slider/input below the search-apply buttons. Independent of limits. "Ne
 ### 10.4 Visible effects in vanilla menu (depth-scaling feedback)
 
 Per-item row additions (via `DoThingDef` postfix, mirroring MFH):
-- Label showing current limits in `A (B) — X (Y)` format alongside the item name.
-- Right-click on the allow toggle opens the per-item limit submenu (reproduces the global input, adds Apply / Cancel).
-- Clicking an item that already has limits opens the submenu instead of toggling.
-- I-beam symbol (⊤ — ⊥ style) for mixed-limit category state, replacing vanilla's yellow tilde.
+- Label showing current limits near the vanilla checkbox in the same `A (B) - X (Y)` item/stack format as the main editor when stack context is available, with the tooltip acting as the overflow/fallback.
+- Left-click on a PSC-limited row's I-beam opens the per-item limit submenu (reproduces the global input, adds Apply / Cancel); right-click remains a compatibility path.
+- A yellow I-beam replaces the vanilla checkbox for PSC-limited item rows. The marker owns left-click and left-drag, while untouched rows keep vanilla toggling and paint-drag.
+- I-beam symbol for mixed-limit category state, replacing vanilla's yellow tilde.
 - Small green ✓ / red ✗ buttons to remove limits and allow / disallow.
 
-Vanilla click-drag: propagate allow/disallow including over limited items. Extend to propagate limits on click-drag (per-item stack size applied correctly).
+Left-drag from a PSC-limited marker propagates that limit across rows by preserving stack ratios, not raw item counts (e.g. 2.5 source stacks becomes 2.5 target stacks using the target def's live `stackLimit`). Vanilla left click-drag propagates allow/disallow only across untouched rows; right-drag remains a PSC compatibility path.
 
-Categories propagate naturally: if all children share the same limit, show it on the category. Changing a category limit applies to all children.
+Categories propagate naturally: if all currently allowed storable children share the same non-null limit, show it on the category. If allowed children mix null and set limits or disagree, show the I-beam only. Disallowed children do not affect the displayed PSC category state. Changing a category limit applies to all storable children allowed by the parent filter.
 
-Vanilla "Clear all" / "Allow all" keep vanilla behavior (allow or disallow all; no effect on limits directly).
+Vanilla "Clear all" / "Allow all" keep vanilla behavior (disallow or allow all) and clear per-def PSC limits for that storage. Stockpile-wide PSC policy such as batch is left intact.
 
 ### 10.5 Search integration
 
 "Apply to search" and "Remove from search" buttons at the top of the PSC window apply or remove the selected limit to all items matching the current vanilla search panel filter.
+
+The global PSC control window closes automatically when its source stockpile/storage is no longer selected, preventing stale edits from applying to the wrong storage.
 
 ### 10.6 Feeder link UI
 

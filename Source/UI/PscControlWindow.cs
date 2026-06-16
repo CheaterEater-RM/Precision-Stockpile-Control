@@ -18,7 +18,7 @@ namespace PrecisionStockpileControl
         private int batchVal;
         private string batchBuf = "0";
 
-        public override Vector2 InitialSize => new Vector2(380f, 460f);
+        public override Vector2 InitialSize => new Vector2(520f, 350f);
 
         public PscControlWindow(StorageSettings settings, PscHaulUnit unit, QuickSearchFilter search)
         {
@@ -37,8 +37,20 @@ namespace PrecisionStockpileControl
             preventCameraMotion = false;
         }
 
+        public override void WindowUpdate()
+        {
+            base.WindowUpdate();
+            if (!StillSelected()) Close(false);
+        }
+
         public override void DoWindowContents(Rect inRect)
         {
+            if (!StillSelected())
+            {
+                Close(false);
+                return;
+            }
+
             var list = new Listing_Standard();
             list.Begin(inRect);
 
@@ -47,7 +59,8 @@ namespace PrecisionStockpileControl
             Text.Font = GameFont.Small;
             list.GapLine();
 
-            editor.Draw(list);
+            var target = PscLimitEditorTarget.FromDefs(MatchedDefs());
+            editor.Draw(list, unit, target);
 
             list.Gap(6f);
             int prevBatch = batchVal;
@@ -55,7 +68,7 @@ namespace PrecisionStockpileControl
             if (batchVal != prevBatch) ApplyBatch();
 
             list.Gap(8f);
-            list.Label("PSC_Preview".Translate(editor.PreviewString()));
+            list.Label("PSC_Preview".Translate(editor.PreviewString(target)));
 
             Text.Font = GameFont.Tiny;
             GUI.color = new Color(0.75f, 0.75f, 0.6f);
@@ -125,6 +138,46 @@ namespace PrecisionStockpileControl
         {
             PscStorageDataStore.GetOrCreate(settings).batch = batchVal;
             PscMapComponent.NotifyPolicyChanged(settings);
+        }
+
+        private bool StillSelected()
+        {
+            try
+            {
+                var selected = Find.Selector.SelectedObjectsListForReading;
+                if (selected == null || selected.Count == 0) return false;
+                if (selected.Count > 1)
+                {
+                    StorageGroup group = null;
+                    for (int i = 0; i < selected.Count; i++)
+                    {
+                        if (!(selected[i] is IStorageGroupMember member) || member.Group == null) return false;
+                        if (group == null) group = member.Group;
+                        else if (!ReferenceEquals(group, member.Group)) return false;
+                    }
+                    return ReferenceEquals(group?.GetStoreSettings(), settings);
+                }
+
+                var parent = StoreParentFromSelected(selected[0]);
+                return ReferenceEquals(parent?.GetStoreSettings(), settings);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static IStoreSettingsParent StoreParentFromSelected(object selected)
+        {
+            if (selected is IStoreSettingsParent parent) return parent;
+            if (selected is ThingWithComps twc && twc.AllComps != null)
+            {
+                for (int i = 0; i < twc.AllComps.Count; i++)
+                {
+                    if (twc.AllComps[i] is IStoreSettingsParent compParent) return compParent;
+                }
+            }
+            return null;
         }
     }
 }
