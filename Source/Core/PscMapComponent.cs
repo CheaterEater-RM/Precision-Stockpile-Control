@@ -175,10 +175,31 @@ namespace PrecisionStockpileControl
             NotifyPolicyChanged(settings);   // updates tracking + anyFeederActive
         }
 
+        // Break any connection between two units (either direction). Only edges touching `self` are
+        // removed, so the targeted unit's other links are left alone. No-op when there is no edge.
+        public void BreakFeederLink(PscHaulUnit self, PscHaulUnit other)
+        {
+            if (!self.IsValid || !other.IsValid) return;
+            string a = self.UniqueLoadID, b = other.UniqueLoadID;
+            if (a == null || b == null || a == b) return;
+            bool removed = feederLinks.RemoveEdge(a, b);
+            removed |= feederLinks.RemoveEdge(b, a);
+            if (removed) PruneFeederLinksAndFlags();
+        }
+
         public void ClearAllFeederLinks()
         {
             feederLinks.ClearAll();
             PruneFeederLinksAndFlags();
+        }
+
+        // Clear every feeder link touching one unit (the per-stockpile "clear" right-click option).
+        // Distinct from RemoveFeederEndpoint, which is the despawn/deletion path.
+        public void ClearFeederLinksFor(PscHaulUnit unit)
+        {
+            string id = unit.UniqueLoadID;
+            if (id == null) return;
+            if (feederLinks.RemoveAllFor(id)) PruneFeederLinksAndFlags();
         }
 
         // Copy/paste "duplicate" (replace semantics): the pasted-onto unit adopts the copied unit's

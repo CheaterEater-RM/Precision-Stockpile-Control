@@ -85,7 +85,7 @@ namespace PrecisionStockpileControl
             float y = AltitudeLayer.MetaOverlays.AltitudeFor() + 0.1f;
             a.y = y; b.y = y;
             Material mat = GetMat(valid ? GoodColor : BadColor);
-            GenDraw.DrawLineBetween(a, b, mat, 0.15f);
+            GenDraw.DrawLineBetween(a, b, mat, 0.06f);
             DrawArrows(a, b, mat);
             if (!valid) DrawCrosses(a, b, mat);
         }
@@ -107,8 +107,8 @@ namespace PrecisionStockpileControl
             const float arm = 0.28f, wid = 0.2f;
             Vector3 perp = new Vector3(-dir.z, 0f, dir.x);
             Vector3 back = tip - dir * arm;
-            GenDraw.DrawLineBetween(tip, back + perp * wid, mat, 0.12f);
-            GenDraw.DrawLineBetween(tip, back - perp * wid, mat, 0.12f);
+            GenDraw.DrawLineBetween(tip, back + perp * wid, mat, 0.04f);
+            GenDraw.DrawLineBetween(tip, back - perp * wid, mat, 0.04f);
         }
 
         private static void DrawCrosses(Vector3 origin, Vector3 end, Material mat)
@@ -125,8 +125,8 @@ namespace PrecisionStockpileControl
             for (int i = 1; i <= n; i++)
             {
                 Vector3 c = Vector3.Lerp(origin, end, i / (float)(n + 1));
-                GenDraw.DrawLineBetween(c - d1, c + d1, mat, 0.1f);
-                GenDraw.DrawLineBetween(c - d2, c + d2, mat, 0.1f);
+                GenDraw.DrawLineBetween(c - d1, c + d1, mat, 0.05f);
+                GenDraw.DrawLineBetween(c - d2, c + d2, mat, 0.05f);
             }
         }
 

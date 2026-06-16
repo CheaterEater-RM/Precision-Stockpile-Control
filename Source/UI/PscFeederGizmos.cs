@@ -19,6 +19,7 @@ namespace PrecisionStockpileControl
         private static readonly Texture2D OnlyFromTex = Load("UI/Commands/LinkStorageSettings");
         private static readonly Texture2D OnlyToTex = Load("UI/Commands/SelectAllLinked");
         private static readonly Texture2D ShowTex = Load("UI/Commands/SelectAllLinked");
+        private static readonly Texture2D BreakTex = Load("UI/Designators/Cancel");
         private static readonly Texture2D ClearTex = Load("UI/Designators/Cancel");
 
         private static Texture2D Load(string path) => ContentFinder<Texture2D>.Get(path, reportFailure: false) ?? BaseContent.BadTex;
@@ -33,8 +34,9 @@ namespace PrecisionStockpileControl
 
             // Connect source / destination: paint designators (single click links one storage; drag
             // paints — every storage the cursor passes over is linked). Designator.ProcessInput self-selects.
-            yield return new Designator_PscFeederLink(unit, asSource: true, ConnectSourceTex);
-            yield return new Designator_PscFeederLink(unit, asSource: false, ConnectDestTex);
+            yield return new Designator_PscFeederLink(unit, PscFeederLinkMode.Source, ConnectSourceTex);
+            yield return new Designator_PscFeederLink(unit, PscFeederLinkMode.Destination, ConnectDestTex);
+            yield return new Designator_PscFeederLink(unit, PscFeederLinkMode.Break, BreakTex);
 
             var onlyFrom = new Command_Toggle
             {
@@ -73,6 +75,7 @@ namespace PrecisionStockpileControl
                 defaultDesc = "PSC_ClearConnectionsDesc".Translate(),
                 icon = ClearTex,
                 psc = psc,
+                unit = unit,
                 action = () => Messages.Message("PSC_ClearConnectionsHint".Translate(), MessageTypeDefOf.RejectInput, historical: false)
             };
         }
@@ -86,20 +89,33 @@ namespace PrecisionStockpileControl
             PscMapComponent.NotifyPolicyChanged(settings);
         }
 
-        // Clear-all requires a right-click (a plain click only nudges the player). The actual clear
-        // lives in the right-click float menu.
+        // Clear requires a right-click (a plain click only nudges the player). The actual clears —
+        // this stockpile only, or the whole map — live in the right-click float menu.
         private class Command_ClearConnections : Command_Action
         {
             public PscMapComponent psc;
+            public PscHaulUnit unit;
 
             public override IEnumerable<FloatMenuOption> RightClickFloatMenuOptions
             {
                 get
                 {
+                    yield return new FloatMenuOption("PSC_ClearConnectionsThisStockpile".Translate(), () =>
+                    {
+                        psc?.ClearFeederLinksFor(unit);
+                        SoundDefOf.Click.PlayOneShotOnCamera();
+                    });
                     yield return new FloatMenuOption("PSC_ClearConnectionsConfirm".Translate(), () =>
                     {
-                        psc?.ClearAllFeederLinks();
-                        SoundDefOf.Click.PlayOneShotOnCamera();
+                        // Map-wide clear is destructive; gate it behind a confirmation dialog.
+                        Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
+                            "PSC_ClearConnectionsConfirmDialog".Translate(),
+                            () =>
+                            {
+                                psc?.ClearAllFeederLinks();
+                                SoundDefOf.Click.PlayOneShotOnCamera();
+                            },
+                            destructive: true));
                     });
                 }
             }

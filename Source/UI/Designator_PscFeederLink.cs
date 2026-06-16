@@ -4,11 +4,15 @@ using Verse;
 
 namespace PrecisionStockpileControl
 {
-    // Click or click-drag to designate storages as a source / destination of `self`.
-    //   Click  : link the one storage under the cursor.
-    //   Drag   : PAINT — every storage the cursor passes over is linked immediately (not a box you
+    // What a feeder paint designator does to each storage the cursor touches.
+    public enum PscFeederLinkMode { Source, Destination, Break }
+
+    // Click or click-drag to designate storages as a source / destination of `self`, or to break
+    // any connection between them.
+    //   Click  : act on the one storage under the cursor.
+    //   Drag   : PAINT — every storage the cursor passes over is acted on immediately (not a box you
     //            draw out and apply on release). Lets the player run across several stockpiles to link
-    //            each without clicking them one by one.
+    //            (or unlink) each without clicking them one by one.
     //
     // Implemented as a Designator with NO draw style: with SelectedStyle null the manager applies a
     // single cell on mouse-down (and suppresses normal selection), and we paint the rest in
@@ -16,16 +20,22 @@ namespace PrecisionStockpileControl
     public class Designator_PscFeederLink : Designator
     {
         private readonly PscHaulUnit self;
-        private readonly bool asSource;
+        private readonly PscFeederLinkMode mode;
         private IntVec3 lastPaintedCell = IntVec3.Invalid;
 
-        public Designator_PscFeederLink(PscHaulUnit self, bool asSource, Texture2D icon)
+        public Designator_PscFeederLink(PscHaulUnit self, PscFeederLinkMode mode, Texture2D icon)
         {
             this.self = self;
-            this.asSource = asSource;
+            this.mode = mode;
             this.icon = icon;
-            defaultLabel = (asSource ? "PSC_ConnectSource" : "PSC_ConnectDestination").Translate();
-            defaultDesc = (asSource ? "PSC_ConnectSourceDesc" : "PSC_ConnectDestinationDesc").Translate();
+            string key = mode switch
+            {
+                PscFeederLinkMode.Source => "PSC_ConnectSource",
+                PscFeederLinkMode.Destination => "PSC_ConnectDestination",
+                _ => "PSC_BreakConnection"
+            };
+            defaultLabel = key.Translate();
+            defaultDesc = (key + "Desc").Translate();
             useMouseIcon = true;
             soundSucceeded = SoundDefOf.Click;
         }
@@ -51,8 +61,12 @@ namespace PrecisionStockpileControl
             if (!other.IsValid || other.Equals(self)) return;
             var psc = PscMapComponent.For(map);
             if (psc == null) return;
-            if (asSource) psc.AddFeederLink(other, self);   // picked unit feeds self
-            else psc.AddFeederLink(self, other);            // self feeds picked unit
+            switch (mode)
+            {
+                case PscFeederLinkMode.Source: psc.AddFeederLink(other, self); break;   // picked unit feeds self
+                case PscFeederLinkMode.Destination: psc.AddFeederLink(self, other); break;  // self feeds picked unit
+                case PscFeederLinkMode.Break: psc.BreakFeederLink(self, other); break;   // drop any link between them
+            }
         }
 
         // Paint while the left button is held: link each new cell the cursor passes over. (AddFeederLink

@@ -15,6 +15,8 @@
   <PSC_ConnectSourceDesc>Click or drag over other stockpiles or shelves to mark them as sources that feed this storage. Items will flow from a source to this storage when this storage has the higher priority.</PSC_ConnectSourceDesc>
   <PSC_ConnectDestination>Connect destination</PSC_ConnectDestination>
   <PSC_ConnectDestinationDesc>Click or drag over other stockpiles or shelves to mark them as destinations this storage feeds. Items will flow from this storage to a destination when the destination has the higher priority.</PSC_ConnectDestinationDesc>
+  <PSC_BreakConnection>Break connection</PSC_BreakConnection>
+  <PSC_BreakConnectionDesc>Click or drag over other stockpiles or shelves to remove any feeder link between them and this storage. Only connections to this storage are broken; a normal click on an unconnected storage does nothing.</PSC_BreakConnectionDesc>
   <PSC_OnlyFromSource>Only from source</PSC_OnlyFromSource>
   <PSC_OnlyFromSourceDesc>When on, this storage only accepts items hauled from one of its linked sources — never loose or ground items, and never from unlinked storage.</PSC_OnlyFromSourceDesc>
   <PSC_OnlyToDestinations>Only to destinations</PSC_OnlyToDestinations>
@@ -24,9 +26,11 @@
   <PSC_ShowConnections>Show connections</PSC_ShowConnections>
   <PSC_ShowConnectionsDesc>Show feeder links for every stockpile on the map (not just the selected one) while a storage is selected.</PSC_ShowConnectionsDesc>
   <PSC_ClearConnections>Clear all connections</PSC_ClearConnections>
-  <PSC_ClearConnectionsDesc>Remove every feeder link on this map. Right-click and confirm — a normal click does nothing, to avoid clearing by accident.</PSC_ClearConnectionsDesc>
-  <PSC_ClearConnectionsHint>Right-click this button to clear all connections.</PSC_ClearConnectionsHint>
+  <PSC_ClearConnectionsDesc>Remove feeder links in bulk. Right-click for two options: clear just this storage's connections, or clear every connection on the map. A normal click does nothing, to avoid clearing by accident.</PSC_ClearConnectionsDesc>
+  <PSC_ClearConnectionsHint>Right-click this button to clear connections.</PSC_ClearConnectionsHint>
+  <PSC_ClearConnectionsThisStockpile>Clear this storage's connections</PSC_ClearConnectionsThisStockpile>
   <PSC_ClearConnectionsConfirm>Clear all feeder connections on this map</PSC_ClearConnectionsConfirm>
+  <PSC_ClearConnectionsConfirmDialog>Remove every feeder connection on this map? This cannot be undone.</PSC_ClearConnectionsConfirmDialog>
 
   <!-- Storage tab button -->
   <PSC_ButtonLabel>PSC</PSC_ButtonLabel>
