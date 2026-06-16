@@ -122,15 +122,51 @@ and `.csproj` (+`UnityEngine.InputLegacyModule`).
 Deferred (not done): per-category limit-state caching (recomputed each frame — fine for typical
 limit counts).
 
+### M3 - Feeder Links (code complete; pending in-game verification)
+
+Builds clean, `net48`, Harmony 2.4, 0 warnings.
+
+- **Link store.** Authoritative directed-edge list (`PscFeederLinks` / `PscFeederLink`) owned by
+  `PscMapComponent`, scribed via a new `ExposeData` (`<feederLinks>`, written only when non-empty so
+  add/remove stay save-safe). Endpoints are `PscHaulUnit.UniqueLoadID` strings; unresolved endpoints
+  drop silently and are pruned on load (`PruneToLiveIds`). Derived runtime indices (edge set +
+  source/dest adjacency) rebuilt lazily behind a dirty flag.
+- **Admission rules.** Feeder block added to the `AllowedToAccept(Thing)` postfix, evaluated *before*
+  the target-data early-out (a source's `onlyToDestinations` must block hauling even into a target
+  with no PSC policy) and gated behind a per-map `anyFeederActive` flag. Both rules — target
+  `onlyFromSource` and source `onlyToDestinations` — reduce to the same directed edge
+  `HasEdge(source, target)`. D16 source==target guard reused.
+- **Gizmos.** Six feeder gizmos (`PscFeederGizmos`) on zones and shelves via `Zone_Stockpile`/
+  `Building_Storage` `GetGizmos` postfixes (single-selection gated): Connect source, Connect
+  destination (paint `Designator_PscFeederLink` — click links one storage, drag paints every storage
+  the cursor passes over), Only-from-source / Only-to-destinations toggles (grayed until a source/destination
+  exists; seed strictness from mod-setting defaults on the first link), Show connections (overlay
+  toggle), Clear all connections (right-click float-menu required).
+- **Overlay.** `PscFeederOverlay` (Contagion pattern) drawn from `MapComponentUpdate`: green arrowed
+  lines for valid links (destination outranks source, D5), red + × for non-functional. Draws the
+  selected storage's links, or every link when "Show connections" is on.
+- **Copy/paste + vanilla link.** Link endpoints carry on copy-paste via
+  `StorageSettingsClipboard.Copy`/`PasteInto` postfixes (session-static payload, "replace"/adopt
+  semantics — the pasted-onto unit adopts the copied unit's source/dest lists). Vanilla link/unlink
+  handled in a `StorageGroupUtility.SetStorageGroup` postfix (`AdoptLinks` reciprocal duplication).
+  Policy flags continue to ride the existing `CopyFrom` postfix.
+- **Settings.** `defaultOnlyFromSource` / `defaultOnlyToDestinations` (both default on) added to
+  `PscSettings` + settings window. `autosetSourcePriority` left persisted but **no-op** — auto-priority
+  deferred to M4 (it needs the fine-order letter mechanism); M3 enforces link validity only.
+
+New files: `Source/Core/PscFeederLinks.cs`, `Source/UI/PscFeederOverlay.cs`,
+`Source/UI/PscFeederGizmos.cs`, `Source/UI/Designator_PscFeederLink.cs`,
+`Source/Patches/Feeder_Gizmos_Patch.cs`, `Source/Patches/Feeder_Lifecycle_Patches.cs`.
+Edits: `PscMapComponent` (link store + ExposeData + overlay hook + mutators + prune),
+`PscHaulUnit` (+`TryGetDrawCenter`, `FromSlotGroup`), `Admission_Patches` (feeder slot),
+`PscMod`/`Keys.xml`.
+
+Remaining before M3 is "done": in-game verification of the design §14 M3 scenarios (feeder
+own-contents validity, loose-item rejection, opportunistic duplicates, red invalid links, copy-paste
+and vanilla link/unlink carry, save-compat). Known TODO: gizmo icons reuse vanilla command textures
+(swap in custom art later).
+
 ## Planned
-
-### M3 - Feeder Links
-
-- Source/destination link persistence
-- Feeder admission rules and overlay
-- Auto-priority behavior and invalid-link feedback
-
-Dependencies: M2 complete.
 
 ### M4 - Fine Order
 

@@ -14,6 +14,14 @@ namespace PrecisionStockpileControl
     {
         public bool anyPscActive;
 
+        // True when any tracked unit has a feeder flag (onlyFromSource / onlyToDestinations). Gates
+        // the admission feeder block so plain colonies pay nothing for it.
+        public bool anyFeederActive;
+
+        // Authoritative directed feeder-link store for this map (design §4.2). Scribed below.
+        private PscFeederLinks feederLinks = new PscFeederLinks();
+        public PscFeederLinks Links => feederLinks;
+
         // Tracked = active StorageSettings whose owner resolves onto THIS map. Maintained on
         // policy change (runtime) and rebuilt in FinalizeInit (load).
         private readonly HashSet<StorageSettings> tracked = new HashSet<StorageSettings>();
@@ -57,7 +65,19 @@ namespace PrecisionStockpileControl
                 PscStorageDataStore.Remove(settings);
             }
             anyPscActive = tracked.Count > 0;
+            RecomputeFeederActive();
             RebuildDemand();
+        }
+
+        private void RecomputeFeederActive()
+        {
+            bool any = false;
+            foreach (var s in tracked)
+            {
+                var d = PscStorageDataStore.TryGet(s);
+                if (d != null && (d.onlyFromSource || d.onlyToDestinations)) { any = true; break; }
+            }
+            anyFeederActive = any;
         }
 
         private void RebuildDemand()
@@ -98,7 +118,83 @@ namespace PrecisionStockpileControl
                 }
             }
             anyPscActive = tracked.Count > 0;
+            // Drop feeder edges whose endpoints are no longer live storage on this map (removed
+            // storage, removed mod, cross-map paste garbage) — self-heals each load.
+            feederLinks.PruneToLiveIds(BuildLiveIds());
+            RecomputeFeederActive();
             RebuildDemand();
+        }
+
+        public override void ExposeData()
+        {
+            base.ExposeData();
+            // Write nothing when there are no links, so adding PSC to a save (or never using feeders)
+            // leaves the map node untouched. On load, an absent node leaves the field at its default.
+            if (Scribe.mode == LoadSaveMode.Saving && feederLinks.IsEmpty) return;
+            Scribe_Deep.Look(ref feederLinks, "feederLinks");
+            if (Scribe.mode == LoadSaveMode.PostLoadInit && feederLinks == null)
+                feederLinks = new PscFeederLinks();
+        }
+
+        // Per-frame world-space draw of the feeder overlay (Contagion pattern). Cheap early-outs
+        // live inside the drawer (no links / nothing selected / overlay off).
+        public override void MapComponentUpdate()
+        {
+            PscFeederOverlay.Draw(map, this);
+        }
+
+        // ---- feeder link mutation (called from gizmos / lifecycle patches) ----
+
+        // Create a directed link source -> dest. On a unit acquiring its FIRST source/destination
+        // (0->1), seed the matching strictness flag from the mod-setting default (D: default on).
+        public void AddFeederLink(PscHaulUnit source, PscHaulUnit dest)
+        {
+            if (!source.IsValid || !dest.IsValid) return;
+            string s = source.UniqueLoadID, d = dest.UniqueLoadID;
+            if (s == null || d == null || s == d) return;
+
+            bool destHadSource = feederLinks.HasAnySource(d);
+            bool sourceHadDest = feederLinks.HasAnyDestination(s);
+            if (!feederLinks.AddEdge(s, d)) return;   // already linked
+
+            if (!destHadSource && PscMod.Settings.defaultOnlyFromSource)
+                SetFeederFlag(dest.Settings, fromSource: true);
+            if (!sourceHadDest && PscMod.Settings.defaultOnlyToDestinations)
+                SetFeederFlag(source.Settings, fromSource: false);
+        }
+
+        private static void SetFeederFlag(StorageSettings settings, bool fromSource)
+        {
+            var data = PscStorageDataStore.GetOrCreate(settings);
+            if (data == null) return;
+            if (fromSource) data.onlyFromSource = true; else data.onlyToDestinations = true;
+            NotifyPolicyChanged(settings);   // updates tracking + anyFeederActive
+        }
+
+        public void ClearAllFeederLinks() => feederLinks.ClearAll();
+
+        // Copy/paste "duplicate" (replace semantics): the pasted-onto unit adopts the copied unit's
+        // source and destination lists.
+        public void ApplyClipboardLinks(PscHaulUnit unit, List<string> sources, List<string> dests)
+        {
+            string id = unit.UniqueLoadID;
+            if (id == null) return;
+            feederLinks.RemoveAllFor(id);
+            if (sources != null) foreach (var s in sources) feederLinks.AddEdge(s, id);
+            if (dests != null) foreach (var d in dests) feederLinks.AddEdge(id, d);
+        }
+
+        // Every live storage unit's id on this map (canonical: StorageGroup when grouped).
+        public HashSet<string> BuildLiveIds()
+        {
+            var set = new HashSet<string>();
+            var groups = map.haulDestinationManager.AllGroupsListForReading;
+            for (int i = 0; i < groups.Count; i++)
+            {
+                var id = PscHaulUnit.FromSlotGroup(groups[i]).UniqueLoadID;
+                if (id != null) set.Add(id);
+            }
+            return set;
         }
 
         // Staggered resync backstop: every ResyncInterval ticks, mark one tracked unit fully dirty

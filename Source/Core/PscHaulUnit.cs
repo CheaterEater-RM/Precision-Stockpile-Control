@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using RimWorld;
+using UnityEngine;
 using Verse;
 
 namespace PrecisionStockpileControl
@@ -49,6 +50,36 @@ namespace PrecisionStockpileControl
         {
             if (slot == null) return null;
             return slot.StorageGroup != null ? (ISlotGroup)slot.StorageGroup : slot;
+        }
+
+        // A raw slot group -> its canonical haul unit. Used when enumerating every storage on a map
+        // (overlay draw, live-id pruning) where we already hold the SlotGroup.
+        public static PscHaulUnit FromSlotGroup(ISlotGroup slot)
+        {
+            var canon = Canonicalize(slot);
+            return canon == null ? default : new PscHaulUnit(canon);
+        }
+
+        // A representative on-map draw position for the feeder overlay: the centroid of the unit's
+        // cells snapped to the nearest actual cell so the marker sits on storage. CellsList may be a
+        // shared temporary list (M3 §5 caveat) — iterated immediately, never retained.
+        public bool TryGetDrawCenter(out Vector3 center)
+        {
+            center = default;
+            var cells = group?.CellsList;
+            if (cells == null || cells.Count == 0) return false;
+            Vector3 sum = Vector3.zero;
+            for (int i = 0; i < cells.Count; i++) sum += cells[i].ToVector3Shifted();
+            Vector3 avg = sum / cells.Count;
+            IntVec3 best = cells[0];
+            float bestDist = float.MaxValue;
+            for (int i = 0; i < cells.Count; i++)
+            {
+                float d = (cells[i].ToVector3Shifted() - avg).sqrMagnitude;
+                if (d < bestDist) { bestDist = d; best = cells[i]; }
+            }
+            center = best.ToVector3Shifted();
+            return true;
         }
 
         // settings.owner -> StorageGroup => the group; ISlotGroupParent member => its group if

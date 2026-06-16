@@ -18,19 +18,43 @@ namespace PrecisionStockpileControl
             if (!__result) return;                       // never override vanilla rejection
             if (PscStorageDataStore.IsEmpty) return;     // cheapest early-out
             if (t == null) return;
-            var data = PscStorageDataStore.TryGet(__instance);
-            if (data == null) return;
-            bool hasLimit = data.HasLimit(t.def);
-            if (!hasLimit && data.batch <= 0) return;    // no per-def limit and no batch -> vanilla
 
             var unit = PscHaulUnit.ResolveSettings(__instance);
             if (!unit.IsValid) return;
 
-            // An item already stored in THIS unit is validly stored — never reject it, or vanilla's
-            // IsInValidBestStorage/Accepts chain would flag a capped stockpile's own contents as
-            // haulable (churn / unwanted ejection). PSC rules gate genuinely incoming items only.
-            // This is the D16 source==target guard, applied to the upper/lower AND batch rules.
-            if (PscHaulUnit.ResolveCurrent(t).Equals(unit)) return;
+            // Resolve the item's current unit once (loose / unspawned / carried => invalid). An item
+            // already stored in THIS unit is validly stored — feeder and limit rules never apply to
+            // a unit's own contents (D16), or vanilla's IsInValidBestStorage/Accepts chain would flag
+            // a capped or restricted stockpile's own contents as haulable (churn / ejection).
+            var source = PscHaulUnit.ResolveCurrent(t);
+            bool sourceIsTarget = source.IsValid && source.Equals(unit);
+
+            // --- Feeder gates (M3, D11/D16). Evaluated before the target-data early-out: a SOURCE's
+            // onlyToDestinations must block hauling its items even into a target with no PSC policy.
+            // Both rules reduce to the same directed edge (source -> target). ---
+            if (source.IsValid && !sourceIsTarget)
+            {
+                var psc = PscMapComponent.For(unit.Map);
+                if (psc != null && psc.anyFeederActive)
+                {
+                    string dstId = unit.UniqueLoadID;
+                    string srcId = source.UniqueLoadID;
+                    if (!psc.Links.HasEdge(srcId, dstId))
+                    {
+                        var srcData = PscStorageDataStore.TryGet(source.Settings);
+                        if (srcData != null && srcData.onlyToDestinations) { __result = false; return; }
+                        var tgtData = PscStorageDataStore.TryGet(__instance);
+                        if (tgtData != null && tgtData.onlyFromSource) { __result = false; return; }
+                    }
+                }
+            }
+
+            // --- Limit / batch gates (M1/M2) ---
+            var data = PscStorageDataStore.TryGet(__instance);
+            if (data == null) return;
+            bool hasLimit = data.HasLimit(t.def);
+            if (!hasLimit && data.batch <= 0) return;    // no per-def limit and no batch -> vanilla
+            if (sourceIsTarget) return;                  // D16: never reject a unit's own contents
 
             if (hasLimit)
             {
@@ -46,8 +70,6 @@ namespace PrecisionStockpileControl
 
             // Batch (D12): never start a trip with a source stack smaller than the batch size.
             if (data.batch > 0 && t.stackCount < data.batch) { __result = false; return; }
-
-            // --- M3 slot: feeder onlyFromSource / onlyToDestinations, guarded by D16 source==target ---
         }
     }
 

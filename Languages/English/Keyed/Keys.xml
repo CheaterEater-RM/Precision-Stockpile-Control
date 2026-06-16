@@ -4,6 +4,29 @@
   <!-- Mod settings -->
   <PSC_SettingsCategory>Precision Stockpile Control</PSC_SettingsCategory>
   <PSC_SettingsM1Note>More options arrive in later updates. The current release adds per-item maximums, refill thresholds, and batch hauling to stockpiles and shelves.</PSC_SettingsM1Note>
+  <PSC_SettingsFeederHeader>Feeder links</PSC_SettingsFeederHeader>
+  <PSC_SettingsDefaultOnlyFromSource>Restrict new destinations to their sources</PSC_SettingsDefaultOnlyFromSource>
+  <PSC_SettingsDefaultOnlyFromSourceTip>When you link a source to a stockpile for the first time, automatically turn on "Only from source" for it. You can still toggle it per stockpile.</PSC_SettingsDefaultOnlyFromSourceTip>
+  <PSC_SettingsDefaultOnlyToDestinations>Restrict new sources to their destinations</PSC_SettingsDefaultOnlyToDestinations>
+  <PSC_SettingsDefaultOnlyToDestinationsTip>When you link a destination to a stockpile for the first time, automatically turn on "Only to destinations" for it. You can still toggle it per stockpile.</PSC_SettingsDefaultOnlyToDestinationsTip>
+
+  <!-- Feeder link gizmos -->
+  <PSC_ConnectSource>Connect source</PSC_ConnectSource>
+  <PSC_ConnectSourceDesc>Click or drag over other stockpiles or shelves to mark them as sources that feed this storage. Items will flow from a source to this storage when this storage has the higher priority.</PSC_ConnectSourceDesc>
+  <PSC_ConnectDestination>Connect destination</PSC_ConnectDestination>
+  <PSC_ConnectDestinationDesc>Click or drag over other stockpiles or shelves to mark them as destinations this storage feeds. Items will flow from this storage to a destination when the destination has the higher priority.</PSC_ConnectDestinationDesc>
+  <PSC_OnlyFromSource>Only from source</PSC_OnlyFromSource>
+  <PSC_OnlyFromSourceDesc>When on, this storage only accepts items hauled from one of its linked sources — never loose or ground items, and never from unlinked storage.</PSC_OnlyFromSourceDesc>
+  <PSC_OnlyToDestinations>Only to destinations</PSC_OnlyToDestinations>
+  <PSC_OnlyToDestinationsDesc>When on, items in this storage are only hauled to one of its linked destinations — never to any other storage.</PSC_OnlyToDestinationsDesc>
+  <PSC_NoSourceReason>Connect a source first.</PSC_NoSourceReason>
+  <PSC_NoDestinationReason>Connect a destination first.</PSC_NoDestinationReason>
+  <PSC_ShowConnections>Show connections</PSC_ShowConnections>
+  <PSC_ShowConnectionsDesc>Show feeder links for every stockpile on the map (not just the selected one) while a storage is selected.</PSC_ShowConnectionsDesc>
+  <PSC_ClearConnections>Clear all connections</PSC_ClearConnections>
+  <PSC_ClearConnectionsDesc>Remove every feeder link on this map. Right-click and confirm — a normal click does nothing, to avoid clearing by accident.</PSC_ClearConnectionsDesc>
+  <PSC_ClearConnectionsHint>Right-click this button to clear all connections.</PSC_ClearConnectionsHint>
+  <PSC_ClearConnectionsConfirm>Clear all feeder connections on this map</PSC_ClearConnectionsConfirm>
 
   <!-- Storage tab button -->
   <PSC_ButtonLabel>PSC</PSC_ButtonLabel>

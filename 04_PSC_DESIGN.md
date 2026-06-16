@@ -37,7 +37,7 @@ PSC adds **one button** to the vanilla stockpile tab. Everything else is behind 
 | D1 | On PSC removal, a limited item degrades to plain **allowed** (unlimited). |
 | D2 | **Hard cap contract.** Upper limit = the maximum. M2 realizes this as a **focused** hard cap (see §8.1 "M2 Hard Cap — Focused Scope"): the haul/drop path and Pick Up And Haul are capped; rare direct-spawn paths stay soft and are documented. UI uses "maximum" (not "target maximum") once M2 ships. |
 | D3 | Click vs. click-drag handled like Material Filter (Harmony). |
-| D4 | Auto-priority sets the **source** one fine-order step lower. Destination never modified. |
+| D4 | Auto-priority sets the **source** one fine-order step lower. Destination never modified. *(Implementation deferred to M4 — it needs the fine-order letter mechanism. M3 ships the `autosetSourcePriority` setting as a no-op and enforces link validity only: an invalid link draws red and, because the destination does not outrank the source, vanilla generates no haul for it.)* |
 | D5 | Destination must outrank source — **enforced.** A link where destination ≤ source priority is non-functional (drawn red). Prevents cycles and reverse-grab. |
 | D6 | 1–10 priority is **distinct when active** (realized via the fine-order machinery, §6.4); collapses to the 5 vanilla bands when the setting is off or the mod is removed. Internal `StoragePriority` enum never changes. |
 | D7 | Feeder endpoint = the **haul unit**: `member.Group` when linked, else the standalone slot group / zone. Stored by `GetUniqueLoadID()` string handle; resolves lazily on load. |
@@ -359,9 +359,21 @@ The global PSC control window closes automatically when its source stockpile/sto
 
 ### 10.6 Feeder link UI
 
-Four gizmos on selected stockpile: **Connect source**, **Connect destination**, **Toggle overlay**, **Clear all connections** (right-click required on clear — single click does nothing).
+**As built (M3):** six gizmos on the selected stockpile/shelf (single-selection gated): **Connect
+source**, **Connect destination**, **Only from source** (toggle), **Only to destinations** (toggle),
+**Show connections** (toggle), **Clear all connections** (right-click float-menu required — a plain
+click only shows a hint). The two strictness toggles moved from the control window to gizmos to keep
+all feeder controls together; each is grayed out until the unit has a source/destination, and is
+seeded from a mod-setting default (both default on) when the unit gains its first link.
 
-Overlay: bright green arrows with directional arrowheads near both source and destination. Non-functional links (destination priority ≤ source) drawn in red with small × marks along the line (arrows kept).
+Connect source/destination are paint `Designator`s (no draw style): a single click links one storage;
+a click-drag *paints* — every storage the cursor passes over is linked immediately (not a box drawn
+out and applied on release), so the player can run across several stockpiles to link each.
+
+Overlay: bright green arrows with directional arrowheads near both source and destination. Non-
+functional links (destination priority ≤ source) drawn in red with small × marks along the line
+(arrows kept). Drawn from `PscMapComponent.MapComponentUpdate`: the selected storage's links always,
+or every link on the map when **Show connections** is on.
 
 ### 10.7 Subpriority display
 
