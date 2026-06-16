@@ -103,6 +103,13 @@ namespace PrecisionStockpileControl
         public override void FinalizeInit()
         {
             base.FinalizeInit();
+            // Drop feeder edges whose endpoints are no longer live storage on this map (removed
+            // storage, removed mod, cross-map paste garbage) — self-heals each load.
+            PruneFeederLinksAndFlags(markDirty: true);
+        }
+
+        private void RebuildTrackingFromStore(bool markDirty)
+        {
             tracked.Clear();
             if (!PscStorageDataStore.IsEmpty)
             {
@@ -113,14 +120,11 @@ namespace PrecisionStockpileControl
                     if (unit.IsValid && unit.Map == map)
                     {
                         tracked.Add(kv.Key);
-                        kv.Value.MarkAllDirty();
+                        if (markDirty) kv.Value.MarkAllDirty();
                     }
                 }
             }
             anyPscActive = tracked.Count > 0;
-            // Drop feeder edges whose endpoints are no longer live storage on this map (removed
-            // storage, removed mod, cross-map paste garbage) — self-heals each load.
-            feederLinks.PruneToLiveIds(BuildLiveIds());
             RecomputeFeederActive();
             RebuildDemand();
         }
@@ -171,7 +175,11 @@ namespace PrecisionStockpileControl
             NotifyPolicyChanged(settings);   // updates tracking + anyFeederActive
         }
 
-        public void ClearAllFeederLinks() => feederLinks.ClearAll();
+        public void ClearAllFeederLinks()
+        {
+            feederLinks.ClearAll();
+            PruneFeederLinksAndFlags();
+        }
 
         // Copy/paste "duplicate" (replace semantics): the pasted-onto unit adopts the copied unit's
         // source and destination lists.
@@ -179,9 +187,102 @@ namespace PrecisionStockpileControl
         {
             string id = unit.UniqueLoadID;
             if (id == null) return;
+            var liveIds = BuildLiveIds();
             feederLinks.RemoveAllFor(id);
-            if (sources != null) foreach (var s in sources) feederLinks.AddEdge(s, id);
-            if (dests != null) foreach (var d in dests) feederLinks.AddEdge(id, d);
+            if (sources != null)
+            {
+                foreach (var s in sources)
+                    if (liveIds.Contains(s)) feederLinks.AddEdge(s, id);
+            }
+            if (dests != null)
+            {
+                foreach (var d in dests)
+                    if (liveIds.Contains(d)) feederLinks.AddEdge(id, d);
+            }
+            PruneFeederLinksAndFlags();
+        }
+
+        public void RemoveFeederEndpoint(string id)
+        {
+            if (id == null) return;
+            feederLinks.RemoveAllFor(id);
+            PscFeederHaulContext.ClearForEndpoint(id);
+            PruneFeederLinksAndFlags();
+        }
+
+        public void PruneFeederLinksAndFlags(bool markDirty = false)
+        {
+            var liveIds = BuildLiveIds();
+            feederLinks.PruneToLiveIds(liveIds);
+            ClearOrphanedFeederFlags(liveIds);
+            PscFeederHaulContext.PruneForMap(map, this);
+            RebuildTrackingFromStore(markDirty);
+        }
+
+        private void ClearOrphanedFeederFlags(HashSet<string> liveIds)
+        {
+            if (PscStorageDataStore.IsEmpty || liveIds == null) return;
+
+            List<StorageSettings> remove = null;
+            foreach (var kv in PscStorageDataStore.All)
+            {
+                var data = kv.Value;
+                if (data == null || (!data.onlyFromSource && !data.onlyToDestinations)) continue;
+
+                var unit = PscHaulUnit.ResolveSettings(kv.Key);
+                if (!unit.IsValid || unit.Map != map) continue;
+                string id = unit.UniqueLoadID;
+                if (id == null || !liveIds.Contains(id)) continue;
+
+                if (data.onlyFromSource && !feederLinks.HasAnySource(id))
+                    data.onlyFromSource = false;
+                if (data.onlyToDestinations && !feederLinks.HasAnyDestination(id))
+                    data.onlyToDestinations = false;
+
+                if (!data.HasPersistentPolicy)
+                    (remove ??= new List<StorageSettings>()).Add(kv.Key);
+            }
+
+            if (remove != null)
+            {
+                foreach (var s in remove)
+                    PscStorageDataStore.Remove(s);
+            }
+        }
+
+        public bool HasFunctionalFeederEdge(PscHaulUnit source, PscHaulUnit dest)
+        {
+            if (!source.IsValid || !dest.IsValid) return false;
+            if (source.Map != map || dest.Map != map) return false;
+            var sourceSettings = source.Settings;
+            var destSettings = dest.Settings;
+            if (sourceSettings == null || destSettings == null) return false;
+            if ((int)destSettings.Priority <= (int)sourceSettings.Priority) return false;
+            return feederLinks.HasEdge(source.UniqueLoadID, dest.UniqueLoadID);
+        }
+
+        public bool HasFunctionalFeederEdge(string sourceId, string destId)
+        {
+            if (!TryResolveLiveUnit(sourceId, out var source)) return false;
+            if (!TryResolveLiveUnit(destId, out var dest)) return false;
+            return HasFunctionalFeederEdge(source, dest);
+        }
+
+        public bool TryResolveLiveUnit(string id, out PscHaulUnit unit)
+        {
+            unit = default;
+            if (id == null) return false;
+            var groups = map.haulDestinationManager.AllGroupsListForReading;
+            for (int i = 0; i < groups.Count; i++)
+            {
+                var u = PscHaulUnit.FromSlotGroup(groups[i]);
+                if (u.IsValid && u.UniqueLoadID == id)
+                {
+                    unit = u;
+                    return true;
+                }
+            }
+            return false;
         }
 
         // Every live storage unit's id on this map (canonical: StorageGroup when grouped).

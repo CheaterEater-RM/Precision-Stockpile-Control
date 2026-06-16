@@ -28,29 +28,46 @@ namespace PrecisionStockpileControl
             // a capped or restricted stockpile's own contents as haulable (churn / ejection).
             var source = PscHaulUnit.ResolveCurrent(t);
             bool sourceIsTarget = source.IsValid && source.Equals(unit);
+            PscStorageData data = null;
 
             // --- Feeder gates (M3, D11/D16). Evaluated before the target-data early-out: a SOURCE's
             // onlyToDestinations must block hauling its items even into a target with no PSC policy.
-            // Both rules reduce to the same directed edge (source -> target). ---
-            if (source.IsValid && !sourceIsTarget)
+            // Both rules reduce to the same functional directed edge (source -> target). Loose items
+            // have no source edge, so onlyFromSource rejects them.
+            if (!sourceIsTarget)
             {
                 var psc = PscMapComponent.For(unit.Map);
                 if (psc != null && psc.anyFeederActive)
                 {
-                    string dstId = unit.UniqueLoadID;
-                    string srcId = source.UniqueLoadID;
-                    if (!psc.Links.HasEdge(srcId, dstId))
+                    bool hasFunctionalEdge = source.IsValid && psc.HasFunctionalFeederEdge(source, unit);
+                    if (!hasFunctionalEdge && !source.IsValid
+                        && PscFeederHaulContext.TryGet(t, out var route)
+                        && route.map == unit.Map
+                        && route.destId == unit.UniqueLoadID
+                        && psc.HasFunctionalFeederEdge(route.sourceId, route.destId))
                     {
-                        var srcData = PscStorageDataStore.TryGet(source.Settings);
-                        if (srcData != null && srcData.onlyToDestinations) { __result = false; return; }
-                        var tgtData = PscStorageDataStore.TryGet(__instance);
-                        if (tgtData != null && tgtData.onlyFromSource) { __result = false; return; }
+                        hasFunctionalEdge = true;
+                    }
+                    if (!hasFunctionalEdge)
+                    {
+                        if (source.IsValid)
+                        {
+                            var srcData = PscStorageDataStore.TryGet(source.Settings);
+                            if (srcData != null && srcData.onlyToDestinations) { __result = false; return; }
+                        }
+                        else if (PscFeederHaulContext.TryGet(t, out var carriedRoute) && carriedRoute.map == unit.Map)
+                        {
+                            __result = false;
+                            return;
+                        }
+                        data = PscStorageDataStore.TryGet(__instance);
+                        if (data != null && data.onlyFromSource) { __result = false; return; }
                     }
                 }
             }
 
             // --- Limit / batch gates (M1/M2) ---
-            var data = PscStorageDataStore.TryGet(__instance);
+            data ??= PscStorageDataStore.TryGet(__instance);
             if (data == null) return;
             bool hasLimit = data.HasLimit(t.def);
             if (!hasLimit && data.batch <= 0) return;    // no per-def limit and no batch -> vanilla
@@ -89,6 +106,21 @@ namespace PrecisionStockpileControl
             var slot = p.Map.haulDestinationManager.SlotGroupAt(storeCell);
             if (slot == null) return;
             ISlotGroup canon = slot.StorageGroup != null ? (ISlotGroup)slot.StorageGroup : slot;
+            var targetUnit = new PscHaulUnit(canon);
+            var sourceUnit = PscHaulUnit.ResolveCurrent(t);
+            if (t.Spawned && t.Position == storeCell) { __result = null; PscFeederHaulContext.Clear(t); return; }
+            if (sourceUnit.IsValid && sourceUnit.Equals(targetUnit)) { __result = null; PscFeederHaulContext.Clear(t); return; }
+
+            var psc = PscMapComponent.For(p.Map);
+            if (psc != null && sourceUnit.IsValid && psc.HasFunctionalFeederEdge(sourceUnit, targetUnit))
+            {
+                __result.haulOpportunisticDuplicates = false;
+                PscFeederHaulContext.Register(t, p.Map, sourceUnit.UniqueLoadID, targetUnit.UniqueLoadID);
+            }
+            else
+            {
+                PscFeederHaulContext.Clear(t);
+            }
 
             var data = PscStorageDataStore.TryGet(canon.Settings);
             if (data == null) return;
@@ -100,8 +132,7 @@ namespace PrecisionStockpileControl
                 var lim = data.GetLimit(t.def);
                 if (lim.Upper.HasValue)
                 {
-                    var unit = new PscHaulUnit(canon);
-                    int room = Math.Max(0, lim.Upper.Value - data.GetCount(t.def, unit));
+                    int room = Math.Max(0, lim.Upper.Value - data.GetCount(t.def, targetUnit));
                     if (__result.count > room) __result.count = room;
                 }
             }
@@ -109,7 +140,11 @@ namespace PrecisionStockpileControl
             // Batch (D12): never bring fewer than `batch` in one trip — cancel an under-batch job.
             // Note: when remaining room < batch (a near-full capped unit), the last < batch items are
             // intentionally not hauled ("no small trips"). Opportunistic duplicates are left as vanilla.
-            if (data.batch > 0 && __result.count < data.batch) __result = null;
+            if (data.batch > 0 && __result.count < data.batch)
+            {
+                PscFeederHaulContext.Clear(t);
+                __result = null;
+            }
         }
     }
 }

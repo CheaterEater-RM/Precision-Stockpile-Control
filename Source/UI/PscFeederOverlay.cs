@@ -43,7 +43,7 @@ namespace PrecisionStockpileControl
                 if (su.Settings == null || du.Settings == null) continue;
                 if (!su.TryGetDrawCenter(out var a) || !du.TryGetDrawCenter(out var b)) continue;
 
-                bool valid = (int)du.Settings.Priority > (int)su.Settings.Priority;
+                bool valid = psc.HasFunctionalFeederEdge(su, du);
                 DrawLink(a, b, valid);
             }
         }

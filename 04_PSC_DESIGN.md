@@ -37,7 +37,7 @@ PSC adds **one button** to the vanilla stockpile tab. Everything else is behind 
 | D1 | On PSC removal, a limited item degrades to plain **allowed** (unlimited). |
 | D2 | **Hard cap contract.** Upper limit = the maximum. M2 realizes this as a **focused** hard cap (see §8.1 "M2 Hard Cap — Focused Scope"): the haul/drop path and Pick Up And Haul are capped; rare direct-spawn paths stay soft and are documented. UI uses "maximum" (not "target maximum") once M2 ships. |
 | D3 | Click vs. click-drag handled like Material Filter (Harmony). |
-| D4 | Auto-priority sets the **source** one fine-order step lower. Destination never modified. *(Implementation deferred to M4 — it needs the fine-order letter mechanism. M3 ships the `autosetSourcePriority` setting as a no-op and enforces link validity only: an invalid link draws red and, because the destination does not outrank the source, vanilla generates no haul for it.)* |
+| D4 | Auto-priority sets the **source** one fine-order step lower. Destination never modified. *(Implementation deferred to M4 — it needs the fine-order letter mechanism. M3 ships the `autosetSourcePriority` setting as a no-op and enforces link validity only: an invalid link draws red and is not a functional feeder edge.)* |
 | D5 | Destination must outrank source — **enforced.** A link where destination ≤ source priority is non-functional (drawn red). Prevents cycles and reverse-grab. |
 | D6 | 1–10 priority is **distinct when active** (realized via the fine-order machinery, §6.4); collapses to the 5 vanilla bands when the setting is off or the mod is removed. Internal `StoragePriority` enum never changes. |
 | D7 | Feeder endpoint = the **haul unit**: `member.Group` when linked, else the standalone slot group / zone. Stored by `GetUniqueLoadID()` string handle; resolves lazily on load. |
@@ -87,7 +87,7 @@ Scribed via postfix on `StorageSettings.ExposeData` as a child node (`<psc>`). U
 
 ### 4.2 Feeder links → `PSC_MapComponent`
 
-Feeder links bind haul units (D7), which a shared `StorageSettings` cannot express. Stored as pairs of stable string handles (`GetUniqueLoadID()`). Resolved lazily on load; an unresolved endpoint (removed storage or mod) silently drops the link — no warning spam, no polymorphic-collection unload hazard.
+Feeder links bind haul units (D7), which a shared `StorageSettings` cannot express. Stored as pairs of stable string handles (`GetUniqueLoadID()`). Resolved lazily on load and pruned on endpoint lifecycle changes; an unresolved endpoint (removed storage or mod) silently drops the link — no warning spam, no polymorphic-collection unload hazard. When a unit loses its last incoming/outgoing link, the matching `onlyFromSource` / `onlyToDestinations` flag auto-clears so the storage remains reusable.
 
 ### 4.3 Demand index → `PSC_MapComponent`
 
@@ -219,10 +219,14 @@ if batch set and t.stackCount < batch:                     result = false; retur
 source = ResolveCurrentHaulUnit(t)                         // null = loose/unspawned/carried
 target = ResolveSettingsHaulUnit(settings)
 if source != target:
-    if data.onlyFromSource and source not in data.sources:         result = false; return
-    if source has onlyToDestinations and target not in src.dests:  result = false; return
+    hasEdge = source != null and HasFunctionalEdge(source, target) // stored edge + destination outranks source
+    if source == null and activeFeederHaulContext(t, target):
+        hasEdge = true                                    // carried item still has planned source
+    if data.onlyFromSource and not hasEdge:                        result = false; return
+    if source has onlyToDestinations and not hasEdge:               result = false; return
 
 HaulToCellStorageJob postfix:
+    if planned feeder edge: register runtime source->target context; disable opportunistic duplicates
     clamp job.count = min(job.count, upper - n)
     if batch set and job.count < batch:   job = null (cancel)
 ```
@@ -400,6 +404,8 @@ On PSC removal: limited items degrade to plain allowed (D1).
 ### 11.3 Feeder stockpiles
 
 Source → destination flow enforcement. Endpoints are haul units (D7). `onlyFromSource` and `onlyToDestinations` toggles. Auto-priority sets source one fine-order step lower (D4). Destination must outrank source (D5). Links stored by load-ID string handles; unresolved handles drop silently.
+
+Feeder hauling carries runtime-only source→destination context on the hauled `Thing`, transferred to split carried stacks. This is required because vanilla revalidates storage after pickup, when the item is carried/unspawned and no longer resolves to its source slot group. Feeder-routed jobs disable opportunistic duplicate pickup in M3.
 
 Feeder rules never apply when source unit == target unit (D16).
 

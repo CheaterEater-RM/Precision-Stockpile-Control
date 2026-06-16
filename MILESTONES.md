@@ -129,13 +129,18 @@ Builds clean, `net48`, Harmony 2.4, 0 warnings.
 - **Link store.** Authoritative directed-edge list (`PscFeederLinks` / `PscFeederLink`) owned by
   `PscMapComponent`, scribed via a new `ExposeData` (`<feederLinks>`, written only when non-empty so
   add/remove stay save-safe). Endpoints are `PscHaulUnit.UniqueLoadID` strings; unresolved endpoints
-  drop silently and are pruned on load (`PruneToLiveIds`). Derived runtime indices (edge set +
-  source/dest adjacency) rebuilt lazily behind a dirty flag.
+  drop silently and are pruned on load and endpoint lifecycle changes. Derived runtime indices (edge
+  set + source/dest adjacency) rebuilt lazily behind a dirty flag.
 - **Admission rules.** Feeder block added to the `AllowedToAccept(Thing)` postfix, evaluated *before*
   the target-data early-out (a source's `onlyToDestinations` must block hauling even into a target
   with no PSC policy) and gated behind a per-map `anyFeederActive` flag. Both rules — target
-  `onlyFromSource` and source `onlyToDestinations` — reduce to the same directed edge
-  `HasEdge(source, target)`. D16 source==target guard reused.
+  `onlyFromSource` and source `onlyToDestinations` — reduce to the same functional directed edge:
+  `HasEdge(source, target)` and destination priority > source priority. Loose items have no source
+  edge, so `onlyFromSource` rejects them. D16 source==target guard reused.
+- **Haul context.** Feeder `HaulToCell` jobs register runtime-only source/destination ids for the
+  hauled thing; the context transfers to split carried stacks and is cleared on storage receipt or
+  stale route pruning. This keeps carried-item revalidation from losing the planned feeder source.
+  Feeder jobs disable opportunistic duplicate pickup for M3.
 - **Gizmos.** Six feeder gizmos (`PscFeederGizmos`) on zones and shelves via `Zone_Stockpile`/
   `Building_Storage` `GetGizmos` postfixes (single-selection gated): Connect source, Connect
   destination (paint `Designator_PscFeederLink` — click links one storage, drag paints every storage
@@ -149,7 +154,9 @@ Builds clean, `net48`, Harmony 2.4, 0 warnings.
   `StorageSettingsClipboard.Copy`/`PasteInto` postfixes (session-static payload, "replace"/adopt
   semantics — the pasted-onto unit adopts the copied unit's source/dest lists). Vanilla link/unlink
   handled in a `StorageGroupUtility.SetStorageGroup` postfix (`AdoptLinks` reciprocal duplication).
-  Policy flags continue to ride the existing `CopyFrom` postfix.
+  Runtime pruning covers zone deletion, storage despawn/destroy, dead storage-group ids, and
+  cross-map paste endpoints. When a unit loses its last incoming/outgoing link, the matching strict
+  feeder flag auto-clears so the gizmo cannot strand a stockpile in an unusable state.
 - **Settings.** `defaultOnlyFromSource` / `defaultOnlyToDestinations` (both default on) added to
   `PscSettings` + settings window. `autosetSourcePriority` left persisted but **no-op** — auto-priority
   deferred to M4 (it needs the fine-order letter mechanism); M3 enforces link validity only.

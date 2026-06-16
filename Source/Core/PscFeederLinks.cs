@@ -94,24 +94,27 @@ namespace PrecisionStockpileControl
             return true;
         }
 
-        public void RemoveEdge(string sourceId, string destId)
+        public bool RemoveEdge(string sourceId, string destId)
         {
             int n = links.RemoveAll(l => l.sourceId == sourceId && l.destId == destId);
             if (n > 0) dirty = true;
+            return n > 0;
         }
 
-        public void RemoveAllFor(string id)
+        public bool RemoveAllFor(string id)
         {
-            if (string.IsNullOrEmpty(id)) return;
+            if (string.IsNullOrEmpty(id)) return false;
             int n = links.RemoveAll(l => l.sourceId == id || l.destId == id);
             if (n > 0) dirty = true;
+            return n > 0;
         }
 
-        public void ClearAll()
+        public bool ClearAll()
         {
-            if (links.Count == 0) return;
+            if (links.Count == 0) return false;
             links.Clear();
             dirty = true;
+            return true;
         }
 
         // Reciprocal duplication: every edge touching fromId is mirrored onto toId, so the adopting
@@ -135,11 +138,12 @@ namespace PrecisionStockpileControl
 
         // Drop edges whose endpoints are not live storage units on the map. Called on load to
         // self-heal leaks from removed storage (and to keep cross-map paste garbage from lingering).
-        public void PruneToLiveIds(HashSet<string> liveIds)
+        public bool PruneToLiveIds(HashSet<string> liveIds)
         {
-            if (liveIds == null) return;
+            if (liveIds == null) return false;
             int n = links.RemoveAll(l => !liveIds.Contains(l.sourceId) || !liveIds.Contains(l.destId));
             if (n > 0) dirty = true;
+            return n > 0;
         }
 
         public void ExposeData()

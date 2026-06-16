@@ -97,8 +97,8 @@ namespace PrecisionStockpileControl
             return default;
         }
 
-        // A spawned thing -> its current storage unit. Carried/unspawned/loose => invalid (feeder
-        // gates do not apply to loose items).
+        // A spawned thing -> its current storage unit. Carried/unspawned/loose => invalid (treated
+        // as having no source link by feeder admission).
         public static PscHaulUnit ResolveCurrent(Thing t)
         {
             if (t == null || !t.Spawned) return default;
