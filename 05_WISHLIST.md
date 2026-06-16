@@ -2,3 +2,9 @@ This is just a brainstorming list of possible future ideas to implement, we don'
 
 - Alerts for stockpiles low/high
 - Drag-apply priorities in order, so if first stockpile is a, second then is b, third is c, etc.
+
+
+
+Preview art:
+Vader with shelf, pray I do not alter it further
+Pepe Silvia conspiracy board with feeder shelves

@@ -49,7 +49,7 @@ namespace PrecisionStockpileControl
         {
             if (__state.settings == null) return;
 
-            var rect = new Rect(10f, 45f, 196f, 24f);
+            var rect = PscUiWidgets.EntryButtonRect();
             if (Widgets.ButtonText(rect, "PSC_ButtonLabel".Translate()))
             {
                 // Always (re)open for the currently selected storage, replacing any prior window.
@@ -61,6 +61,8 @@ namespace PrecisionStockpileControl
 
         public static void Finalizer()
         {
+            PscFilterPaint.FlushPendingVanillaPaint();
+            PscFilterPaint.Reset();
             PscUiContext.Clear();
         }
     }

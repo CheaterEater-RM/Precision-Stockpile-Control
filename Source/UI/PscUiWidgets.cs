@@ -9,6 +9,18 @@ namespace PrecisionStockpileControl
     {
         public const float StorageTabReserveHeight = 30f;
 
+        // PSC entry button placement on the storage tab, in the FillTab BeginGroup-contracted space.
+        // ThingFilterUI reserves StorageTabReserveHeight at the top of the filter list (see
+        // ThingFilterUI_Patch); the button sits just above that reserved strip. Kept here as the single
+        // source of truth so the reserve and the button can't drift apart.
+        private const float EntryButtonX = 10f;
+        private const float EntryButtonY = 45f;
+        private const float EntryButtonWidth = 196f;
+        private const float EntryButtonHeight = 24f;
+
+        public static Rect EntryButtonRect()
+            => new Rect(EntryButtonX, EntryButtonY, EntryButtonWidth, EntryButtonHeight);
+
         private static readonly Texture2D LimitI =
             ContentFinder<Texture2D>.Get("UI/Widgets/PSC_LimitI", false);
         private static readonly Texture2D SliderRail =

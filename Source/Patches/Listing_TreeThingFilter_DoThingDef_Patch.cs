@@ -1,3 +1,4 @@
+using System;
 using HarmonyLib;
 using UnityEngine;
 using Verse;
@@ -19,6 +20,13 @@ namespace PrecisionStockpileControl
         {
             float lh = ((Listing_Lines)inst).lineHeight;
             return new Rect(inst.ColumnWidth - 26f, rowY, lh, lh);
+        }
+
+        private static void OpenItemMenu(ThingDef tDef)
+        {
+            Find.WindowStack.WindowOfType<PscItemLimitMenu>()?.Close(false);
+            Find.WindowStack.Add(new PscItemLimitMenu(PscUiContext.Settings, PscUiContext.Unit,
+                new System.Collections.Generic.List<ThingDef> { tDef }, tDef.LabelCap));
         }
 
         public static void Prefix(Listing_TreeThingFilter __instance, ThingDef tDef, out float __state)
@@ -47,13 +55,18 @@ namespace PrecisionStockpileControl
                     return;
                 }
 
+                // Right-click opens the per-item menu directly on MouseDown (mirrors DoCategory).
+                // Deferring to MouseUp via the paint dance was unreliable, so the menu could be lost.
                 if (e.button == 1 && RowRect(__instance, __state).Contains(e.mousePosition))
                 {
-                    PscFilterPaint.Begin(1, PscUiContext.Settings, PscUiContext.Unit, tDef, limit, e.mousePosition);
+                    OpenItemMenu(tDef);
                     e.Use();
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Log.ErrorOnce("[PSC] DoThingDef prefix failed: " + ex, 0x1C5A0001);
+            }
         }
 
         public static void Postfix(Listing_TreeThingFilter __instance, ThingDef tDef, float __state)
@@ -75,6 +88,16 @@ namespace PrecisionStockpileControl
 
                 var data = PscUiContext.Data;
                 if (data == null || !data.HasLimit(tDef)) return;
+
+                // A vanilla left-drag allow/disallow paint passing over a limited row overwrites the
+                // precise limit with the plain painted state. Limited rows keep the vanilla checkbox
+                // suppressed, so we replicate the paint here via ClearLimit (removes limit + SetAllow).
+                if (PscFilterPaint.VanillaPaintActive && Mouse.IsOver(CheckboxRect(__instance, __state)))
+                {
+                    PscEdit.ClearLimit(PscUiContext.Settings, tDef, PscFilterPaint.VanillaPaintAllow);
+                    PscFilterPaint.MarkVanillaPaintDirty(PscUiContext.Settings);
+                    return; // limit cleared; the row reverts to a normal vanilla checkbox next frame
+                }
 
                 var lim = data.GetLimit(tDef);
                 float lh = ((Listing_Lines)__instance).lineHeight;
@@ -103,7 +126,10 @@ namespace PrecisionStockpileControl
                     GUI.color = prevColor;
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Log.ErrorOnce("[PSC] DoThingDef postfix failed: " + ex, 0x1C5A0002);
+            }
             finally
             {
                 PscFilterPaint.ClearOwnedCheckbox();

@@ -18,7 +18,7 @@ namespace PrecisionStockpileControl
         private int batchVal;
         private string batchBuf = "0";
 
-        public override Vector2 InitialSize => new Vector2(520f, 350f);
+        public override Vector2 InitialSize => new Vector2(520f, 390f);
 
         public PscControlWindow(StorageSettings settings, PscHaulUnit unit, QuickSearchFilter search)
         {

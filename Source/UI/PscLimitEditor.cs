@@ -234,10 +234,15 @@ namespace PrecisionStockpileControl
 
         private void DrawTicks(Rect rail, int sliderMax, PscLimitEditorTarget target)
         {
-            DrawTick(rail, 0f, 18f, PscUiWidgets.LimitColor);
-            DrawTick(rail, NullBuffer, 12f, Color.gray);
-            DrawTick(rail, 1f - NullBuffer, 12f, Color.gray);
-            DrawTick(rail, 1f, 18f, PscUiWidgets.LimitColor);
+            // Endpoints (extreme rail ends) are the "blank" ends — always-refill / fill-to-maximum.
+            // Bright and thick so they read as the special unbounded ends.
+            DrawTick(rail, 0f, 18f, PscUiWidgets.LimitColor, 3f);
+            DrawTick(rail, 1f, 18f, PscUiWidgets.LimitColor, 3f);
+
+            // The first "real" value on each side sits just inside the null buffer. Mark these with the
+            // limit-text accent so the jump from "blank end" to "first concrete value" is legible.
+            DrawTick(rail, NullBuffer, 14f, PscUiWidgets.LimitTextColor, 2f);
+            DrawTick(rail, 1f - NullBuffer, 14f, PscUiWidgets.LimitTextColor, 2f);
 
             if (!stacksMode && !target.HasStackContext) return;
             int step = stacksMode ? 1 : target.StackLimit;
@@ -246,16 +251,16 @@ namespace PrecisionStockpileControl
             int stride = Mathf.Max(1, Mathf.CeilToInt(tickCount / (float)maxTicks));
             for (int v = step * stride; v < sliderMax; v += step * stride)
             {
-                DrawTick(rail, ValueToNorm(v, true, sliderMax), 10f, new Color(0.55f, 0.55f, 0.55f));
+                DrawTick(rail, ValueToNorm(v, true, sliderMax), 9f, new Color(0.5f, 0.5f, 0.5f), 1f);
             }
         }
 
-        private static void DrawTick(Rect rail, float norm, float height, Color color)
+        private static void DrawTick(Rect rail, float norm, float height, Color color, float width = 2f)
         {
             var prev = GUI.color;
             GUI.color = color;
             float x = Mathf.Lerp(rail.xMin, rail.xMax, norm);
-            GUI.DrawTexture(new Rect(x - 1f, rail.center.y - height / 2f, 2f, height), BaseContent.WhiteTex);
+            GUI.DrawTexture(new Rect(x - width / 2f, rail.center.y - height / 2f, width, height), BaseContent.WhiteTex);
             GUI.color = prev;
         }
 
@@ -386,7 +391,10 @@ namespace PrecisionStockpileControl
                     if (heldStacks > slots) slots = heldStacks;
                 }
             }
-            catch { }
+            catch (System.Exception ex)
+            {
+                Log.ErrorOnce("[PSC] StackSlots failed: " + ex, 0x1C5A0005);
+            }
             return Mathf.Max(1, slots);
         }
 

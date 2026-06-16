@@ -17,7 +17,7 @@ namespace PrecisionStockpileControl
         private readonly PscLimitEditor editor = new PscLimitEditor();
         private readonly PscLimitEditorTarget target;
 
-        public override Vector2 InitialSize => new Vector2(520f, 310f);
+        public override Vector2 InitialSize => new Vector2(520f, 350f);
 
         public PscItemLimitMenu(StorageSettings settings, PscHaulUnit unit, List<ThingDef> defs, string title)
         {

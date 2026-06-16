@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using RimWorld;
@@ -50,7 +51,10 @@ namespace PrecisionStockpileControl
                     e.Use();
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Log.ErrorOnce("[PSC] DoCategory prefix failed: " + ex, 0x1C5A0003);
+            }
         }
 
         public static void Postfix(Listing_TreeThingFilter __instance, TreeNode_ThingCategory node, float __state)
@@ -58,7 +62,38 @@ namespace PrecisionStockpileControl
             if (!PscUiContext.Active || node?.catDef == null) return;
             try
             {
+                // PSC marker drag (started on an item with a limit) propagating onto a category applies
+                // the dragged limit to every storable descendant. Handled before the PSC-state check so
+                // a limit can be pasted onto a category that has no limits yet.
+                var e = Event.current;
+                if (e != null && PscFilterPaint.Active)
+                {
+                    var rowRect = new Rect(0f, __state, __instance.ColumnWidth, ((Listing_Lines)__instance).lineHeight);
+                    if (e.type == EventType.MouseDrag && rowRect.Contains(e.mousePosition))
+                    {
+                        foreach (var d in StorableDescendants(node.catDef))
+                            PscFilterPaint.PaintRow(d, e.mousePosition);
+                    }
+                    else if (e.type == EventType.MouseUp && e.button == PscFilterPaint.Button)
+                    {
+                        PscFilterPaint.End();
+                        e.Use();
+                    }
+                }
+
                 if (!TryGetCategoryLimitState(node.catDef, out var shared, out bool mixed, out int? sharedStackLimit)) return;
+
+                // A vanilla left-drag allow/disallow paint over a category overwrites every descendant's
+                // limit with the plain painted state (mirrors vanilla's category-paint cascade). The
+                // category checkbox is suppressed while it has PSC state, so we apply it ourselves.
+                if (PscFilterPaint.VanillaPaintActive && Mouse.IsOver(CheckboxRect(__instance, __state)))
+                {
+                    bool allow = PscFilterPaint.VanillaPaintAllow;
+                    foreach (var d in StorableDescendants(node.catDef))
+                        PscEdit.ClearLimit(PscUiContext.Settings, d, allow);
+                    PscFilterPaint.MarkVanillaPaintDirty(PscUiContext.Settings);
+                    return;
+                }
 
                 float lh = ((Listing_Lines)__instance).lineHeight;
                 var iconRect = CheckboxRect(__instance, __state);
@@ -88,7 +123,10 @@ namespace PrecisionStockpileControl
                     }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Log.ErrorOnce("[PSC] DoCategory postfix failed: " + ex, 0x1C5A0004);
+            }
             finally
             {
                 PscFilterPaint.ClearOwnedCheckbox();
@@ -153,16 +191,23 @@ namespace PrecisionStockpileControl
             return true;
         }
 
-        private static void OpenCategoryMenu(ThingCategoryDef cat)
+        // Storable descendant defs of a category that the parent store settings permit. Shared by the
+        // category menu and the vanilla-paint clear path.
+        private static IEnumerable<ThingDef> StorableDescendants(ThingCategoryDef cat)
         {
             ThingFilter parentFilter = PscUiContext.Settings?.owner?.GetParentStoreSettings()?.filter;
-            var defs = new List<ThingDef>();
             foreach (var d in cat.DescendantThingDefs)
             {
-                if (!d.EverStorable(false)) continue;
+                if (d == null || !d.EverStorable(false)) continue;
                 if (parentFilter != null && !parentFilter.Allows(d)) continue;
-                defs.Add(d);
+                yield return d;
             }
+        }
+
+        private static void OpenCategoryMenu(ThingCategoryDef cat)
+        {
+            var defs = new List<ThingDef>();
+            foreach (var d in StorableDescendants(cat)) defs.Add(d);
             if (defs.Count == 0) return;
             Find.WindowStack.WindowOfType<PscItemLimitMenu>()?.Close(false);
             Find.WindowStack.Add(new PscItemLimitMenu(PscUiContext.Settings, PscUiContext.Unit, defs, cat.LabelCap));
