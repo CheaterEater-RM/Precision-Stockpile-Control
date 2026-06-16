@@ -22,7 +22,6 @@ namespace PrecisionStockpileControl
         private const float RowH = 29f;
         private const float PriorityButtonW = 160f;
         private const float Gap = 6f;
-        private const float LevelW = 54f;
         private const float LetterW = 40f;
 
         public static void Draw(StorageSettings settings)
@@ -32,20 +31,26 @@ namespace PrecisionStockpileControl
             if (!unit.IsValid) return;
 
             var data = PscStorageDataStore.TryGet(settings);
-            float x = RowX + PriorityButtonW + Gap;
 
             Text.Font = GameFont.Small;
             var prevAnchor = Text.Anchor;
             Text.Anchor = TextAnchor.MiddleCenter;
 
-            if (PscMod.Settings != null && PscMod.Settings.priorityNumbering)
+            // With 1-10 numbering on, PSC subsumes the vanilla Priority band button: the suppression
+            // patch hides vanilla's button (only on tabs that actually have one), and we draw the
+            // level box in its exact footprint. The letter box then follows it. With numbering off,
+            // the vanilla button stays and the letter box sits to its right (no level box).
+            bool numbering = PscMod.Settings != null && PscMod.Settings.priorityNumbering;
+            bool replaceVanilla = numbering && ITab_Storage_PrioritySuppress_Patch.LastPriorityVisibleOriginal;
+            float x = RowX + PriorityButtonW + Gap;
+
+            if (replaceVanilla)
             {
-                var levelRect = new Rect(x, RowY, LevelW, RowH);
+                var levelRect = new Rect(RowX, RowY, PriorityButtonW, RowH);
                 int level = PscOrder.LevelFor(settings.Priority, data?.subTier ?? 0);
-                if (Widgets.ButtonText(levelRect, "PSC_LevelShort".Translate(PscOrder.DisplayLevel(level))))
+                if (Widgets.ButtonText(levelRect, "PSC_LevelBox".Translate(PscOrder.DisplayLevel(level))))
                     OpenLevelMenu(settings);
                 TooltipHandler.TipRegion(levelRect, "PSC_LevelTip".Translate());
-                x += LevelW + Gap;
             }
 
             var letterRect = new Rect(x, RowY, LetterW, RowH);

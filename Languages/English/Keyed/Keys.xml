@@ -17,6 +17,7 @@
 
   <!-- Fine order: priority box beside the vanilla Priority button -->
   <PSC_LevelShort>Lvl {0}</PSC_LevelShort>
+  <PSC_LevelBox>Priority: {0}</PSC_LevelBox>
   <PSC_LevelTip>Fine priority level (1 = highest, 10 = lowest). Two levels share each vanilla band; setting a level also sets the band.</PSC_LevelTip>
   <PSC_LevelOption>{0} — {1}</PSC_LevelOption>
   <PSC_LetterTip>Subpriority letter. Within the same priority, "a" outranks "b" outranks "c". No letter is highest.</PSC_LetterTip>
