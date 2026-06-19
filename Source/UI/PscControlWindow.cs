@@ -10,10 +10,14 @@ namespace PrecisionStockpileControl
     // tab's search box, plus a per-unit batch (minimum items per trip). Limits are tracked in items.
     public class PscControlWindow : Window
     {
-        private readonly StorageSettings settings;
-        private readonly PscHaulUnit unit;
-        private readonly QuickSearchFilter search;
+        private StorageSettings settings;
+        private PscHaulUnit unit;
+        private QuickSearchFilter search;
         private readonly PscLimitEditor editor = new PscLimitEditor();
+
+        // The storage this window is currently editing. The FillTab postfix reads this to decide
+        // whether the selection changed and the window needs retargeting.
+        public StorageSettings Settings => settings;
 
         private int batchVal;
         private string batchBuf = "0";
@@ -31,9 +35,32 @@ namespace PrecisionStockpileControl
 
         public PscControlWindow(StorageSettings settings, PscHaulUnit unit, QuickSearchFilter search)
         {
+            Retarget(settings, unit, search);
+            doCloseX = true;
+            draggable = true;
+            closeOnClickedOutside = false;
+            preventCameraMotion = false;
+        }
+
+        // Point this window at a (possibly different) selected storage, reloading its per-unit batch
+        // and default-limit fields. The FillTab postfix calls this when the player selects a new
+        // stockpile, so the open window follows the selection instead of closing. The staged limit
+        // editor is intentionally left as-is — it is a scratch value, not bound to one stockpile.
+        public void Retarget(StorageSettings settings, PscHaulUnit unit, QuickSearchFilter search)
+        {
             this.settings = settings;
             this.unit = unit;
             this.search = search;
+
+            batchVal = 0;
+            batchBuf = "0";
+            batchEmptyVal = 0;
+            batchEmptyBuf = "0";
+            defaultLowerVal = null;
+            defaultUpperVal = null;
+            defaultLowerBuf = "";
+            defaultUpperBuf = "";
+
             var existing = PscStorageDataStore.TryGet(settings);
             if (existing != null)
             {
@@ -49,10 +76,6 @@ namespace PrecisionStockpileControl
                     defaultUpperBuf = defaultUpperVal?.ToString() ?? "";
                 }
             }
-            doCloseX = true;
-            draggable = true;
-            closeOnClickedOutside = false;
-            preventCameraMotion = false;
         }
 
         public override void WindowUpdate()
@@ -230,6 +253,9 @@ namespace PrecisionStockpileControl
             PscMapComponent.NotifyPolicyChanged(settings);
         }
 
+        // True while *some* storage is selected (a single unit or one unified storage group). The
+        // FillTab postfix retargets this window to whatever storage is selected, so we close only
+        // when the selection is no longer a storage at all — not merely when it changed.
         private bool StillSelected()
         {
             try
@@ -245,11 +271,11 @@ namespace PrecisionStockpileControl
                         if (group == null) group = member.Group;
                         else if (!ReferenceEquals(group, member.Group)) return false;
                     }
-                    return ReferenceEquals(group?.GetStoreSettings(), settings);
+                    return group?.GetStoreSettings() != null;
                 }
 
                 var parent = StoreParentFromSelected(selected[0]);
-                return ReferenceEquals(parent?.GetStoreSettings(), settings);
+                return parent?.GetStoreSettings() != null;
             }
             catch
             {

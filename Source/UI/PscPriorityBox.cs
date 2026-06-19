@@ -66,11 +66,14 @@ namespace PrecisionStockpileControl
         private static void OpenLevelMenu(StorageSettings settings)
         {
             var options = new List<FloatMenuOption>();
-            // Present in display order (respects the reverse-order label flip).
+            // Order by actual priority: lowest on top, highest on bottom — matching vanilla's band
+            // dropdown (which iterates the enum Low..Critical). Level 1 is the highest priority
+            // (Critical), level 10 the lowest (Low), so sort by level descending. The reverse-order
+            // setting only flips the displayed number, not list position (PscOrder.DisplayLevel).
             var rows = new List<(int display, int level)>();
             for (int level = 1; level <= 10; level++)
                 rows.Add((PscOrder.DisplayLevel(level), level));
-            rows.Sort((p, q) => p.display.CompareTo(q.display));
+            rows.Sort((p, q) => q.level.CompareTo(p.level));
 
             var data = PscStorageDataStore.TryGet(settings);
             int currentLevel = PscOrder.LevelFor(settings.Priority, data?.subTier ?? 0);
