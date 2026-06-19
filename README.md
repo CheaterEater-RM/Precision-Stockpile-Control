@@ -32,6 +32,14 @@ stockpile that never reaches the threshold keeps those items. With inventory-hau
 Hauler's Dream) the threshold is enforced per source stack as items are picked up; their bulk trips don't
 run PSC's final trip-size backstop, so enforcement there is per-stack rather than per-combined-trip.
 
+### About the search box
+
+Open a storage area's **PSC** panel, type in the storage tab's search box, and use **Apply to search**
+/ **Remove from search** to set or clear a limit on every matching item at once. The search matches by
+material/category as well as by name, so it catches items whose label doesn't contain the word —
+searching `meat` includes beef and pork, `leather` includes birdskin, `wool` includes every wool. This
+mirrors what the storage list itself shows when you search.
+
 ### About feeder links
 
 Link storages so items flow from a **source** to a **destination** (the destination must be higher

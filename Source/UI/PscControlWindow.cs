@@ -198,7 +198,7 @@ namespace PrecisionStockpileControl
             {
                 var d = all[i];
                 if (!d.EverStorable(false)) continue;
-                if (search != null && !search.Matches(d)) continue;
+                if (!PscSearchMatch.Matches(search, d)) continue;
                 if (parentFilter != null && !parentFilter.Allows(d)) continue;
                 yield return d;
             }
