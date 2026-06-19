@@ -24,15 +24,21 @@ namespace PrecisionStockpileControl
         // marker even when the label is suppressed (mixed range).
         public static void DrawLimitLabel(Rect iconRect, float rowY, float lineHeight, string compact, string tooltip)
         {
-            var labelRect = new Rect(iconRect.xMin - PscUiTheme.RowLabelGap, rowY, PscUiTheme.RowLabelWidth, lineHeight);
             var prevFont = Text.Font;
             var prevAnchor = Text.Anchor;
             var prevColor = GUI.color;
             try
             {
+                // Right edge is fixed (just left of the checkbox); the backdrop and text hug the
+                // actual text width, capped at RowLabelWidth and growing leftward only as needed, so
+                // a short limit no longer paints a full-width bar over the item name.
+                Text.Font = GameFont.Tiny;
+                float xMax = iconRect.xMin - PscUiTheme.RowLabelGap + PscUiTheme.RowLabelWidth;
+                float w = Mathf.Min(PscUiTheme.RowLabelWidth, Text.CalcSize(compact).x + 6f);
+                var labelRect = new Rect(xMax - w, rowY, w, lineHeight);
+
                 GUI.color = PscUiTheme.LabelBackdrop;
                 GUI.DrawTexture(labelRect.ContractedBy(0f, PscUiTheme.RowLabelVContract), BaseContent.WhiteTex);
-                Text.Font = GameFont.Tiny;
                 Text.Anchor = TextAnchor.MiddleRight;
                 GUI.color = PscUiTheme.LimitTextColor;
                 Widgets.Label(labelRect, compact.Truncate(labelRect.width));

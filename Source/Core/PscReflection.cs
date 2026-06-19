@@ -18,6 +18,7 @@ namespace PrecisionStockpileControl
     //   Listing.curY                          (private field)   — row-Y capture for storage filter rows
     //   Widgets.checkboxPainting              (private static)  — vanilla allow/disallow paint in progress
     //   Widgets.checkboxPaintingState         (private static)  — value being painted (true = allow)
+    //   InspectTabBase.size                   (protected field) — the live storage-tab frame size (widen)
     //   ITab_Storage.SelStoreSettingsParent   (property getter) — the selected storage's settings parent
     //   ITab_Storage.thingFilterState.quickSearch.filter        — the tab's quick-search filter
     //   Widgets.Checkbox(float,float,bool&,float,bool,bool,Texture2D,Texture2D)  (overload)
@@ -45,6 +46,25 @@ namespace PrecisionStockpileControl
 
         // The value being painted (true = allow). Degrades to false.
         public static bool WidgetsCheckboxPaintingState => CheckboxPaintStateRef != null && CheckboxPaintStateRef();
+
+        // ---- InspectTabBase.size (storage-tab frame width) ----------------------------------------
+        private static readonly AccessTools.FieldRef<InspectTabBase, Vector2> TabSizeRef = ResolveTabSize();
+
+        // Widen an inspect tab's frame to `width`, preserving its height. The frame is drawn from
+        // this instance field (see InspectTabBase.TabRect), which the ctor copies from the static
+        // WinSize once — too early for our startup overwrite to reach. No-op if the seam is gone.
+        public static void SetTabWidth(InspectTabBase tab, float width)
+        {
+            if (TabSizeRef == null || tab == null) return;
+            ref Vector2 s = ref TabSizeRef(tab);
+            if (s.x != width) s.x = width;
+        }
+
+        private static AccessTools.FieldRef<InspectTabBase, Vector2> ResolveTabSize()
+        {
+            try { return AccessTools.FieldRefAccess<InspectTabBase, Vector2>("size"); }
+            catch (Exception ex) { LogMissing("InspectTabBase.size", ex); return null; }
+        }
 
         // ---- ITab_Storage private accessors -------------------------------------------------------
         private static readonly MethodInfo SelStoreSettingsParentGetter =
