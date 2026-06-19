@@ -8,7 +8,7 @@ namespace PrecisionStockpileControl
     // the player faction WITHOUT ever writing CompForbiddable.Forbidden. This is a pure read-side
     // answer ("not usable right now"): it never fights the player's manual forbid, never persists,
     // and can't strand a forbidden item when the pile is deleted or the mod is removed (the flag is
-    // never touched — see docs/04_PSC_DESIGN.md and the plan's deletion-safety note).
+    // never touched — see docs/DESIGN.md and the plan's deletion-safety note).
     //
     // Seam: the (Thing, Faction) overload is the leaf every player-side "can I use this?" check
     // routes through — IsForbidden(Thing, Pawn) calls t.IsForbidden(pawn.Faction), and only this

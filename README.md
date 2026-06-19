@@ -83,8 +83,7 @@ until you set a limit. Removed, limited items simply become "allowed" (unlimited
 M1 (core limits), M2 (focused hard cap, batch, Pick Up And Haul / multi-stack integration), M3
 (feeder links), M4 (fine ordering — a–z subpriority and 1–10 priority), M5 part 1 (one-way
 migration from other limit mods + a per-stockpile default limit), and M5 part 2 (the four storage
-modes) are code complete and pending in-game verification. The authoritative design is in
-`docs/04_PSC_DESIGN.md`; build progress is tracked in `MILESTONES.md`.
+modes) are code complete and in-game verified. The authoritative design is in `docs/DESIGN.md`.
 
 ## Credits
 
