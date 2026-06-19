@@ -9,6 +9,10 @@
   <PSC_SettingsDefaultOnlyFromSourceTip>When you link a source to a stockpile for the first time, automatically turn on "Only from source" for it. You can still toggle it per stockpile.</PSC_SettingsDefaultOnlyFromSourceTip>
   <PSC_SettingsDefaultOnlyToDestinations>Restrict new sources to their destinations</PSC_SettingsDefaultOnlyToDestinations>
   <PSC_SettingsDefaultOnlyToDestinationsTip>When you link a destination to a stockpile for the first time, automatically turn on "Only to destinations" for it. You can still toggle it per stockpile.</PSC_SettingsDefaultOnlyToDestinationsTip>
+  <PSC_SettingsAutoPrioritySource>Auto-set source priority on link</PSC_SettingsAutoPrioritySource>
+  <PSC_SettingsAutoPrioritySourceTip>When you connect a source to a storage, automatically give the painted source a subpriority letter one step below the storage you selected, so the feeder requirement (a destination must outrank its source) is met right away. Stops at "z" (the bottom) and tells you when it can't place — set that by hand. Off by default.</PSC_SettingsAutoPrioritySourceTip>
+  <PSC_SettingsAutoPriorityDestination>Auto-set destination priority on link</PSC_SettingsAutoPriorityDestination>
+  <PSC_SettingsAutoPriorityDestinationTip>When you connect a destination to a storage, automatically give the painted destination a subpriority letter one step above the storage you selected, so the feeder requirement (a destination must outrank its source) is met right away. Stops at no letter (the top) and tells you when it can't place — set that by hand. Off by default.</PSC_SettingsAutoPriorityDestinationTip>
   <PSC_SettingsFineOrderHeader>Fine order</PSC_SettingsFineOrderHeader>
   <PSC_SettingsPriorityNumbering>Use 1–10 priority levels</PSC_SettingsPriorityNumbering>
   <PSC_SettingsPriorityNumberingTip>Split each of the five vanilla priority bands into two levels, giving 1 (highest) to 10 (lowest). Existing stockpiles land on 1, 3, 5, 7 and 10. Turn this off to collapse back to the five bands; your letters still apply, but any feeder link that relied only on a sub-tier difference within the same band will stop working until you turn numbering back on.</PSC_SettingsPriorityNumberingTip>
@@ -25,6 +29,10 @@
   <PSC_LevelOption>{0} — {1}</PSC_LevelOption>
   <PSC_LetterTip>Subpriority letter. Within the same priority, "a" outranks "b" outranks "c". No letter is highest.</PSC_LetterTip>
   <PSC_LetterNone>No letter</PSC_LetterNone>
+
+  <!-- Auto-priority on link (clamp notices) -->
+  <PSC_AutoPriorityClampLow>Auto-priority couldn't place the source below the destination — it's already at the lowest subpriority ("z"). Set the priority by hand.</PSC_AutoPriorityClampLow>
+  <PSC_AutoPriorityClampHigh>Auto-priority couldn't place the destination above the source — it's already at the highest subpriority (no letter). Set the priority by hand.</PSC_AutoPriorityClampHigh>
 
   <!-- Feeder link gizmos -->
   <PSC_ConnectSource>Connect source</PSC_ConnectSource>

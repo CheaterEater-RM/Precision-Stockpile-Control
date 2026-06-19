@@ -38,27 +38,46 @@ namespace PrecisionStockpileControl
 
         // Create a directed link source -> dest. On a unit acquiring its FIRST source/destination
         // (0->1), seed the matching strictness flag from the mod-setting default (D: default on).
-        public void AddFeederLink(PscHaulUnit source, PscHaulUnit dest)
+        // Returns true only when a NEW edge was created, so callers (the link designator) can run
+        // one-shot follow-ups like auto-priority without re-firing on a re-painted, already-linked unit.
+        //
+        // A pair carries at most ONE direction: setting s -> d first drops any existing reverse d -> s,
+        // so linking each of two piles to the other flips the direction instead of forming a
+        // contradictory A<->B 2-cycle. Dropping the reverse can orphan a strict flag it had seeded, so
+        // we prune afterwards (only when a reverse was actually removed).
+        public bool AddFeederLink(PscHaulUnit source, PscHaulUnit dest)
         {
-            if (!source.IsValid || !dest.IsValid) return;
+            if (!source.IsValid || !dest.IsValid) return false;
             string s = source.UniqueLoadID, d = dest.UniqueLoadID;
-            if (s == null || d == null || s == d) return;
+            if (s == null || d == null || s == d) return false;
+
+            bool replacedReverse = links.RemoveEdge(d, s);
+            if (replacedReverse) PscLog.Msg($"link: dropped reverse edge {d} -> {s} (replaced by {s} -> {d})");
 
             bool destHadSource = links.HasAnySource(d);
             bool sourceHadDest = links.HasAnyDestination(s);
-            if (!links.AddEdge(s, d)) { PscLog.Msg($"link: edge already exists {s} -> {d}"); return; }
-            PscLog.Msg($"link: created {s} -> {d}");
+            bool created = links.AddEdge(s, d);
+            if (created)
+            {
+                PscLog.Msg($"link: created {s} -> {d}");
+                if (!destHadSource && PscMod.Settings.defaultOnlyFromSource)
+                {
+                    SetFeederFlag(dest.Settings, fromSource: true);
+                    PscLog.Msg($"link: seeded onlyFromSource on {d}");
+                }
+                if (!sourceHadDest && PscMod.Settings.defaultOnlyToDestinations)
+                {
+                    SetFeederFlag(source.Settings, fromSource: false);
+                    PscLog.Msg($"link: seeded onlyToDestinations on {s}");
+                }
+            }
+            else
+            {
+                PscLog.Msg($"link: edge already exists {s} -> {d}");
+            }
 
-            if (!destHadSource && PscMod.Settings.defaultOnlyFromSource)
-            {
-                SetFeederFlag(dest.Settings, fromSource: true);
-                PscLog.Msg($"link: seeded onlyFromSource on {d}");
-            }
-            if (!sourceHadDest && PscMod.Settings.defaultOnlyToDestinations)
-            {
-                SetFeederFlag(source.Settings, fromSource: false);
-                PscLog.Msg($"link: seeded onlyToDestinations on {s}");
-            }
+            if (replacedReverse) PruneFeederLinksAndFlags();
+            return created;
         }
 
         private static void SetFeederFlag(StorageSettings settings, bool fromSource)

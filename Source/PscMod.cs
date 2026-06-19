@@ -8,7 +8,8 @@ namespace PrecisionStockpileControl
     // is stable before those features land.
     public class PscSettings : ModSettings
     {
-        public bool autosetSourcePriority = true;     // D4 — persisted; auto-priority still deferred
+        public bool autosetSourcePriority = false;      // D4 — Connect-source: step the painted source DOWN one letter (off by default)
+        public bool autosetDestinationPriority = false; // D4 — Connect-destination: step the painted destination UP one letter (off by default)
         public bool linkSubpriorities = false;        // M4 (§11.4)
         public bool defaultOnlyFromSource = true;     // M3 — seed strictness on first source link
         public bool defaultOnlyToDestinations = true; // M3 — seed strictness on first destination link
@@ -19,7 +20,8 @@ namespace PrecisionStockpileControl
         public override void ExposeData()
         {
             base.ExposeData();
-            Scribe_Values.Look(ref autosetSourcePriority, "autosetSourcePriority", true);
+            Scribe_Values.Look(ref autosetSourcePriority, "autosetSourcePriority", false);
+            Scribe_Values.Look(ref autosetDestinationPriority, "autosetDestinationPriority", false);
             Scribe_Values.Look(ref linkSubpriorities, "linkSubpriorities", false);
             Scribe_Values.Look(ref defaultOnlyFromSource, "defaultOnlyFromSource", true);
             Scribe_Values.Look(ref defaultOnlyToDestinations, "defaultOnlyToDestinations", true);
@@ -55,6 +57,10 @@ namespace PrecisionStockpileControl
                 "PSC_SettingsDefaultOnlyFromSourceTip".Translate());
             listing.CheckboxLabeled("PSC_SettingsDefaultOnlyToDestinations".Translate(), ref Settings.defaultOnlyToDestinations,
                 "PSC_SettingsDefaultOnlyToDestinationsTip".Translate());
+            listing.CheckboxLabeled("PSC_SettingsAutoPrioritySource".Translate(), ref Settings.autosetSourcePriority,
+                "PSC_SettingsAutoPrioritySourceTip".Translate());
+            listing.CheckboxLabeled("PSC_SettingsAutoPriorityDestination".Translate(), ref Settings.autosetDestinationPriority,
+                "PSC_SettingsAutoPriorityDestinationTip".Translate());
 
             listing.Gap(12f);
             listing.Label("PSC_SettingsFineOrderHeader".Translate());

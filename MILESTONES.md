@@ -153,7 +153,9 @@ Builds clean, `net48`, Harmony 2.4, 0 warnings.
   destination (paint `Designator_PscFeederLink` — click links one storage, drag paints every storage
   the cursor passes over), Only-from-source / Only-to-destinations toggles (grayed until a source/destination
   exists; seed strictness from mod-setting defaults on the first link), Show connections (overlay
-  toggle), Clear all connections (right-click float-menu required).
+  toggle), Clear all connections (right-click float-menu required). A pair carries at most **one**
+  direction: `AddFeederLink` drops any existing reverse edge first, so linking each of two piles to the
+  other flips the direction (and clears flags the old direction orphaned) instead of forming an A↔B 2-cycle.
 - **Overlay.** `PscFeederOverlay` (Contagion pattern) drawn from `MapComponentUpdate`: green arrowed
   lines for valid links (destination outranks source, D5), red + × for non-functional. Draws the
   selected storage's links, or every link when "Show connections" is on.
@@ -183,8 +185,8 @@ and vanilla link/unlink carry, save-compat). Known TODO: gizmo icons reuse vanil
 ### M4 - Fine Order (code complete; pending in-game verification)
 
 Builds clean, `net48`, Harmony 2.4, 0 warnings. Scope this slice: **a-z subpriority + 1-10
-numbering**, on the **Full** mechanism (sort baseline + transpiler). Auto-priority (D4) and the
-dev-mode self-test/debug overlay from the design's M4 slice are **deferred** (not built).
+numbering**, on the **Full** mechanism (sort baseline + transpiler). Auto-priority (D4) shipped as a
+follow-up slice (below); the dev-mode self-test/debug overlay from the design's M4 slice is **deferred**.
 
 - **Fine-order engine.** `PscOrder` (new) owns the key and comparison. Ordering is a "rank within
   band" (lower = better) composed of effective sub-tier then letter. The vanilla `StoragePriority`
@@ -215,8 +217,8 @@ dev-mode self-test/debug overlay from the design's M4 slice are **deferred** (no
   160, leaving room): an always-on **letter box** (a-z menu) and, when 1-10 numbering is on, a **level
   box** (1-10 menu that sets band + sub-tier). The vanilla button is left intact (D6/§10.7).
 - **Settings.** `priorityNumbering` + `reverseOrder` added to `PscSettings` (+ "Fine order" header in
-  the settings window). Toggling 1-10 re-sorts every map. `autosetSourcePriority` stays a persisted
-  no-op (auto-priority still deferred); `linkSubpriorities` unused this slice (a `StorageGroup` shares
+  the settings window). Toggling 1-10 re-sorts every map. `autosetSourcePriority` wired in the
+  auto-priority follow-up (below); `linkSubpriorities` unused this slice (a `StorageGroup` shares
   one key already).
 
 New files: `Source/Core/PscOrder.cs`, `Source/Patches/FineOrder_Patches.cs`,
@@ -228,12 +230,40 @@ Remaining before M4 is "done": in-game verification of the design §14 M4 scenar
 relocation selected/not-selected, Low-band floor, transpiler-mismatch fail-closed), 1-10 collapse,
 unified same-band feeders, no equal-key churn, LWM capacity respected.
 
+### M4 follow-up - Auto-priority (code complete; pending in-game verification)
+
+Builds clean, `net48`, Harmony 2.4, 0 warnings. Wires the previously-inert `autosetSourcePriority`
+(D4) — plus a sibling `autosetDestinationPriority` — to nudge priorities when a feeder link is
+painted, so the link is functional immediately. The two directions are **independent opt-in toggles**.
+
+- **Symmetric letter step, anchored on the selected pile.** On a freshly created link, the **painted**
+  unit is stepped one fine-order **letter** onto the correct side of the **selected** (anchor) unit:
+  Connect-source steps the painted source DOWN one letter below the anchor destination (e.g. anchor `5`
+  → source `5a`, gated on `autosetSourcePriority`); Connect-destination steps the painted destination UP
+  one letter above the anchor source (gated on the separate `autosetDestinationPriority`). Stays within
+  the anchor's band + sub-tier (works whether or not 1-10 numbering is on).
+- **Guarded + clamped.** No-op when the destination already strictly outranks the source (never raises a
+  source or lowers a destination that already satisfies the requirement). Clamps at the band's letter
+  range (`z` at the bottom, no-letter at the top); when a strict step is impossible it makes **no
+  change** and posts a player message (`PSC_AutoPriorityClampLow`/`High`), deduped during drag-paint.
+- **Seams.** Logic lives in `PscOrder.PlaceSourceBelowDest` / `PlaceDestAboveSource` (+ `AutoOrderResult`,
+  letter-step helpers, `ApplyOrder` reusing the manual-box write path → `NotifyOrderChanged`).
+  `PscFeederManager.AddFeederLink` now returns whether a new edge was created; the link designator
+  (`Designator_PscFeederLink.AutoPriority`) runs it once per new edge, only when that direction's
+  setting is on. Excludes copy/paste (it replicates exact setups). Both toggles default **off**.
+
+Edits: `PscOrder`, `PscFeederManager`, `Designator_PscFeederLink`, `PscMod` (two checkboxes:
+`autosetSourcePriority` + `autosetDestinationPriority`), `Keys.xml`. New persisted setting field
+`autosetDestinationPriority` (additive); no change to existing save fields (`subTier`/`letter` already persist).
+
+Remaining before "done": in-game verification of the design §14 scenarios (down/up step under
+numbering on and off, the already-satisfied guard, both clamp messages, each toggle independently
+on/off — including one direction on while the other is off).
+
 ## Planned
 
 ### M4 follow-ups (deferred)
 
-- Auto-priority (D4): auto-nudge a feeder source one fine-order step below its destination on link
-  (needs the now-built fine-order key; `autosetSourcePriority` setting is wired but inert).
 - Dev-mode self-test for the transpiler match + a fine-order key debug overlay.
 
 ### M5 - Migration and Flickable Storage

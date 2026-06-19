@@ -29,6 +29,16 @@ stockpile that never reaches the threshold keeps those items. With inventory-hau
 Hauler's Dream) the threshold is enforced per source stack as items are picked up; their bulk trips don't
 run PSC's final trip-size backstop, so enforcement there is per-stack rather than per-combined-trip.
 
+### About feeder links
+
+Link storages so items flow from a **source** to a **destination** (the destination must be higher
+priority than its source for hauling to happen). Two optional **auto-set priority** settings (both off
+by default — one for connecting sources, one for connecting destinations) handle that priority for you:
+when you connect storages, the one you paint is given a subpriority letter one step away from the one you
+selected — a painted source drops one letter below it, a painted destination rises one letter above it —
+so the link works immediately. It stops at the ends of the letter range and tells you when you need to
+set the priority by hand.
+
 Save compatibility: PSC is safe to add to or remove from an in-progress save. Added, it does nothing
 until you set a limit. Removed, limited items simply become "allowed" (unlimited) again.
 

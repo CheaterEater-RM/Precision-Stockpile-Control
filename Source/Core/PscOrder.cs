@@ -79,6 +79,76 @@ namespace PrecisionStockpileControl
         public static bool Outranks(StorageSettings higher, StorageSettings lower)
             => Compare(higher, lower) < 0;
 
+        // ---- Auto-priority on feeder links (D4) ----
+        // Outcome of an auto-priority attempt: nothing was needed, a letter step was applied, or the
+        // anchor was already at the extreme so no strict step is possible (nothing changed).
+        public enum AutoOrderResult { Skipped, Placed, Clamped }
+
+        // Step toward lower priority: none -> a -> b -> ... -> z. Clamps at z (clamped=true when the
+        // input is already z). Empty/junk-below-'a' is treated as no-letter, so the first step is 'a'.
+        private static string StepLetterDown(string letter, out bool clamped)
+        {
+            clamped = false;
+            if (string.IsNullOrEmpty(letter)) return "a";
+            char c = char.ToLowerInvariant(letter[0]);
+            if (c < 'a') return "a";
+            if (c >= 'z') { clamped = true; return "z"; }
+            return ((char)(c + 1)).ToString();
+        }
+
+        // Step toward higher priority: z -> ... -> b -> a -> none. Clamps at no-letter (clamped=true
+        // when the input is already empty). 'a' (or junk below) steps up to no-letter.
+        private static string StepLetterUp(string letter, out bool clamped)
+        {
+            clamped = false;
+            if (string.IsNullOrEmpty(letter)) { clamped = true; return null; }
+            char c = char.ToLowerInvariant(letter[0]);
+            if (c <= 'a') return null;
+            if (c > 'z') return "z";
+            return ((char)(c - 1)).ToString();
+        }
+
+        // Write a unit's full fine-order key (band + sub-tier + letter) and notify, mirroring the
+        // manual letter/level boxes (PscPriorityBox). The vanilla enum stays authoritative (D6).
+        private static void ApplyOrder(StorageSettings settings, StoragePriority band, byte subTier, string letter)
+        {
+            var data = PscStorageDataStore.GetOrCreate(settings);
+            if (data == null) return;
+            settings.Priority = band;
+            data.subTier = subTier;
+            data.letter = string.IsNullOrEmpty(letter) ? null : letter;
+            PscLog.Msg($"order: auto-set band {band} subTier {subTier} letter {(data.letter ?? "(none)")}");
+            PscMapComponent.NotifyOrderChanged(settings);
+        }
+
+        // Place `source` one fine-order letter-step BELOW `dest` (adopting the dest's band + sub-tier).
+        // No-op when the dest already strictly outranks the source (Skipped); makes no change and
+        // reports Clamped when the dest is already at the bottom letter z (no strictly-lower slot).
+        public static AutoOrderResult PlaceSourceBelowDest(StorageSettings dest, StorageSettings source)
+        {
+            if (dest == null || source == null) return AutoOrderResult.Skipped;
+            if (Outranks(dest, source)) return AutoOrderResult.Skipped;
+            var destData = PscStorageDataStore.TryGet(dest);
+            string newLetter = StepLetterDown(destData?.letter, out bool clamped);
+            if (clamped) return AutoOrderResult.Clamped;
+            ApplyOrder(source, dest.Priority, destData?.subTier ?? 0, newLetter);
+            return AutoOrderResult.Placed;
+        }
+
+        // Place `dest` one fine-order letter-step ABOVE `source` (adopting the source's band + sub-tier).
+        // No-op when the dest already strictly outranks the source (Skipped); makes no change and
+        // reports Clamped when the source is already at the top (no letter; no strictly-higher slot).
+        public static AutoOrderResult PlaceDestAboveSource(StorageSettings source, StorageSettings dest)
+        {
+            if (source == null || dest == null) return AutoOrderResult.Skipped;
+            if (Outranks(dest, source)) return AutoOrderResult.Skipped;
+            var srcData = PscStorageDataStore.TryGet(source);
+            string newLetter = StepLetterUp(srcData?.letter, out bool clamped);
+            if (clamped) return AutoOrderResult.Clamped;
+            ApplyOrder(dest, source.Priority, srcData?.subTier ?? 0, newLetter);
+            return AutoOrderResult.Placed;
+        }
+
         // ---- Transpiler helper (StoreUtility.TryFindBestBetterStoreCellFor) ----
         // Returns true when the search should CONTINUE past vanilla's "priority <= currentPriority"
         // break: i.e. this candidate group shares the item's current band but strictly outranks the

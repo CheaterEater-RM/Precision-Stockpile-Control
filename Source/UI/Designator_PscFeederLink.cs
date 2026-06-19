@@ -63,10 +63,41 @@ namespace PrecisionStockpileControl
             if (psc == null) return;
             switch (mode)
             {
-                case PscFeederLinkMode.Source: psc.AddFeederLink(other, self); break;   // picked unit feeds self
-                case PscFeederLinkMode.Destination: psc.AddFeederLink(self, other); break;  // self feeds picked unit
-                case PscFeederLinkMode.Break: psc.BreakFeederLink(self, other); break;   // drop any link between them
+                case PscFeederLinkMode.Source:                                            // picked unit feeds self
+                    if (psc.AddFeederLink(other, self)) AutoPriority(dest: self, source: other);
+                    break;
+                case PscFeederLinkMode.Destination:                                       // self feeds picked unit
+                    if (psc.AddFeederLink(self, other)) AutoPriority(dest: other, source: self);
+                    break;
+                case PscFeederLinkMode.Break: psc.BreakFeederLink(self, other); break;    // drop any link between them
             }
+        }
+
+        // Auto-priority (D4): on a freshly created link, nudge the PAINTED unit one fine-order letter
+        // step onto the correct side of the SELECTED (anchor) unit so the link is functional at once.
+        // The two directions are independent opt-in settings: Connect-source paints the source (steps it
+        // DOWN below the anchor dest, gated on autosetSourcePriority); Connect-destination paints the dest
+        // (steps it UP above the anchor source, gated on autosetDestinationPriority). Both off by default.
+        // Clamps at the band's letter range and tells the player when it couldn't place.
+        private void AutoPriority(PscHaulUnit dest, PscHaulUnit source)
+        {
+            if (PscMod.Settings == null) return;
+            PscOrder.AutoOrderResult result;
+            string clampKey;
+            if (mode == PscFeederLinkMode.Source)
+            {
+                if (!PscMod.Settings.autosetSourcePriority) return;
+                result = PscOrder.PlaceSourceBelowDest(dest.Settings, source.Settings);   // painted = source, step down
+                clampKey = "PSC_AutoPriorityClampLow";
+            }
+            else
+            {
+                if (!PscMod.Settings.autosetDestinationPriority) return;
+                result = PscOrder.PlaceDestAboveSource(source.Settings, dest.Settings);   // painted = dest, step up
+                clampKey = "PSC_AutoPriorityClampHigh";
+            }
+            if (result == PscOrder.AutoOrderResult.Clamped)
+                Messages.Message(clampKey.Translate(), MessageTypeDefOf.RejectInput, historical: false);
         }
 
         // Paint while the left button is held: link each new cell the cursor passes over. (AddFeederLink
