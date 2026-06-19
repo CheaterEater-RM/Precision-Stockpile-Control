@@ -6,8 +6,9 @@ using Verse;
 namespace PrecisionStockpileControl
 {
     // The PSC control window (design §10.2-10.5). Set a maximum / refill-threshold pair (via the
-    // shared PscLimitEditor) and apply or remove it across the items matched by the vanilla storage
-    // tab's search box, plus a per-unit batch (minimum items per trip). Limits are tracked in items.
+    // shared PscLimitEditor) and apply or remove it across the items the storage tab's search box
+    // matches — or, with no search, every item this storage allows — plus a per-unit batch (minimum
+    // items per trip). Limits are tracked in items.
     public class PscControlWindow : Window
     {
         private StorageSettings settings;
@@ -24,14 +25,7 @@ namespace PrecisionStockpileControl
         private int batchEmptyVal;
         private string batchEmptyBuf = "0";
 
-        // Per-unit default limit ("all items"), in items. Applied immediately on edit, like batch.
-        private const int DefaultItemMax = 1000000;
-        private int? defaultLowerVal;
-        private int? defaultUpperVal;
-        private string defaultLowerBuf = "";
-        private string defaultUpperBuf = "";
-
-        public override Vector2 InitialSize => new Vector2(520f, 470f);
+        public override Vector2 InitialSize => new Vector2(520f, 380f);
 
         public PscControlWindow(StorageSettings settings, PscHaulUnit unit, QuickSearchFilter search)
         {
@@ -43,7 +37,7 @@ namespace PrecisionStockpileControl
         }
 
         // Point this window at a (possibly different) selected storage, reloading its per-unit batch
-        // and default-limit fields. The FillTab postfix calls this when the player selects a new
+        // fields. The FillTab postfix calls this when the player selects a new
         // stockpile, so the open window follows the selection instead of closing. The staged limit
         // editor is intentionally left as-is — it is a scratch value, not bound to one stockpile.
         public void Retarget(StorageSettings settings, PscHaulUnit unit, QuickSearchFilter search)
@@ -56,10 +50,6 @@ namespace PrecisionStockpileControl
             batchBuf = "0";
             batchEmptyVal = 0;
             batchEmptyBuf = "0";
-            defaultLowerVal = null;
-            defaultUpperVal = null;
-            defaultLowerBuf = "";
-            defaultUpperBuf = "";
 
             var existing = PscStorageDataStore.TryGet(settings);
             if (existing != null)
@@ -68,13 +58,6 @@ namespace PrecisionStockpileControl
                 batchBuf = batchVal.ToString();
                 batchEmptyVal = existing.batchEmpty;
                 batchEmptyBuf = batchEmptyVal.ToString();
-                if (existing.defaultLimit != null && !existing.defaultLimit.IsDefault)
-                {
-                    defaultLowerVal = existing.defaultLimit.Lower;
-                    defaultUpperVal = existing.defaultLimit.Upper;
-                    defaultLowerBuf = defaultLowerVal?.ToString() ?? "";
-                    defaultUpperBuf = defaultUpperVal?.ToString() ?? "";
-                }
             }
         }
 
@@ -100,7 +83,7 @@ namespace PrecisionStockpileControl
             Text.Font = GameFont.Small;
             list.GapLine();
 
-            var target = PscLimitEditorTarget.FromDefs(MatchedDefs());
+            var target = PscLimitEditorTarget.FromDefs(CurrentDefs());
             editor.Draw(list, unit, target);
 
             list.Gap(6f);
@@ -129,113 +112,83 @@ namespace PrecisionStockpileControl
             Text.Font = GameFont.Small;
 
             list.Gap(10f);
-            bool canApply = search != null && search.Active;
+            bool searching = search != null && search.Active;
             var rowRect = list.GetRect(34f);
             var leftBtn = new Rect(rowRect.x, rowRect.y, rowRect.width / 2f - 4f, rowRect.height);
             var rightBtn = new Rect(rowRect.x + rowRect.width / 2f + 4f, rowRect.y, rowRect.width / 2f - 4f, rowRect.height);
 
-            if (DrawButton(leftBtn, "PSC_ApplyToSearch".Translate(), canApply)) ApplyToSearch();
-            if (DrawButton(rightBtn, "PSC_RemoveFromSearch".Translate(), canApply)) RemoveFromSearch();
+            if (Widgets.ButtonText(leftBtn, (searching ? "PSC_ApplyToSearch" : "PSC_ApplyToAll").Translate())) ApplyToCurrent();
+            if (Widgets.ButtonText(rightBtn, (searching ? "PSC_RemoveFromSearch" : "PSC_RemoveFromAll").Translate())) RemoveFromCurrent();
 
-            if (!canApply)
-            {
-                Text.Font = GameFont.Tiny;
-                GUI.color = PscUiTheme.DisabledHintText;
-                list.Gap(4f);
-                list.Label("PSC_SearchHint".Translate());
-                GUI.color = Color.white;
-                Text.Font = GameFont.Small;
-            }
-
-            DrawDefaultSection(list);
+            Text.Font = GameFont.Tiny;
+            GUI.color = PscUiTheme.NoteText;
+            list.Gap(4f);
+            list.Label((searching ? "PSC_ApplyToSearchHint" : "PSC_ApplyToAllHint").Translate());
+            GUI.color = Color.white;
+            Text.Font = GameFont.Small;
 
             list.End();
         }
 
-        // Per-unit "all items" default limit: a refill/maximum pair (in items) applied to any
-        // allowed def with no explicit per-def limit. Applied immediately on edit, like batch.
-        // This is also where limits imported from other stockpile mods land (see PscMigration).
-        private void DrawDefaultSection(Listing_Standard list)
+        // The set the editor's limit is shown for and applied to. With a search active, that's what
+        // the unit's filter tree shows for the search (WYSIWYG, see MatchedDefs); with no search,
+        // it's every item this storage currently allows ("apply to all allowed items").
+        private IEnumerable<ThingDef> CurrentDefs()
         {
-            list.Gap(8f);
-            list.GapLine();
-            list.Label("PSC_DefaultLimitHeader".Translate());
-            Text.Font = GameFont.Tiny;
-            GUI.color = PscUiTheme.NoteText;
-            list.Label("PSC_DefaultLimitNote".Translate());
-            GUI.color = Color.white;
-            Text.Font = GameFont.Small;
-
-            var row = list.GetRect(28f);
-            float half = row.width / 2f - 4f;
-            const float labelW = 56f;
-            var lowerLabel = new Rect(row.x, row.y, labelW, row.height);
-            var lowerField = new Rect(row.x + labelW, row.y + 2f, half - labelW, 24f);
-            var upperLabel = new Rect(row.x + row.width / 2f + 4f, row.y, labelW, row.height);
-            var upperField = new Rect(upperLabel.xMax, row.y + 2f, half - labelW, 24f);
-
-            var pa = Text.Anchor;
-            Text.Anchor = TextAnchor.MiddleLeft;
-            Widgets.Label(lowerLabel, "PSC_LowerShort".Translate());
-            Widgets.Label(upperLabel, "PSC_UpperShort".Translate());
-            Text.Anchor = pa;
-
-            int? prevLower = defaultLowerVal;
-            int? prevUpper = defaultUpperVal;
-            PscLimitEditor.DrawNullableField(lowerField, ref defaultLowerVal, ref defaultLowerBuf, 0, DefaultItemMax);
-            PscLimitEditor.DrawNullableField(upperField, ref defaultUpperVal, ref defaultUpperBuf, 1, DefaultItemMax);
-            TooltipHandler.TipRegion(row, "PSC_DefaultLimitTip".Translate());
-
-            if (defaultLowerVal != prevLower || defaultUpperVal != prevUpper) ApplyDefault();
+            if (search != null && search.Active) return MatchedDefs();
+            return AllowedDefs();
         }
 
-        // Default limit is a single per-unit value (not per-def), so it applies immediately on edit.
-        private void ApplyDefault()
+        // Items currently allowed (checked) in this unit. You can't allow what the unit can't store,
+        // so this is inherently WYSIWYG and bounded — no need to scan the whole def database.
+        private IEnumerable<ThingDef> AllowedDefs()
         {
-            int? upper = defaultUpperVal;
-            int? lower = defaultLowerVal;
-            if (upper.HasValue && lower.HasValue && lower.Value > upper.Value) lower = upper;
-
-            var data = PscStorageDataStore.GetOrCreate(settings);
-            if (data.defaultLimit == null) data.defaultLimit = new PscDefLimit();
-            data.defaultLimit.Upper = upper;
-            data.defaultLimit.Lower = lower;
-            data.Notify_DefaultLimitSet(unit);
-            PscMapComponent.NotifyPolicyChanged(settings);
-        }
-
-        private static bool DrawButton(Rect rect, string label, bool enabled)
-        {
-            bool prev = GUI.enabled;
-            GUI.enabled = enabled;
-            bool clicked = Widgets.ButtonText(rect, label) && enabled;
-            GUI.enabled = prev;
-            return clicked;
+            foreach (var d in settings.filter.AllowedThingDefs)
+                if (d != null && d.EverStorable(false)) yield return d;
         }
 
         private IEnumerable<ThingDef> MatchedDefs()
         {
+            // Mirror the vanilla storage tree's Visible(ThingDef) so the item/stack-mode decision and
+            // the "Apply to search" set match exactly what the player sees for THIS unit (WYSIWYG).
+            // A shelf's parent filter (its fixedStorageSettings) already rejects whole categories like
+            // Plants/Buildings via Allows(); the special-filter guard catches the rest (items a shelf
+            // hides but Allows(ThingDef) wouldn't), so a shelf's "wood" search stays just wood logs.
             ThingFilter parentFilter = settings.owner?.GetParentStoreSettings()?.filter;
             var all = DefDatabase<ThingDef>.AllDefsListForReading;
             for (int i = 0; i < all.Count; i++)
             {
                 var d = all[i];
                 if (!d.EverStorable(false)) continue;
+                if (!d.PlayerAcquirable) continue;
+                if (d.virtualDefParent != null) continue;
                 if (!PscSearchMatch.Matches(search, d)) continue;
-                if (parentFilter != null && !parentFilter.Allows(d)) continue;
+                if (parentFilter != null)
+                {
+                    if (!parentFilter.Allows(d)) continue;
+                    if (parentFilter.IsAlwaysDisallowedDueToSpecialFilters(d)) continue;
+                }
                 yield return d;
             }
         }
 
-        private void ApplyToSearch()
+        private void ApplyToCurrent()
         {
-            foreach (var d in MatchedDefs()) PscEdit.ApplyLimit(settings, unit, d, editor.ToLimit(d));
+            var defs = new List<ThingDef>(CurrentDefs());
+            for (int i = 0; i < defs.Count; i++)
+                PscEdit.ApplyLimit(settings, unit, defs[i], editor.ToLimit(defs[i]));
             PscMapComponent.NotifyPolicyChanged(settings);
         }
 
-        private void RemoveFromSearch()
+        // Clear the limit across the current set. With a search active we also un-allow the matched
+        // items (mirrors "Apply to search" enabling them); with no search we keep everything allowed
+        // and only drop the limits, so "Remove from all" never empties the storage's own filter.
+        private void RemoveFromCurrent()
         {
-            foreach (var d in MatchedDefs()) PscEdit.ClearLimit(settings, d, false);
+            bool searching = search != null && search.Active;
+            var defs = new List<ThingDef>(CurrentDefs());
+            for (int i = 0; i < defs.Count; i++)
+                PscEdit.ClearLimit(settings, defs[i], !searching);
             PscMapComponent.NotifyPolicyChanged(settings);
         }
 

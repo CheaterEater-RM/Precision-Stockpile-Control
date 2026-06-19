@@ -95,12 +95,10 @@
   <PSC_SoftCapNote>Pawns keep each item at or below its maximum when hauling. Rarely, items spawned straight into storage (such as from a workbench standing inside the stockpile) can still exceed it.</PSC_SoftCapNote>
   <PSC_ApplyToSearch>Apply to search</PSC_ApplyToSearch>
   <PSC_RemoveFromSearch>Remove from search</PSC_RemoveFromSearch>
-  <PSC_SearchHint>Type in the storage tab's search box to choose which items these limits apply to.</PSC_SearchHint>
-
-  <!-- Default limit (applies to all items without a per-item limit) -->
-  <PSC_DefaultLimitHeader>Default limit (all items)</PSC_DefaultLimitHeader>
-  <PSC_DefaultLimitNote>Applies in items to any allowed item that has no limit of its own. Leave a box blank for no maximum / always refill.</PSC_DefaultLimitNote>
-  <PSC_DefaultLimitTip>A fallback maximum and refill threshold, in items, for every allowed item without its own per-item limit. Per-item limits override it. Blank upper = no maximum; blank lower = always refill.</PSC_DefaultLimitTip>
+  <PSC_ApplyToAll>Apply to all allowed items</PSC_ApplyToAll>
+  <PSC_RemoveFromAll>Remove from all</PSC_RemoveFromAll>
+  <PSC_ApplyToSearchHint>These limits apply to every item matching the storage tab's search.</PSC_ApplyToSearchHint>
+  <PSC_ApplyToAllHint>No search active — these limits apply to every item this storage allows. Type in the storage tab's search box to target specific items.</PSC_ApplyToAllHint>
 
   <!-- One-way migration from other stockpile-limit mods -->
   <PSC_MigrationLetterLabel>Stockpile limits imported</PSC_MigrationLetterLabel>
