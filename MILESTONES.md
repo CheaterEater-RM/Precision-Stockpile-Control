@@ -260,15 +260,69 @@ Remaining before "done": in-game verification of the design §14 scenarios (down
 numbering on and off, the already-satisfied guard, both clamp messages, each toggle independently
 on/off — including one direction on while the other is off).
 
+### M5 (part 1) - Migration from other limit mods (code complete; pending in-game verification)
+
+Builds clean, `net48`, Harmony 2.4, 0 warnings. One-way import (switch *to* PSC; never back). Full
+design in `docs/04_PSC_DESIGN.md` §16.
+
+- **Enabling feature — per-unit default limit.** `PscStorageData.defaultLimit` (a `PscDefLimit`, in
+  items) applies to any allowed def with no explicit per-def entry; scribed as a `<default>` child of
+  `<psc>` (written only when set). Admission / hard-cap / refill read paths now go through
+  `HasEffectiveLimit` / `GetEffectiveLimit` (per-def wins, else default); `RecomputeAll` and
+  `Notify_DefaultLimitSet` extend hysteresis to default-covered present defs. Editable as the
+  "Default limit (all items)" row in the control window. Useful on its own ("cap this whole pile").
+- **Mechanism.** The three supported mods persist inside the vanilla `<settings>` node (same seam as
+  `<psc>`). On load, with the old mod removed, PSC's own `StorageSettings.ExposeData` postfix reads the
+  orphaned sibling nodes from `Scribe.loader.curXmlParent` — no reflection, no save scan, no loadID
+  matching. Two phases: **capture** (`PscMigration.TryCaptureForeign`, during `LoadingVars`; a present
+  `<psc>` always wins) → **resolve** (`PscMigration.ResolveAllPending`, from
+  `PscGameComponent.FinalizeInit`, after maps are ready: convert, register, seed refill, notify).
+- **Supported mods (priority order, by usage):** Stack Gap (`Andromeda.StackGap`), Satisfied Storage
+  (`ryder.SatisfiedStorage`), Variety Matters Stockpile (`Mlie.VarietyMattersStockpile`). **Dropped:**
+  Stockpile Limit (old, low usage). **Not supported:** Storage Sorting (`Ghosty.SortingMod`) —
+  zone-keyed MapComponent, not `<settings>`, and mostly acceptance filtering. Per-mod conversions +
+  fidelity in §16.3 (Stack Gap `allowedPerItem` is exact; its `stackGapPercents` and the
+  whole-stockpile sources are approximate; per-stack-size caps are dropped).
+
+- **Iteration 2 (fix pass, from reading real test saves + decompiling `StackGap.dll`):** Stack Gap's
+  `allowedPerItem` is serialized as **parallel `<keys>`/`<values>` lists** (not `<li><key>`), and the
+  common usage is `stackGapPercents` — the original code parsed the wrong dict shape and skipped the
+  percent range, so Stack Gap imported nothing; both are now handled (percent via Stack Gap's
+  `round(maxStack × pct^3) × slots` curve, factor 3 assumed). Added verbose-debug diagnostics across
+  capture/resolve (gate states, pending count, per-unit outcome) and a "found but mod still loaded"
+  dev-log, since the absence of any logging made the original failure impossible to diagnose.
+- **Iteration 3 (verified on real saves + mutual exclusivity):** confirmed migration end-to-end by
+  reading 8 pre/post-PSC test saves — all three mods now write `<psc>` on resave with the foreign
+  nodes gone (Stack Gap `WoodLog` per-def cap exact at `<upper>20>`, plus default refill/cap; VMS
+  `duplicatesLimit`→default upper; Satisfied `fillPercent`→default lower). The earlier VMS "nothing
+  migrated" was the still-loaded gate, as diagnosed. Also declared the four limit mods incompatible in
+  `About.xml` (`Andromeda.StackGap`, `ryder.SatisfiedStorage`, both VMS forks
+  `Cozarkian.VarietyMatters.Stockpile` / `Mlie.VarietyMattersStockpile`, `darkside.StockpileLimit`) —
+  a soft mod-list warning that cooperates with the runtime gate (the real double-enforce guard), not a
+  hard block. Storage Sorting, OgreStack, LWM, and Flickable stay compatible (different axis / integration
+  targets). See §16.4.
+- **Idempotency:** the first post-migration save writes `<psc>` and the foreign nodes vanish; the
+  `<psc>` node is the "already migrated" marker (no explicit flag).
+- **Gating:** each format is eligible only when its source mod is **absent** (`AccessTools.TypeByName`
+  marker check, computed once), so a both-loaded setup never double-enforces.
+- **Graceful failure (per Adrian):** per-unit conversion is wrapped; on error PSC drops that unit's
+  data (plain allowed/unlimited), logs a warning, counts it failed. A one-time letter + always-on log
+  line report imports and failures. Losing a limit is fine; corrupting storage is not.
+
+New file: `Source/Core/PscMigration.cs`. Edits: `PscStorageData`, `Admission_Patches`,
+`HardCap_Patches`, `StorageSettings_Persistence_Patch`, `PscGameComponent`, `PscControlWindow`,
+`PscLimitEditor` (exposed `DrawNullableField`), `Keys.xml`.
+
+Remaining before "done": in-game verification — build a save with each source mod (whole-stockpile
+cap, refill %, Stack Gap per-item caps, a linked group), remove it, add PSC, load; confirm the import,
+the letter/log fire once, hauling respects the imported limits, idempotency (only `<psc>` remains
+after a resave), the both-loaded guard (no migration), the `<psc>`-wins guard, the no-foreign-data
+no-op, and PSC removal still degrades cleanly.
+
 ## Planned
 
-### M4 follow-ups (deferred)
+### M5 (part 2) - Flickable Storage
 
-- Dev-mode self-test for the transpiler match + a fine-order key debug overlay.
-
-### M5 - Migration and Flickable Storage
-
-- Migration from supported limit mods
 - Integrated on/off and receive-only storage behavior
 
 Dependencies: M4 complete.

@@ -27,4 +27,17 @@
     <li>Ludeon.RimWorld.Anomaly</li>
     <li>Ludeon.RimWorld.Odyssey</li>
   </loadAfter>
+
+  <!-- Other stockpile-limit mods set the same per-storage caps/refill PSC does, so running them
+       alongside PSC double-enforces. PSC subsumes their function and imports their leftover limits
+       once they're removed (see PscMigration). This is a soft warning, not a hard block. Storage
+       Sorting, OgreStack, LWM Deep Storage, and Flickable Storage are a different axis (or PSC
+       integration targets) and stay compatible. -->
+  <incompatibleWith>
+    <li>Andromeda.StackGap</li>                  <!-- Stack Gap -->
+    <li>ryder.SatisfiedStorage</li>              <!-- Satisfied Storage -->
+    <li>Cozarkian.VarietyMatters.Stockpile</li>  <!-- Variety Matters Stockpile (original) -->
+    <li>Mlie.VarietyMattersStockpile</li>        <!-- Variety Matters Stockpile (Continued) -->
+    <li>darkside.StockpileLimit</li>             <!-- Stockpile Limit (no migration, but still double-enforces) -->
+  </incompatibleWith>
 </ModMetaData>

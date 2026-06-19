@@ -20,7 +20,14 @@ namespace PrecisionStockpileControl
         private int batchEmptyVal;
         private string batchEmptyBuf = "0";
 
-        public override Vector2 InitialSize => new Vector2(520f, 390f);
+        // Per-unit default limit ("all items"), in items. Applied immediately on edit, like batch.
+        private const int DefaultItemMax = 1000000;
+        private int? defaultLowerVal;
+        private int? defaultUpperVal;
+        private string defaultLowerBuf = "";
+        private string defaultUpperBuf = "";
+
+        public override Vector2 InitialSize => new Vector2(520f, 470f);
 
         public PscControlWindow(StorageSettings settings, PscHaulUnit unit, QuickSearchFilter search)
         {
@@ -34,6 +41,13 @@ namespace PrecisionStockpileControl
                 batchBuf = batchVal.ToString();
                 batchEmptyVal = existing.batchEmpty;
                 batchEmptyBuf = batchEmptyVal.ToString();
+                if (existing.defaultLimit != null && !existing.defaultLimit.IsDefault)
+                {
+                    defaultLowerVal = existing.defaultLimit.Lower;
+                    defaultUpperVal = existing.defaultLimit.Upper;
+                    defaultLowerBuf = defaultLowerVal?.ToString() ?? "";
+                    defaultUpperBuf = defaultUpperVal?.ToString() ?? "";
+                }
             }
             doCloseX = true;
             draggable = true;
@@ -110,7 +124,61 @@ namespace PrecisionStockpileControl
                 Text.Font = GameFont.Small;
             }
 
+            DrawDefaultSection(list);
+
             list.End();
+        }
+
+        // Per-unit "all items" default limit: a refill/maximum pair (in items) applied to any
+        // allowed def with no explicit per-def limit. Applied immediately on edit, like batch.
+        // This is also where limits imported from other stockpile mods land (see PscMigration).
+        private void DrawDefaultSection(Listing_Standard list)
+        {
+            list.Gap(8f);
+            list.GapLine();
+            list.Label("PSC_DefaultLimitHeader".Translate());
+            Text.Font = GameFont.Tiny;
+            GUI.color = PscUiTheme.NoteText;
+            list.Label("PSC_DefaultLimitNote".Translate());
+            GUI.color = Color.white;
+            Text.Font = GameFont.Small;
+
+            var row = list.GetRect(28f);
+            float half = row.width / 2f - 4f;
+            const float labelW = 56f;
+            var lowerLabel = new Rect(row.x, row.y, labelW, row.height);
+            var lowerField = new Rect(row.x + labelW, row.y + 2f, half - labelW, 24f);
+            var upperLabel = new Rect(row.x + row.width / 2f + 4f, row.y, labelW, row.height);
+            var upperField = new Rect(upperLabel.xMax, row.y + 2f, half - labelW, 24f);
+
+            var pa = Text.Anchor;
+            Text.Anchor = TextAnchor.MiddleLeft;
+            Widgets.Label(lowerLabel, "PSC_LowerShort".Translate());
+            Widgets.Label(upperLabel, "PSC_UpperShort".Translate());
+            Text.Anchor = pa;
+
+            int? prevLower = defaultLowerVal;
+            int? prevUpper = defaultUpperVal;
+            PscLimitEditor.DrawNullableField(lowerField, ref defaultLowerVal, ref defaultLowerBuf, 0, DefaultItemMax);
+            PscLimitEditor.DrawNullableField(upperField, ref defaultUpperVal, ref defaultUpperBuf, 1, DefaultItemMax);
+            TooltipHandler.TipRegion(row, "PSC_DefaultLimitTip".Translate());
+
+            if (defaultLowerVal != prevLower || defaultUpperVal != prevUpper) ApplyDefault();
+        }
+
+        // Default limit is a single per-unit value (not per-def), so it applies immediately on edit.
+        private void ApplyDefault()
+        {
+            int? upper = defaultUpperVal;
+            int? lower = defaultLowerVal;
+            if (upper.HasValue && lower.HasValue && lower.Value > upper.Value) lower = upper;
+
+            var data = PscStorageDataStore.GetOrCreate(settings);
+            if (data.defaultLimit == null) data.defaultLimit = new PscDefLimit();
+            data.defaultLimit.Upper = upper;
+            data.defaultLimit.Lower = lower;
+            data.Notify_DefaultLimitSet(unit);
+            PscMapComponent.NotifyPolicyChanged(settings);
         }
 
         private static bool DrawButton(Rect rect, string label, bool enabled)

@@ -25,7 +25,13 @@ namespace PrecisionStockpileControl
             {
                 PscStorageData loaded = null;
                 Scribe_Deep.Look(ref loaded, "psc");
-                if (loaded != null) PscStorageDataStore.Set(__instance, loaded);
+                if (loaded != null) { PscStorageDataStore.Set(__instance, loaded); return; }
+
+                // No PSC node on this storage — if a removed limit mod left its own node behind in
+                // the same vanilla <settings> parent, capture it now for one-way migration (resolved
+                // post-load in PscGameComponent.FinalizeInit). A present <psc> always wins, so this
+                // only runs the first time PSC sees a save that still carries a foreign node.
+                PscMigration.TryCaptureForeign(__instance);
             }
         }
     }

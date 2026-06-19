@@ -19,8 +19,8 @@ namespace PrecisionStockpileControl
             var unit = PscHaulUnit.ResolveCell(cell, map);
             if (!unit.IsValid) return false;
             var data = PscStorageDataStore.TryGet(unit.Settings);
-            if (data == null || !data.HasLimit(def)) return false;
-            var lim = data.GetLimit(def);
+            if (data == null || !data.HasEffectiveLimit(def)) return false;
+            var lim = data.GetEffectiveLimit(def);
             if (!lim.Upper.HasValue) return false;
             room = Math.Max(0, lim.Upper.Value - data.GetCount(def, unit));
             return true;

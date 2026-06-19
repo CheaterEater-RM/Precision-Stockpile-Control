@@ -12,6 +12,16 @@ namespace PrecisionStockpileControl
         public PscGameComponent(Game game)
         {
             PscStorageDataStore.Clear();
+            PscMigration.ClearPending();
+        }
+
+        // Runs after every map's FinalizeInit (Game.FinalizeInit -> GameComponentUtility.FinalizeInit),
+        // so storage units, cells and capacity are fully resolvable. Converts any limits captured from
+        // a removed stockpile-limit mod during load (one-way migration) and notifies the player.
+        public override void FinalizeInit()
+        {
+            base.FinalizeInit();
+            PscMigration.ResolveAllPending();
         }
     }
 }

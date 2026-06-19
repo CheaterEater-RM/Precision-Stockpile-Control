@@ -164,7 +164,7 @@ namespace PrecisionStockpileControl
             Text.Anchor = pa;
         }
 
-        private static void DrawNullableField(Rect rect, ref int? value, ref string buffer, int min, int max)
+        internal static void DrawNullableField(Rect rect, ref int? value, ref string buffer, int min, int max)
         {
             string edited = Widgets.TextField(rect, buffer ?? "");
             if (edited == buffer) return;

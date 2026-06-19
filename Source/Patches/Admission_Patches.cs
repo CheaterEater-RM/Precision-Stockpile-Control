@@ -56,13 +56,13 @@ namespace PrecisionStockpileControl
             // --- Limit / batch gates (M1/M2) ---
             data ??= PscStorageDataStore.TryGet(__instance);
             if (data == null) return;
-            bool hasLimit = data.HasLimit(t.def);
-            if (!hasLimit && data.batch <= 0) return;    // no per-def limit and no batch -> vanilla
+            bool hasLimit = data.HasEffectiveLimit(t.def);
+            if (!hasLimit && data.batch <= 0) return;    // no effective limit and no batch -> vanilla
             if (sourceIsTarget) return;                  // D16: never reject a unit's own contents
 
             if (hasLimit)
             {
-                var lim = data.GetLimit(t.def);
+                var lim = data.GetEffectiveLimit(t.def);
                 int n = data.GetCount(t.def, unit);
 
                 // Upper — the maximum (M2 makes this a hard cap at drop time via HardCap_Patches)
@@ -185,15 +185,15 @@ namespace PrecisionStockpileControl
             bool sourceHasBatchEmpty = sourceData != null && sourceData.batchEmpty > 0;
             // The target-keyed clamps need a limit or fill-batch; the source-keyed batch-empty cancel below
             // must run even when the target has no PSC policy, so it can't share a single early-out.
-            bool targetHasClampPolicy = data != null && (data.HasLimit(t.def) || data.batch > 0);
+            bool targetHasClampPolicy = data != null && (data.HasEffectiveLimit(t.def) || data.batch > 0);
             if (!targetHasClampPolicy && !sourceHasBatchEmpty) return;
 
             if (data != null)
             {
                 // Upper clamp — cap the planned count so the trip never plans past the maximum.
-                if (data.HasLimit(t.def))
+                if (data.HasEffectiveLimit(t.def))
                 {
-                    var lim = data.GetLimit(t.def);
+                    var lim = data.GetEffectiveLimit(t.def);
                     if (lim.Upper.HasValue)
                     {
                         int room = Math.Max(0, lim.Upper.Value - data.GetCount(t.def, targetUnit));

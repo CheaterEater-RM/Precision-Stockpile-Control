@@ -5,10 +5,12 @@ Precision Stockpile Control is a RimWorld 1.6 mod planned around opt-in, low-ove
 ## Features
 
 - Per-item stockpile maximums and refill thresholds (per stockpile / shelf / linked group)
+- A per-stockpile **default limit** (applies to all items that don't have their own limit)
 - Batch hauling, both directions — **batch fill** (never *add* fewer than N items in a trip) and **batch empty** (never *remove* fewer than N items in a trip)
 - Feeder source/destination links between stockpiles
 - Fine-grained ordering within a priority band: a–z subpriority and an optional 1–10 priority mode
 - Pick Up And Haul and LWM Deep Storage / multi-stack aware
+- **Imports your limits when you switch from another stockpile-limit mod** (one-way)
 
 ### About "maximum" (please read)
 
@@ -39,15 +41,38 @@ selected — a painted source drops one letter below it, a painted destination r
 so the link works immediately. It stops at the ends of the letter range and tells you when you need to
 set the priority by hand.
 
+### Switching from another stockpile-limit mod
+
+PSC marks the mods below as incompatible — they set the same per-storage limits PSC does, so running
+one alongside PSC double-enforces. You'll see a warning in the mod list if both are active (it's
+advisory, not a hard block). The intended path is to **remove the old mod and let PSC take over**:
+when you do, PSC reads its leftover settings out of your save and imports them automatically the
+first time you load — so you don't have to set everything up again. This is **one-way** (PSC won't
+convert back), and you'll get a one-time letter summarising what was imported. (If you ignore the
+warning and keep both enabled, PSC skips the import entirely to avoid double-enforcing.) Some settings convert exactly, others approximately (whole-stockpile and percentage limits
+don't map perfectly onto PSC's per-item model) — open a storage area's **PSC** panel to review or
+tweak anything. Settings PSC can't express (per-stack-size caps, percentage-only Stack Gap setups)
+are left out, and the import is skipped for any of these mods you still have enabled.
+
+| Mod | Imported | Notes |
+|---|---|---|
+| **Stack Gap** | per-item caps + fill/refill % | per-item caps exact; the percentage settings convert approximately; multistack/similar-stack options dropped |
+| **Satisfied Storage** | refill threshold | clean fit (refill-only) |
+| **Variety Matters Stockpile** | duplicate-stack cap + refill % | approximate; per-stack-size cap dropped |
+
+Storage Sorting is **not** supported — it's about *which* items a stockpile accepts (HP, quality,
+rot), not limits, so there's nothing for PSC to import.
+
 Save compatibility: PSC is safe to add to or remove from an in-progress save. Added, it does nothing
 until you set a limit. Removed, limited items simply become "allowed" (unlimited) again.
 
 ## Development Status
 
 M1 (core limits), M2 (focused hard cap, batch, Pick Up And Haul / multi-stack integration), M3
-(feeder links), and M4 (fine ordering — a–z subpriority and 1–10 priority) are code complete and
-pending in-game verification. The authoritative design is in `docs/04_PSC_DESIGN.md`; build progress is
-tracked in `MILESTONES.md`.
+(feeder links), M4 (fine ordering — a–z subpriority and 1–10 priority), and M5 part 1 (one-way
+migration from other limit mods + a per-stockpile default limit) are code complete and pending in-game
+verification. Flickable Storage integration (M5 part 2) is still planned. The authoritative design is
+in `docs/04_PSC_DESIGN.md`; build progress is tracked in `MILESTONES.md`.
 
 ## License
 
