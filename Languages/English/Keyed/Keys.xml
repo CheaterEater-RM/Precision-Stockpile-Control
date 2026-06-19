@@ -64,7 +64,10 @@
   <PSC_LowerAlways>Always refill</PSC_LowerAlways>
   <PSC_Always>always</PSC_Always>
   <PSC_Maximum>maximum</PSC_Maximum>
-  <PSC_Batch>Batch (minimum per trip)</PSC_Batch>
+  <PSC_BatchFill>Batch fill</PSC_BatchFill>
+  <PSC_BatchFillTip>Pawns won't fill this storage in a trip smaller than this many items. Items below this amount aren't hauled in until more accumulates at the source. 0 = off.</PSC_BatchFillTip>
+  <PSC_BatchEmpty>Batch empty</PSC_BatchEmpty>
+  <PSC_BatchEmptyTip>Pawns won't remove items from this storage unless they can take at least this many in one trip. Items below this amount stay until more accumulates. 0 = off.</PSC_BatchEmptyTip>
   <PSC_Preview>Will set: {0}</PSC_Preview>
   <PSC_SliderHintGlobal>Blank ends mean always refill / fill to maximum.</PSC_SliderHintGlobal>
   <PSC_SliderHintItem>Blank ends mean always refill / fill to maximum. Tick marks follow stacks of {0} items.</PSC_SliderHintItem>

@@ -47,7 +47,8 @@ namespace PrecisionStockpileControl
         // Invariant: non-null. Set at construction, re-created by CopyPolicyFrom, and restored on load
         // by the PostLoadInit guard in ExposeData. Runtime reads therefore skip container null-checks.
         public Dictionary<ThingDef, PscDefLimit> limits = new Dictionary<ThingDef, PscDefLimit>();
-        public int batch;                 // groundwork (M2): 0 = off, never bring fewer than N
+        public int batch;                 // batch fill (M2): 0 = off, never bring fewer than N in one trip
+        public int batchEmpty;            // batch empty: 0 = off, never remove fewer than N out in one trip
         public bool onlyFromSource;       // groundwork (M3)
         public bool onlyToDestinations;   // groundwork (M3)
         public byte subTier;              // groundwork (M4): 0 = unset
@@ -60,7 +61,7 @@ namespace PrecisionStockpileControl
         private bool allDirty = true;
 
         public bool HasPersistentPolicy =>
-            limits.Count > 0 || batch > 0 || onlyFromSource || onlyToDestinations
+            limits.Count > 0 || batch > 0 || batchEmpty > 0 || onlyFromSource || onlyToDestinations
             || subTier != 0 || !string.IsNullOrEmpty(letter);
 
         public bool HasLimit(ThingDef def)
@@ -165,6 +166,7 @@ namespace PrecisionStockpileControl
                     limits[kv.Key] = kv.Value.Clone();
             }
             batch = other.batch;
+            batchEmpty = other.batchEmpty;
             onlyFromSource = other.onlyFromSource;
             onlyToDestinations = other.onlyToDestinations;
             subTier = other.subTier;
@@ -177,6 +179,7 @@ namespace PrecisionStockpileControl
         {
             Scribe_Collections.Look(ref limits, "limits", LookMode.Def, LookMode.Deep);
             Scribe_Values.Look(ref batch, "batch", 0);
+            Scribe_Values.Look(ref batchEmpty, "batchEmpty", 0);
             Scribe_Values.Look(ref onlyFromSource, "onlyFromSource", false);
             Scribe_Values.Look(ref onlyToDestinations, "onlyToDestinations", false);
             Scribe_Values.Look(ref subTier, "subTier", (byte)0);

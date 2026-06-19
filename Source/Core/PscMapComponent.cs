@@ -48,7 +48,24 @@ namespace PrecisionStockpileControl
             feeder = new PscFeederManager(map, this);
         }
 
-        public static PscMapComponent For(Map map) => map?.GetComponent<PscMapComponent>();
+        // One-entry memo for the haul hot path. For() is called per admission candidate
+        // (TryFeederReject) and per relocation candidate (ShouldContinueSearch), and the vanilla
+        // Map.GetComponent<T> is a linear is-T scan over every map component (long with many mods
+        // loaded). A map's PscMapComponent instance never changes for its lifetime, so caching the
+        // last (map, component) pair is always valid for a live map. The single strong Map ref is
+        // replaced the moment For() is called for a different live map (constant during play).
+        private static Map lastForMap;
+        private static PscMapComponent lastForComp;
+
+        public static PscMapComponent For(Map map)
+        {
+            if (map == null) return null;
+            if (ReferenceEquals(map, lastForMap)) return lastForComp;
+            var comp = map.GetComponent<PscMapComponent>();
+            lastForMap = map;
+            lastForComp = comp;
+            return comp;
+        }
 
         // Central entry point after any policy edit (UI, paste, link/unlink). Resolves the owning
         // map and updates that map component's tracking + demand. Safe to call with clipboard or

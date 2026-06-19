@@ -23,6 +23,12 @@ namespace PrecisionStockpileControl
         // Reused per-frame scratch so the draw path allocates nothing steady-state.
         private static readonly Dictionary<string, PscHaulUnit> idMap = new Dictionary<string, PscHaulUnit>();
 
+        // Per-frame draw-center memo: a unit's centroid is deterministic within a frame, so compute
+        // it once even when the unit is an endpoint of many incident links (turns the draw loop's
+        // O(links × cells) into O(units × cells)). null = known "no center" so failures aren't
+        // retried per link. Cleared at the top of each Draw() alongside idMap.
+        private static readonly Dictionary<string, Vector3?> centerCache = new Dictionary<string, Vector3?>();
+
         public static void Draw(Map map, PscMapComponent psc)
         {
             if (map == null || psc == null) return;
@@ -32,6 +38,7 @@ namespace PrecisionStockpileControl
             if (!TryGetSelectedUnit(map, out PscHaulUnit selected)) return;   // only while a storage is selected
 
             BuildIdMap(map);
+            centerCache.Clear();
             string selId = selected.UniqueLoadID;
 
             var list = links.Links;
@@ -41,7 +48,7 @@ namespace PrecisionStockpileControl
                 if (!ShowAll && l.sourceId != selId && l.destId != selId) continue;
                 if (!idMap.TryGetValue(l.sourceId, out var su) || !idMap.TryGetValue(l.destId, out var du)) continue;
                 if (su.Settings == null || du.Settings == null) continue;
-                if (!su.TryGetDrawCenter(out var a) || !du.TryGetDrawCenter(out var b)) continue;
+                if (!TryCenter(l.sourceId, su, out var a) || !TryCenter(l.destId, du, out var b)) continue;
 
                 bool valid = psc.HasFunctionalFeederEdge(su, du);
                 DrawLink(a, b, valid);
@@ -76,6 +83,20 @@ namespace PrecisionStockpileControl
                 var id = u.UniqueLoadID;
                 if (id != null) idMap[id] = u;
             }
+        }
+
+        // Draw center for an endpoint, memoized per Draw() so a unit shared by many links computes
+        // its centroid once. The id is the key the draw loop already holds.
+        private static bool TryCenter(string id, PscHaulUnit u, out Vector3 center)
+        {
+            if (centerCache.TryGetValue(id, out var cached))
+            {
+                center = cached ?? default;
+                return cached.HasValue;
+            }
+            bool ok = u.TryGetDrawCenter(out center);
+            centerCache[id] = ok ? center : (Vector3?)null;
+            return ok;
         }
 
         // ---- primitives (Contagion pattern) ----

@@ -37,6 +37,22 @@ namespace PrecisionStockpileControl
                 __result = false; return;
             }
 
+            // Batch empty (source-keyed): never let an item LEAVE its source unless this stack is at least
+            // batchEmpty — the most one trip can remove (a haul carries from a single source stack). Mirrors
+            // the destination-keyed batch-fill source-stack gate below, and reuses the same source-policy
+            // rejection mechanism as the feeder onlyToDestinations rule, so it's churn-safe (only fires when
+            // leaving the source; a unit's own contents are protected by sourceIsTarget above).
+            if (!sourceIsTarget && source.IsValid)
+            {
+                var srcData = PscStorageDataStore.TryGet(source.Settings);
+                if (srcData != null && srcData.batchEmpty > 0 && t.stackCount < srcData.batchEmpty)
+                {
+                    LogReject(t, source, "underBatchEmpty",
+                        $"batchEmpty: rejected {t.def.defName} leaving {source.UniqueLoadID} (source stack {t.stackCount} < batchEmpty {srcData.batchEmpty})");
+                    __result = false; return;
+                }
+            }
+
             // --- Limit / batch gates (M1/M2) ---
             data ??= PscStorageDataStore.TryGet(__instance);
             if (data == null) return;
@@ -165,32 +181,51 @@ namespace PrecisionStockpileControl
             }
 
             var data = PscStorageDataStore.TryGet(canon.Settings);
-            if (data == null) return;
-            if (!data.HasLimit(t.def) && data.batch <= 0) return;
+            var sourceData = sourceUnit.IsValid ? PscStorageDataStore.TryGet(sourceUnit.Settings) : null;
+            bool sourceHasBatchEmpty = sourceData != null && sourceData.batchEmpty > 0;
+            // The target-keyed clamps need a limit or fill-batch; the source-keyed batch-empty cancel below
+            // must run even when the target has no PSC policy, so it can't share a single early-out.
+            bool targetHasClampPolicy = data != null && (data.HasLimit(t.def) || data.batch > 0);
+            if (!targetHasClampPolicy && !sourceHasBatchEmpty) return;
 
-            // Upper clamp — cap the planned count so the trip never plans past the maximum.
-            if (data.HasLimit(t.def))
+            if (data != null)
             {
-                var lim = data.GetLimit(t.def);
-                if (lim.Upper.HasValue)
+                // Upper clamp — cap the planned count so the trip never plans past the maximum.
+                if (data.HasLimit(t.def))
                 {
-                    int room = Math.Max(0, lim.Upper.Value - data.GetCount(t.def, targetUnit));
-                    if (__result.count > room)
+                    var lim = data.GetLimit(t.def);
+                    if (lim.Upper.HasValue)
                     {
-                        if (PscLog.Enabled) PscLog.Msg(
-                            $"limit: clamped haul of {t.def.defName} -> {targetUnit.UniqueLoadID} from {__result.count} to {room} (cap room)");
-                        __result.count = room;
+                        int room = Math.Max(0, lim.Upper.Value - data.GetCount(t.def, targetUnit));
+                        if (__result.count > room)
+                        {
+                            if (PscLog.Enabled) PscLog.Msg(
+                                $"limit: clamped haul of {t.def.defName} -> {targetUnit.UniqueLoadID} from {__result.count} to {room} (cap room)");
+                            __result.count = room;
+                        }
                     }
+                }
+
+                // Batch fill (D12): never bring fewer than `batch` in one trip — cancel an under-batch job.
+                // Note: when remaining room < batch (a near-full capped unit), the last < batch items are
+                // intentionally not hauled ("no small trips"). Opportunistic duplicates are left as vanilla.
+                if (data.batch > 0 && __result.count < data.batch)
+                {
+                    if (PscLog.Enabled) PscLog.Msg(
+                        $"limit: cancelled under-batch haul of {t.def.defName} -> {targetUnit.UniqueLoadID} ({__result.count} < batch {data.batch})");
+                    PscFeederHaulContext.Clear(t);
+                    __result = null;
                 }
             }
 
-            // Batch (D12): never bring fewer than `batch` in one trip — cancel an under-batch job.
-            // Note: when remaining room < batch (a near-full capped unit), the last < batch items are
-            // intentionally not hauled ("no small trips"). Opportunistic duplicates are left as vanilla.
-            if (data.batch > 0 && __result.count < data.batch)
+            // Batch empty (source-keyed): the trip must take at least batchEmpty OUT of the source — cancel an
+            // under-batch removal. Runs last so it sees the final clamped count (vanilla room + carry capacity
+            // + the upper clamp above). Best-effort under inventory-haul mods (PUAH / Hauler's Dream) which
+            // don't build their bulk jobs through HaulToCellStorageJob; the admission gate is the line there.
+            if (__result != null && sourceHasBatchEmpty && __result.count < sourceData.batchEmpty)
             {
                 if (PscLog.Enabled) PscLog.Msg(
-                    $"limit: cancelled under-batch haul of {t.def.defName} -> {targetUnit.UniqueLoadID} ({__result.count} < batch {data.batch})");
+                    $"batchEmpty: cancelled under-batch removal of {t.def.defName} from {sourceUnit.UniqueLoadID} ({__result.count} < batchEmpty {sourceData.batchEmpty})");
                 PscFeederHaulContext.Clear(t);
                 __result = null;
             }

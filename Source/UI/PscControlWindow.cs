@@ -17,6 +17,8 @@ namespace PrecisionStockpileControl
 
         private int batchVal;
         private string batchBuf = "0";
+        private int batchEmptyVal;
+        private string batchEmptyBuf = "0";
 
         public override Vector2 InitialSize => new Vector2(520f, 390f);
 
@@ -30,6 +32,8 @@ namespace PrecisionStockpileControl
             {
                 batchVal = existing.batch;
                 batchBuf = batchVal.ToString();
+                batchEmptyVal = existing.batchEmpty;
+                batchEmptyBuf = batchEmptyVal.ToString();
             }
             doCloseX = true;
             draggable = true;
@@ -63,9 +67,20 @@ namespace PrecisionStockpileControl
             editor.Draw(list, unit, target);
 
             list.Gap(6f);
+            var batchRow = list.GetRect(Text.LineHeight);
+            float halfWidth = batchRow.width / 2f - 4f;
+            var fillRect = new Rect(batchRow.x, batchRow.y, halfWidth, batchRow.height);
+            var emptyRect = new Rect(batchRow.x + batchRow.width / 2f + 4f, batchRow.y, halfWidth, batchRow.height);
+
             int prevBatch = batchVal;
-            list.TextFieldNumericLabeled("PSC_Batch".Translate(), ref batchVal, ref batchBuf, 0, 5000);
+            Widgets.TextFieldNumericLabeled(fillRect, "PSC_BatchFill".Translate(), ref batchVal, ref batchBuf, 0, 5000);
+            TooltipHandler.TipRegion(fillRect, "PSC_BatchFillTip".Translate());
             if (batchVal != prevBatch) ApplyBatch();
+
+            int prevBatchEmpty = batchEmptyVal;
+            Widgets.TextFieldNumericLabeled(emptyRect, "PSC_BatchEmpty".Translate(), ref batchEmptyVal, ref batchEmptyBuf, 0, 5000);
+            TooltipHandler.TipRegion(emptyRect, "PSC_BatchEmptyTip".Translate());
+            if (batchEmptyVal != prevBatchEmpty) ApplyBatchEmpty();
 
             list.Gap(8f);
             list.Label("PSC_Preview".Translate(editor.PreviewString(target)));
@@ -137,6 +152,13 @@ namespace PrecisionStockpileControl
         private void ApplyBatch()
         {
             PscStorageDataStore.GetOrCreate(settings).batch = batchVal;
+            PscMapComponent.NotifyPolicyChanged(settings);
+        }
+
+        // Batch empty mirrors batch fill: a single per-unit value, applied immediately on edit.
+        private void ApplyBatchEmpty()
+        {
+            PscStorageDataStore.GetOrCreate(settings).batchEmpty = batchEmptyVal;
             PscMapComponent.NotifyPolicyChanged(settings);
         }
 

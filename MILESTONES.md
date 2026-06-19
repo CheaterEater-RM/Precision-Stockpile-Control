@@ -50,7 +50,7 @@ removal-safety, hysteresis, split/absorb/link-unlink count accuracy, no-slowdown
 
 ### M2 - Hard Caps, Batch, and Integration (code complete; pending in-game verification)
 
-Scope chosen: **focused hard cap** (see `04_PSC_DESIGN.md` §8.1). Builds clean, 0 warnings.
+Scope chosen: **focused hard cap** (see `docs/04_PSC_DESIGN.md` §8.1). Builds clean, 0 warnings.
 
 - **Focused hard cap.** Per-unit live-count cap at the carry-drop seam: a cancelling prefix on
   `Pawn_CarryTracker.TryDropCarriedThing` (no-count overload) drops only `upper − liveCount` into a
@@ -62,6 +62,13 @@ Scope chosen: **focused hard cap** (see `04_PSC_DESIGN.md` §8.1). Builds clean,
 - **Batch (D12).** Source-stack gate in `AllowedToAccept` (`t.stackCount < batch ⇒ reject`) + final
   count cancel in `HaulToCellStorageJob` (`job.count < batch ⇒ null`). Window now reads/writes
   `PscStorageData.batch` live.
+- **Batch empty.** Mirror of batch fill, keyed on the **source** unit (`PscStorageData.batchEmpty`,
+  save field `batchEmpty`): a source-keyed gate in `AllowedToAccept` (`t.stackCount < batchEmpty ⇒
+  reject`, churn-safe via the existing `sourceIsTarget` guard) + a source-keyed cancel in
+  `HaulToCellStorageJob` (`job.count < batchEmpty ⇒ null`). Control window shows **Batch fill** and
+  **Batch empty** side by side. Verified against PUAH and Hauler's Dream: both route through
+  `AllowedToAccept`, so the admission gate holds; both build their own bulk jobs, so the trip-size
+  cancel is best-effort there (admission gate is the cross-mod line). No new Harmony patches.
 - **Pick Up And Haul.** Soft-dep postfix on `WorkGiver_HaulToInventory.CapacityAt`
   (`Prepare()`/reflection, no hard reference) reduces capacity to unit room. Best-effort multi-cell.
 - **Multi-stack (LWM/Ogre).** Free — counts/caps are in items; PUAH queries `IHoldMultipleThings` first.
