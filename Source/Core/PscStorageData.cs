@@ -34,6 +34,18 @@ namespace PrecisionStockpileControl
         }
     }
 
+    // Per-storage hauling mode (M5.2, Flickable-style). Normal = pure vanilla. Off / AcceptOnly
+    // freeze contents (virtual-forbidden, never touches the real flag); Off / RetrieveOnly block
+    // haul-in (admission). Stored by Scribe_Values, which writes the NAME — reorder-safe, but never
+    // rename a value (save-compat surface, AGENTS.md).
+    public enum PscStorageMode : byte
+    {
+        Normal = 0,        // storage on — vanilla behaviour
+        Off = 1,           // no haul in, no haul out / use (contents frozen in place)
+        AcceptOnly = 2,    // haul in allowed; no haul out / use (pile fills, never drains)
+        RetrieveOnly = 3,  // haul out / use allowed; no haul in (pile drains, never refills)
+    }
+
     // PSC policy + runtime count cache attached to one vanilla StorageSettings object (keyed in
     // PscStorageDataStore). A StorageGroup shares one StorageSettings across its linked members,
     // so keying here shares PSC policy and counts across a linked group automatically.
@@ -53,6 +65,7 @@ namespace PrecisionStockpileControl
         public bool onlyToDestinations;   // groundwork (M3)
         public byte subTier;              // groundwork (M4): 0 = unset
         public string letter;             // groundwork (M4): null/empty = none
+        public PscStorageMode mode;       // M5.2: hauling mode (Normal = vanilla)
 
         // Per-unit default limit: applies to any allowed def that has no explicit per-def entry.
         // Tracked in items, same sentinel shape as a per-def limit. This is where whole-stockpile
@@ -69,7 +82,8 @@ namespace PrecisionStockpileControl
         public bool HasPersistentPolicy =>
             limits.Count > 0 || (defaultLimit != null && !defaultLimit.IsDefault)
             || batch > 0 || batchEmpty > 0 || onlyFromSource || onlyToDestinations
-            || subTier != 0 || !string.IsNullOrEmpty(letter);
+            || subTier != 0 || !string.IsNullOrEmpty(letter)
+            || mode != PscStorageMode.Normal;
 
         public bool HasLimit(ThingDef def)
         {
@@ -215,6 +229,7 @@ namespace PrecisionStockpileControl
             onlyToDestinations = other.onlyToDestinations;
             subTier = other.subTier;
             letter = other.letter;
+            mode = other.mode;
             defaultLimit = (other.defaultLimit != null && !other.defaultLimit.IsDefault)
                 ? other.defaultLimit.Clone() : new PscDefLimit();
             refilling.Clear();
@@ -230,6 +245,7 @@ namespace PrecisionStockpileControl
             Scribe_Values.Look(ref onlyToDestinations, "onlyToDestinations", false);
             Scribe_Values.Look(ref subTier, "subTier", (byte)0);
             Scribe_Values.Look(ref letter, "letter");
+            Scribe_Values.Look(ref mode, "mode", PscStorageMode.Normal);
 
             // Default limit: write the <default> child only when set, so a policy that has no
             // default stays as clean as before (the "write nothing when empty" save contract).

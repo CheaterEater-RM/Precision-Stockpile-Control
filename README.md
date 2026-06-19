@@ -8,6 +8,7 @@ Precision Stockpile Control is a RimWorld 1.6 mod planned around opt-in, low-ove
 - A per-stockpile **default limit** (applies to all items that don't have their own limit)
 - Batch hauling, both directions — **batch fill** (never *add* fewer than N items in a trip) and **batch empty** (never *remove* fewer than N items in a trip)
 - Feeder source/destination links between stockpiles
+- Four per-storage **modes** — storage on / off / accept only / retrieve only (Flickable-style)
 - Fine-grained ordering within a priority band: a–z subpriority and an optional 1–10 priority mode
 - Pick Up And Haul and LWM Deep Storage / multi-stack aware
 - **Imports your limits when you switch from another stockpile-limit mod** (one-way)
@@ -41,6 +42,17 @@ selected — a painted source drops one letter below it, a painted destination r
 so the link works immediately. It stops at the ends of the letter range and tells you when you need to
 set the priority by hand.
 
+### About storage modes
+
+Every stockpile and shelf gets a **mode** button (next to the feeder controls) with four settings:
+
+- **Storage on** — normal vanilla behaviour.
+- **Storage off** — pawns won't haul items in, and items already here are *frozen*: they won't be hauled out or used for cooking, crafting, doctoring, refueling, or building.
+- **Accept only** — pawns haul items in as normal, but items here are frozen (won't be hauled out or used). A collection pile that fills but never drains.
+- **Retrieve only** — no new items hauled in, but pawns may freely haul out and use what's here. For draining a storage area you're emptying.
+
+The freeze is handled the gentle way: PSC never actually flips an item's forbidden flag — it just answers "not usable right now" when the game asks. So it never overrides your manual forbid/allow toggles, nothing is left secretly forbidden if you delete the storage or remove the mod, and a linked storage group shares one mode. Two things to know: manually *unforbidding* a single item inside a frozen pile has no effect (switch the pile's mode to release it), and a pawn in a mental break ignores the freeze. This makes Flickable Storage redundant if you run PSC — but the two are still compatible.
+
 ### Switching from another stockpile-limit mod
 
 PSC marks the mods below as incompatible — they set the same per-storage limits PSC does, so running
@@ -69,10 +81,16 @@ until you set a limit. Removed, limited items simply become "allowed" (unlimited
 ## Development Status
 
 M1 (core limits), M2 (focused hard cap, batch, Pick Up And Haul / multi-stack integration), M3
-(feeder links), M4 (fine ordering — a–z subpriority and 1–10 priority), and M5 part 1 (one-way
-migration from other limit mods + a per-stockpile default limit) are code complete and pending in-game
-verification. Flickable Storage integration (M5 part 2) is still planned. The authoritative design is
-in `docs/04_PSC_DESIGN.md`; build progress is tracked in `MILESTONES.md`.
+(feeder links), M4 (fine ordering — a–z subpriority and 1–10 priority), M5 part 1 (one-way
+migration from other limit mods + a per-stockpile default limit), and M5 part 2 (the four storage
+modes) are code complete and pending in-game verification. The authoritative design is in
+`docs/04_PSC_DESIGN.md`; build progress is tracked in `MILESTONES.md`.
+
+## Credits
+
+The storage-mode feature is inspired by **Flickable Storage** by **Mlie** (MIT), and reuses its four
+mode icons. PSC reimplements the behaviour with its own mechanism (a read-side forbidden answer
+rather than toggling the forbidden flag). Original mod: https://github.com/emipa606/FlickableStorage
 
 ## License
 

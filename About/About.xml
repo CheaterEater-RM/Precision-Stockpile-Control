@@ -6,7 +6,9 @@
   <supportedVersions>
     <li>1.6</li>
   </supportedVersions>
-  <description>Precision Stockpile Control adds opt-in stockpile maximums, refill thresholds, batch hauling, feeder links, and fine-grained priority controls while preserving vanilla behavior for untouched stockpiles.</description>
+  <description>Precision Stockpile Control adds opt-in stockpile maximums, refill thresholds, batch hauling, feeder links, fine-grained priority controls, and per-storage modes (storage on / off / accept only / retrieve only) while preserving vanilla behavior for untouched stockpiles.
+
+Storage modes are inspired by Flickable Storage by Mlie (MIT); the four mode icons are reused from it. PSC reimplements the behavior with its own mechanism. https://github.com/emipa606/FlickableStorage</description>
   <modVersion>0.1.0</modVersion>
   <url></url>
 
@@ -31,8 +33,9 @@
   <!-- Other stockpile-limit mods set the same per-storage caps/refill PSC does, so running them
        alongside PSC double-enforces. PSC subsumes their function and imports their leftover limits
        once they're removed (see PscMigration). This is a soft warning, not a hard block. Storage
-       Sorting, OgreStack, LWM Deep Storage, and Flickable Storage are a different axis (or PSC
-       integration targets) and stay compatible. -->
+       Sorting, OgreStack, and LWM Deep Storage are a different axis and stay compatible. Flickable
+       Storage stays compatible too, but PSC's storage modes now subsume it (running both just
+       duplicates the mode gizmo) — not listed as incompatible because it doesn't double-enforce. -->
   <incompatibleWith>
     <li>Andromeda.StackGap</li>                  <!-- Stack Gap -->
     <li>ryder.SatisfiedStorage</li>              <!-- Satisfied Storage -->

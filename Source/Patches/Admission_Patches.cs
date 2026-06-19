@@ -28,7 +28,19 @@ namespace PrecisionStockpileControl
             // a capped or restricted stockpile's own contents as haulable (churn / ejection).
             var source = PscHaulUnit.ResolveCurrent(t);
             bool sourceIsTarget = source.IsValid && source.Equals(unit);
-            PscStorageData data = null;
+            PscStorageData data = PscStorageDataStore.TryGet(__instance);
+
+            // Mode haul-in block (M5.2): an Off / RetrieveOnly unit accepts no new hauls. Target-keyed
+            // and guarded by sourceIsTarget so the unit's own contents are never flagged as misplaced
+            // (D16). The freeze side (no haul-out / use) is handled separately by the IsForbidden
+            // postfix in StorageMode_Patches.
+            if (!sourceIsTarget && data != null &&
+                (data.mode == PscStorageMode.Off || data.mode == PscStorageMode.RetrieveOnly))
+            {
+                LogReject(t, unit, "modeNoIntake",
+                    $"mode: rejected {t.def.defName} -> {unit.UniqueLoadID} (mode {data.mode}, no intake)");
+                __result = false; return;
+            }
 
             // Feeder gates first (a source's onlyToDestinations blocks the haul even into a no-policy
             // target). targetData is reused by the limit gate when the feeder gate had to resolve it.

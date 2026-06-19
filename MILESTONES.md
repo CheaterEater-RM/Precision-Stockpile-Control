@@ -319,10 +319,49 @@ the letter/log fire once, hauling respects the imported limits, idempotency (onl
 after a resave), the both-loaded guard (no migration), the `<psc>`-wins guard, the no-foreign-data
 no-op, and PSC removal still degrades cleanly.
 
-## Planned
+### M5 (part 2) - Storage modes / Flickable Storage (code complete; pending in-game verification)
 
-### M5 (part 2) - Flickable Storage
+Builds clean, `net48`, Harmony 2.4, 0 warnings. Four per-storage modes inspired by Mlie's Flickable
+Storage (MIT) — **storage on** (Normal/vanilla), **storage off**, **accept only**, **retrieve
+only** — reimplemented with PSC's own mechanism (no forbidden-flag writes). Full design in
+`docs/04_PSC_DESIGN.md` §17.
 
-- Integrated on/off and receive-only storage behavior
+- **Mechanism — two tighten-only patches, no forbidden flag.**
+  - *Freeze* (Off / AcceptOnly block haul-out **and** all consumption): postfix on
+    `ForbidUtility.IsForbidden(Thing, Faction)` (`StorageMode_Patches.cs`) returns a **virtual**
+    forbidden answer for items whose current unit is in a freeze mode — it never writes
+    `CompForbiddable.Forbidden`. That `(Thing, Faction)` leaf is the chokepoint every player-side
+    check routes through (the `(Thing, Pawn)` overload calls it), so cooks/doctors/refuelers/builders
+    /haulers all honour it from one patch; a frozen item is auto-non-haulable, so no haul-out patch is
+    needed. Explicit `Type[]` (ambiguous-match rule). Only-ever-adds forbidden (never un-forbids), so
+    the player's manual forbid is preserved.
+  - *Haul-in block* (Off / RetrieveOnly): a mode gate added to the `AllowedToAccept(Thing)` postfix
+    in `Admission_Patches.cs`, guarded by `sourceIsTarget` (D16) so a unit's own contents are never
+    flagged misplaced.
+- **Gate.** `PscMapComponent.anyFreezeModeActive` (a unit in Off or AcceptOnly) gates the
+  `IsForbidden` postfix — PSC's hottest seam — so a colony using no freeze mode (incl. one using only
+  RetrieveOnly) pays nothing. Recomputed via the existing `RecomputeGate` helper in `UpdateTracking`
+  / `RebuildTrackingFromStore`.
+- **State + persistence.** `PscStorageData.mode` (`PscStorageMode` byte enum), scribed as `<mode>`
+  under `<psc>` (written only when non-Normal). Included in `HasPersistentPolicy` and
+  `CopyPolicyFrom`; shared across a linked `StorageGroup` automatically. Add/remove/delete safe by
+  construction — nothing is left forbidden because the flag is never touched.
+- **UI.** One `Command_Action` mode gizmo (`PscModeGizmo`) on zones + shelves via the existing
+  `Feeder_Gizmos_Patch` `GetGizmos` postfixes; its icon reflects the current mode and a click opens a
+  four-option `FloatMenu`. `SetMode` writes the mode, calls `NotifyPolicyChanged`, and on a freeze
+  transition pokes `listerHaulables`/`listerMergeables` for the unit's contents (mirrors
+  `CompForbiddable.Forbidden`'s setter) so the change is immediate. Four icons reused from Flickable
+  (MIT, credited) at `Textures/UI/Mode/{On,Off,AcceptOnly,RetrieveOnly}.png`.
+- **Known limits (documented in tooltips + README):** forbidden-ignoring pawns (mental break) bypass
+  the freeze; mods reading `CompForbiddable.Forbidden` directly miss the virtual state; manually
+  unforbidding one item in a frozen pile looks inert (release by switching the mode).
 
-Dependencies: M4 complete.
+New files: `Source/Patches/StorageMode_Patches.cs`, `Source/UI/PscModeGizmo.cs`,
+`Textures/UI/Mode/{On,Off,AcceptOnly,RetrieveOnly}.png`. Edits: `PscStorageData` (enum + `mode`),
+`PscMapComponent` (`anyFreezeModeActive`), `Admission_Patches` (haul-in gate),
+`Feeder_Gizmos_Patch` (yield mode gizmo), `Keys.xml`, `About.xml`, `README.md`, `AGENTS.md`.
+
+Remaining before "done": in-game verification of the design §17 scenarios — Off/AcceptOnly freeze
+(no haul-out, cooks/doctors won't take), RetrieveOnly drains but takes no intake, prompt mode-flip,
+linked-group sharing, delete-while-frozen leaves nothing forbidden, save/remove round-trip, and the
+no-mode performance early-out.

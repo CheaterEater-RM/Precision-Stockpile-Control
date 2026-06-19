@@ -56,6 +56,17 @@
   <PSC_ClearConnectionsConfirm>Clear all feeder connections on this map</PSC_ClearConnectionsConfirm>
   <PSC_ClearConnectionsConfirmDialog>Remove every feeder connection on this map? This cannot be undone.</PSC_ClearConnectionsConfirmDialog>
 
+  <!-- Storage mode gizmo (M5.2, Flickable-style: storage on / off / accept only / retrieve only) -->
+  <PSC_StorageModeDesc>{0}\n\nClick to choose how this storage accepts and releases items.</PSC_StorageModeDesc>
+  <PSC_Mode_Normal>Storage on</PSC_Mode_Normal>
+  <PSC_Mode_NormalDesc>Storage on. Items are hauled in and out normally (vanilla behaviour).</PSC_Mode_NormalDesc>
+  <PSC_Mode_Off>Storage off</PSC_Mode_Off>
+  <PSC_Mode_OffDesc>Storage off. Pawns won't haul items in, and items already here are frozen in place — they won't be hauled out or used for cooking, crafting, doctoring, refueling, or building. Manually unforbidding a frozen item has no effect; switch the mode to release it. Pawns in a mental break can still take items.</PSC_Mode_OffDesc>
+  <PSC_Mode_AcceptOnly>Accept only</PSC_Mode_AcceptOnly>
+  <PSC_Mode_AcceptOnlyDesc>Accept only. Pawns haul items in as normal, but items already here are frozen — they won't be hauled out or used. Useful for a collection pile that fills but never drains. Manually unforbidding a frozen item has no effect; switch the mode to release it.</PSC_Mode_AcceptOnlyDesc>
+  <PSC_Mode_RetrieveOnly>Retrieve only</PSC_Mode_RetrieveOnly>
+  <PSC_Mode_RetrieveOnlyDesc>Retrieve only. Pawns won't haul new items in, but may freely haul out and use what's already here. Useful for draining a storage area you're emptying.</PSC_Mode_RetrieveOnlyDesc>
+
   <!-- Storage tab button -->
   <PSC_ButtonLabel>PSC</PSC_ButtonLabel>
 

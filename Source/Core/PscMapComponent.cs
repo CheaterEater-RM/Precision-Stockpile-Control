@@ -23,6 +23,11 @@ namespace PrecisionStockpileControl
         // Gates the fine-order transpiler helper so plain colonies pay one bool check (design §9).
         public bool anyFineOrderActive;
 
+        // True when any tracked unit is in a freeze mode (Off / AcceptOnly). Gates the IsForbidden
+        // freeze postfix (M5.2) — the hottest seam PSC touches — so a colony using no freeze mode
+        // (incl. one using only RetrieveOnly) never pays its per-call slot-group resolution.
+        public bool anyFreezeModeActive;
+
         // Authoritative directed feeder-link graph for this map (design §4.2) + its mutation/query
         // surface. Scribed via feeder.ExposeData below.
         private readonly PscFeederManager feeder;
@@ -94,6 +99,7 @@ namespace PrecisionStockpileControl
             anyPscActive = tracked.Count > 0;
             RecomputeFeederActive();
             RecomputeFineOrderActive();
+            RecomputeFreezeModeActive();
             RebuildDemand();
         }
 
@@ -104,6 +110,10 @@ namespace PrecisionStockpileControl
         public void RecomputeFineOrderActive()
             => RecomputeGate(ref anyFineOrderActive, "order: gate anyFineOrderActive",
                 d => d.subTier != 0 || !string.IsNullOrEmpty(d.letter));
+
+        private void RecomputeFreezeModeActive()
+            => RecomputeGate(ref anyFreezeModeActive, "mode: gate anyFreezeModeActive",
+                d => d.mode == PscStorageMode.Off || d.mode == PscStorageMode.AcceptOnly);
 
         // Recompute a per-map early-out gate: true when any tracked unit's data satisfies `predicate`.
         // The predicate is a static lambda (no capture), so this allocates nothing per call.
@@ -167,6 +177,7 @@ namespace PrecisionStockpileControl
             anyPscActive = tracked.Count > 0;
             RecomputeFeederActive();
             RecomputeFineOrderActive();
+            RecomputeFreezeModeActive();
             RebuildDemand();
         }
 
