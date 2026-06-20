@@ -43,13 +43,13 @@ namespace PrecisionStockpileControl
         public const float TickMinorHeight = 9f;        // regular scale ticks
         public const float TickMinorWidth = 1f;
         public const float TickDefaultWidth = 2f;
-        public const int MaxTicks = 24;
+        public const int TickCombThreshold = 12;
 
         // Fraction of a stack within which the slider "sticks" to a stack boundary (items mode).
         public const float StickyStackFraction = 0.1f;
 
         // ---- Limit-editor row layout --------------------------------------------------------------
-        public const float EditorRowHeight = 82f;
+        public const float EditorRowHeight = 100f;
         public const float FieldWidth = 72f;
         public const float EditorLabelHeight = 20f;
         public const float FieldHeight = 28f;
@@ -57,7 +57,7 @@ namespace PrecisionStockpileControl
         public const float SliderTopOffset = 26f;
         public const float SliderHeight = 24f;
         public const float HintTopOffset = 54f;
-        public const float HintHeight = 24f;
+        public const float HintHeight = 40f;
 
         // ---- Storage-filter row (per-item / category limit label + marker) ------------------------
         public const float RowCheckboxInset = 26f;      // checkbox sits ColumnWidth - inset from the left

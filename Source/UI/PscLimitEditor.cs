@@ -164,7 +164,7 @@ namespace PrecisionStockpileControl
             SyncBuffers();
 
             Text.Font = GameFont.Tiny;
-            Text.Anchor = TextAnchor.UpperCenter;
+            Text.Anchor = TextAnchor.MiddleCenter;
             GUI.color = PscUiTheme.HintText;
             Widgets.Label(hintRect, SliderHint(target));
             GUI.color = Color.white;

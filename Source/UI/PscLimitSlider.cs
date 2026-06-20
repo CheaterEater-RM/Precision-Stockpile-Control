@@ -114,12 +114,26 @@ namespace PrecisionStockpileControl
 
             if (!stacksMode && !target.HasStackContext) return;
             int step = stacksMode ? 1 : target.StackLimit;
-            int tickCount = sliderMax / step;
-            int stride = Mathf.Max(1, Mathf.CeilToInt(tickCount / (float)PscUiTheme.MaxTicks));
-            for (int v = step * stride; v < sliderMax; v += step * stride)
+            int stackTickCount = sliderMax / step + (sliderMax % step == 0 ? 0 : 1);
+            int stride = TickCombStride(stackTickCount);
+            long tickStepLong = (long)step * stride;
+            if (tickStepLong > int.MaxValue) return;
+
+            int tickStep = (int)tickStepLong;
+            for (int v = tickStep; v < sliderMax; v += tickStep)
             {
                 DrawTick(rail, ValueToNorm(v, true, sliderMax), PscUiTheme.TickMinorHeight, PscUiTheme.TickMinor, PscUiTheme.TickMinorWidth);
             }
+        }
+
+        private static int TickCombStride(int stackTickCount)
+        {
+            int stride = 1;
+            while ((long)stackTickCount > (long)PscUiTheme.TickCombThreshold * stride && stride <= int.MaxValue / 2)
+            {
+                stride *= 2;
+            }
+            return stride;
         }
 
         private static void DrawTick(Rect rail, float norm, float height, Color color, float width = PscUiTheme.TickDefaultWidth)
