@@ -17,9 +17,6 @@ namespace PrecisionStockpileControl
         private static readonly Color BadColor = new Color(0.92f, 0.22f, 0.22f, 0.90f);
         private static readonly Dictionary<int, Material> MatCache = new Dictionary<int, Material>();
 
-        // Global toggle driven by the "Show connections" gizmo (session state — not scribed).
-        public static bool ShowAll;
-
         // Reused per-frame scratch so the draw path allocates nothing steady-state.
         private static readonly Dictionary<string, PscHaulUnit> idMap = new Dictionary<string, PscHaulUnit>();
 
@@ -35,17 +32,25 @@ namespace PrecisionStockpileControl
             var links = psc.Links;
             if (links.IsEmpty) return;
             if (map != Find.CurrentMap) return;
-            if (!TryGetSelectedUnit(map, out PscHaulUnit selected)) return;   // only while a storage is selected
+
+            // Overlay on -> draw every route (no selection needed). Overlay off -> legacy behaviour:
+            // draw only routes incident to the selected storage (nothing if none is selected).
+            bool overlay = PscOverlayState.Active;
+            string selId = null;
+            if (!overlay)
+            {
+                if (!TryGetSelectedUnit(map, out PscHaulUnit selected)) return;
+                selId = selected.UniqueLoadID;
+            }
 
             BuildIdMap(map);
             centerCache.Clear();
-            string selId = selected.UniqueLoadID;
 
             var list = links.Links;
             for (int i = 0; i < list.Count; i++)
             {
                 var l = list[i];
-                if (!ShowAll && l.sourceId != selId && l.destId != selId) continue;
+                if (!overlay && l.sourceId != selId && l.destId != selId) continue;
                 if (!idMap.TryGetValue(l.sourceId, out var su) || !idMap.TryGetValue(l.destId, out var du)) continue;
                 if (su.Settings == null || du.Settings == null) continue;
                 if (!TryCenter(l.sourceId, su, out var a) || !TryCenter(l.destId, du, out var b)) continue;

@@ -17,17 +17,16 @@ namespace PrecisionStockpileControl
     public static class PscModeGizmo
     {
         // Icon art reused from Mlie's Flickable Storage (MIT) — credited in About.xml / README.
-        private static readonly Texture2D OnTex = Load("UI/Mode/On");
-        private static readonly Texture2D OffTex = Load("UI/Mode/Off");
-        private static readonly Texture2D AcceptTex = Load("UI/Mode/AcceptOnly");
-        private static readonly Texture2D RetrieveTex = Load("UI/Mode/RetrieveOnly");
+        // Textures come from the shared catalog (PscStatusIcons) so each path lives in one place.
+        private static readonly Texture2D OnTex = PscStatusIcons.ModeOnTex;
+        private static readonly Texture2D OffTex = PscStatusIcons.ModeOffTex;
+        private static readonly Texture2D AcceptTex = PscStatusIcons.ModeAcceptTex;
+        private static readonly Texture2D RetrieveTex = PscStatusIcons.ModeRetrieveTex;
 
         private static readonly PscStorageMode[] AllModes =
         {
             PscStorageMode.Normal, PscStorageMode.Off, PscStorageMode.AcceptOnly, PscStorageMode.RetrieveOnly
         };
-
-        private static Texture2D Load(string path) => ContentFinder<Texture2D>.Get(path, reportFailure: false) ?? BaseContent.BadTex;
 
         public static IEnumerable<Gizmo> GizmosFor(StorageSettings settings, PscHaulUnit unit)
         {

@@ -216,11 +216,19 @@ namespace PrecisionStockpileControl
             feeder.ExposeData();
         }
 
-        // Per-frame world-space draw of the feeder overlay (Contagion pattern). Cheap early-outs
+        // Per-frame world-space draw of the feeder route lines (Contagion pattern). Cheap early-outs
         // live inside the drawer (no links / nothing selected / overlay off).
         public override void MapComponentUpdate()
         {
             PscFeederOverlay.Draw(map, this);
+        }
+
+        // Screen-space draw of the storage-overlay panels (icons + priority). Separate seam from the
+        // route lines: panels are OnGUI + zoom-gated, lines are world-space + all-zoom. The drawer
+        // early-outs when the overlay toggle is off, so plain play pays nothing.
+        public override void MapComponentOnGUI()
+        {
+            PscStorageOverlay.Draw(map);
         }
 
         // ---- feeder facade: thin pass-throughs to PscFeederManager (logic lives there) ----

@@ -49,14 +49,17 @@
   <PSC_OnlyToDestinationsDesc>When on, items here are hauled only to this storage's destinations — never to any other storage.</PSC_OnlyToDestinationsDesc>
   <PSC_NoSourceReason>No source set yet.</PSC_NoSourceReason>
   <PSC_NoDestinationReason>No destination set yet.</PSC_NoDestinationReason>
-  <PSC_ShowConnections>Show routes</PSC_ShowConnections>
-  <PSC_ShowConnectionsDesc>Show routes for every storage on the map, not just the selected one.</PSC_ShowConnectionsDesc>
   <PSC_ClearConnections>Clear all routes</PSC_ClearConnections>
   <PSC_ClearConnectionsDesc>Remove routes in bulk. Right-click for two options: clear just this storage's routes, or every route on the map. A plain click does nothing, to avoid clearing by accident.</PSC_ClearConnectionsDesc>
   <PSC_ClearConnectionsHint>Right-click this button to clear routes.</PSC_ClearConnectionsHint>
   <PSC_ClearConnectionsThisStockpile>Clear this storage's routes</PSC_ClearConnectionsThisStockpile>
   <PSC_ClearConnectionsConfirm>Clear all routes on this map</PSC_ClearConnectionsConfirm>
   <PSC_ClearConnectionsConfirmDialog>Remove every route on this map? This cannot be undone.</PSC_ClearConnectionsConfirmDialog>
+
+  <!-- On-map storage overlay (bottom-right play-settings toggle + per-storage info panels) -->
+  <PSC_OverlayToggle>Storage overlay</PSC_OverlayToggle>
+  <PSC_OverlayToggleTip>Show storage priority panels and all feeder routes on the map. Panels appear when you zoom in.</PSC_OverlayToggleTip>
+  <PSC_OverlayLimits>Item limits set</PSC_OverlayLimits>
 
   <!-- Storage mode gizmo (M5.2, Flickable-style: normal / frozen / fill only / drain only) -->
   <PSC_StorageModeDesc>{0}\n\nClick to set how this storage takes items in and lets them out.</PSC_StorageModeDesc>

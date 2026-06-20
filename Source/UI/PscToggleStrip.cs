@@ -29,16 +29,15 @@ namespace PrecisionStockpileControl
         private const int DefaultBatchSize = 10;
         private const int DefaultHighPct = 90;
 
-        private static readonly Texture2D BatchInTex = Load("UI/Toggles/BatchIn");
-        private static readonly Texture2D BatchOutTex = Load("UI/Toggles/BatchOut");
-        private static readonly Texture2D OnlyFromTex = Load("UI/Toggles/OnlyFromSource");
-        private static readonly Texture2D OnlyToTex = Load("UI/Toggles/OnlyToDestinations");
-        private static readonly Texture2D AlarmTex = Load("UI/Toggles/Alarm");
+        // Icon textures come from the shared catalog (PscStatusIcons) so each path lives in one place.
+        private static readonly Texture2D BatchInTex = PscStatusIcons.BatchInTex;
+        private static readonly Texture2D BatchOutTex = PscStatusIcons.BatchOutTex;
+        private static readonly Texture2D OnlyFromTex = PscStatusIcons.OnlyFromTex;
+        private static readonly Texture2D OnlyToTex = PscStatusIcons.OnlyToTex;
+        private static readonly Texture2D AlarmTex = PscStatusIcons.AlarmTex;
 
         private static readonly Color OffIcon = new Color(0.62f, 0.62f, 0.62f, 0.55f);   // desaturated/dim
         private static readonly Color DisabledIcon = new Color(0.5f, 0.5f, 0.5f, 0.30f); // unavailable
-
-        private static Texture2D Load(string path) => ContentFinder<Texture2D>.Get(path, reportFailure: false) ?? BaseContent.BadTex;
 
         // Drawn in the FillTab postfix's window space (origin x=10), anchored to the entry button.
         public static void Draw(StorageSettings settings, PscHaulUnit unit, QuickSearchFilter search)

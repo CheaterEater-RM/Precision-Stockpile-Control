@@ -18,7 +18,6 @@ namespace PrecisionStockpileControl
         private static readonly Texture2D ConnectDestTex = Load("UI/Commands/SelectAllLinked");
         private static readonly Texture2D OnlyFromTex = Load("UI/Commands/LinkStorageSettings");
         private static readonly Texture2D OnlyToTex = Load("UI/Commands/SelectAllLinked");
-        private static readonly Texture2D ShowTex = Load("UI/Commands/SelectAllLinked");
         private static readonly Texture2D BreakTex = Load("UI/Designators/Cancel");
         private static readonly Texture2D ClearTex = Load("UI/Designators/Cancel");
 
@@ -60,14 +59,8 @@ namespace PrecisionStockpileControl
             if (!psc.Links.HasAnyDestination(id)) onlyTo.Disable("PSC_NoDestinationReason".Translate());
             yield return onlyTo;
 
-            yield return new Command_Toggle
-            {
-                defaultLabel = "PSC_ShowConnections".Translate(),
-                defaultDesc = "PSC_ShowConnectionsDesc".Translate(),
-                icon = ShowTex,
-                isActive = () => PscFeederOverlay.ShowAll,
-                toggleAction = () => PscFeederOverlay.ShowAll = !PscFeederOverlay.ShowAll
-            };
+            // The overlay (all routes / panels) is toggled by the bottom-right play-settings button
+            // (PlaySettings_GlobalControls_Patch) — no per-storage "Show routes" gizmo any more.
 
             yield return new Command_ClearConnections
             {

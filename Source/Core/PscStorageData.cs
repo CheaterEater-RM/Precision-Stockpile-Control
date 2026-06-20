@@ -113,6 +113,20 @@ namespace PrecisionStockpileControl
             return (defaultLimit != null && !defaultLimit.IsDefault) ? defaultLimit : null;
         }
 
+        // True when any per-def or the per-unit default limit is set. Manual loop (no LINQ) since the
+        // `limits` dict can hold IsDefault entries — mirrors the filtering in HasPersistentPolicy /
+        // RebuildDemand. Used by the on-map overlay's "limits active" status icon.
+        public bool HasAnyLimit
+        {
+            get
+            {
+                if (defaultLimit != null && !defaultLimit.IsDefault) return true;
+                foreach (var kv in limits)
+                    if (kv.Value != null && !kv.Value.IsDefault) return true;
+                return false;
+            }
+        }
+
         // ---- Dirty marking (cheap; called from drift-seam patches) ----
         public void MarkDirty(ThingDef def) { if (def != null) dirtyDefs.Add(def); }
         public void MarkAllDirty() { allDirty = true; }
