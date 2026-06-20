@@ -15,7 +15,10 @@ namespace PrecisionStockpileControl
         // source of truth so the reserve and the button can't drift apart.
         private const float EntryButtonX = 10f;
         private const float EntryButtonY = 45f;
-        private const float EntryButtonWidth = 196f;
+        // Narrowed (was 196) so the quick-toggle strip (PscToggleStrip) fits to its right on the same
+        // row. Wide enough for the "Stockpile Control" label at GameFont.Small; if a translation
+        // clips, shorten PSC_ButtonLabel rather than widening back into the strip.
+        private const float EntryButtonWidth = 140f;
         private const float EntryButtonHeight = 24f;
 
         public static Rect EntryButtonRect()

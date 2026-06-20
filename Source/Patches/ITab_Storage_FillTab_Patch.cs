@@ -50,12 +50,14 @@ namespace PrecisionStockpileControl
             // Fine-order controls (letter / 1-10 level) beside the vanilla Priority button.
             PscPriorityBox.Draw(__state.settings);
 
+            var unit = PscHaulUnit.ResolveSettings(__state.settings);
+
             // Keep an open PSC window synced to the current selection: when the player picks a
             // different stockpile (the storage tab is sticky, so FillTab runs for the new one),
             // retarget the existing window rather than leaving it on the old stockpile.
             var open = Find.WindowStack.WindowOfType<PscControlWindow>();
             if (open != null && !ReferenceEquals(open.Settings, __state.settings))
-                open.Retarget(__state.settings, PscHaulUnit.ResolveSettings(__state.settings), __state.search);
+                open.Retarget(__state.settings, unit, __state.search);
 
             var rect = PscUiWidgets.EntryButtonRect();
             TooltipHandler.TipRegion(rect, "PSC_ButtonTip".Translate());
@@ -64,15 +66,13 @@ namespace PrecisionStockpileControl
                 // Toggle: if a PSC window is already open, the button closes it; otherwise open a
                 // fresh one for the currently selected storage.
                 if (open != null)
-                {
                     open.Close(false);
-                }
                 else
-                {
-                    var unit = PscHaulUnit.ResolveSettings(__state.settings);
                     Find.WindowStack.Add(new PscControlWindow(__state.settings, unit, __state.search));
-                }
             }
+
+            // Quick-toggle strip (batch in/out, only-from/to-routes, alarm) right of the button.
+            PscToggleStrip.Draw(__state.settings, unit, __state.search);
         }
 
         public static void Finalizer()

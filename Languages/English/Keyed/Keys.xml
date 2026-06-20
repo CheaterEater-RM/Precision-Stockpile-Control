@@ -151,4 +151,12 @@
   <PSC_Alarm_DisarmAll>Disarm all alarms (this map)</PSC_Alarm_DisarmAll>
   <PSC_Alarm_DisarmAllConfirm>Disarm every stockpile alarm on this map? This cannot be undone.</PSC_Alarm_DisarmAllConfirm>
 
+  <!-- Storage-tab quick-toggle strip (right of the Stockpile Control button) -->
+  <PSC_Toggle_StateOn>On</PSC_Toggle_StateOn>
+  <PSC_Toggle_StateOff>Off</PSC_Toggle_StateOff>
+  <PSC_Toggle_BatchValue>min {0} per trip</PSC_Toggle_BatchValue>
+  <PSC_Toggle_BatchInHint>Left-click turns batch-fill on or off (default {0} items). Right-click opens Stockpile Control to set the exact amount.</PSC_Toggle_BatchInHint>
+  <PSC_Toggle_BatchOutHint>Left-click turns batch-empty on or off (default {0} items). Right-click opens Stockpile Control to set the exact amount.</PSC_Toggle_BatchOutHint>
+  <PSC_Toggle_AlarmHint>Left-click arms a high-fill alarm (≥ {0}% full) or disarms this storage's alarm. Right-click opens the alarm settings.</PSC_Toggle_AlarmHint>
+
 </LanguageData>
