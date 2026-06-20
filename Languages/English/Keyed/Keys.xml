@@ -20,6 +20,10 @@
   <PSC_SettingsPriorityNumberingTip>Split each of the five vanilla priority bands into two levels: 1 (highest) to 10 (lowest). Existing storage lands on 1, 3, 5, 7 and 10. Turn this off to collapse back to the five bands — your letters still apply, but any ordering that relied on a level difference within one band stops working until you turn numbering back on.</PSC_SettingsPriorityNumberingTip>
   <PSC_SettingsReverseOrder>Reverse 1–10 numbering</PSC_SettingsReverseOrder>
   <PSC_SettingsReverseOrderTip>Show the highest priority as 10 instead of 1. Changes only the displayed numbers, not how storage is ordered.</PSC_SettingsReverseOrderTip>
+  <PSC_SettingsStorageButtonHeader>Button visibility</PSC_SettingsStorageButtonHeader>
+  <PSC_SettingsHideButtonSpecial>Hide on single-purpose storage</PSC_SettingsHideButtonSpecial>
+  <PSC_SettingsHideButtonSpecialTip>Hide the Stockpile Control button on storage where priority and limits don't apply: bookcases, graves and sarcophagi, growth vats, biosculpter pods, mortar shell racks, and gene banks. Doesn't affect normal shelves, stockpiles, or modded storage. On by default.</PSC_SettingsHideButtonSpecialTip>
+  <PSC_SettingsExtraExcludedLabel>Also hide on these storage defNames (one per line, exact and case-sensitive):</PSC_SettingsExtraExcludedLabel>
   <PSC_SettingsDebugHeader>Debugging</PSC_SettingsDebugHeader>
   <PSC_SettingsDebugLogging>Verbose debug logging</PSC_SettingsDebugLogging>
   <PSC_SettingsDebugLoggingTip>Logs PSC's hauling and ordering decisions to the dev console / Player.log. For bug reports only; leave off for normal play.</PSC_SettingsDebugLoggingTip>

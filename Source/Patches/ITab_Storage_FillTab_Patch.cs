@@ -30,6 +30,12 @@ namespace PrecisionStockpileControl
                 if (parent == null) return;
                 var settings = parent.GetStoreSettings();
                 if (settings == null) return;
+
+                // Blacklisted storage (bookcases, graves, etc.): leave __state.settings null so the
+                // postfix draws nothing, and skip PscUiContext.Set so per-row right-click limits are
+                // suppressed too. PSC then behaves exactly like vanilla on these units.
+                if (PscStorageButtonFilter.ShouldHide(parent)) return;
+
                 __state.settings = settings;
                 __state.search = PscReflection.GetQuickSearchFilter(__instance);
 

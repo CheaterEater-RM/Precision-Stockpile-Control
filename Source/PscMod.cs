@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using Verse;
 
@@ -17,6 +19,13 @@ namespace PrecisionStockpileControl
         public bool reverseOrder = false;             // M4 — 1-10 label flip only (ordering unchanged)
         public bool debugLogging = false;             // dev-mode diagnostic logging (PscLog)
 
+        // Hide the PSC button on single-purpose containers (bookcases, graves, outfit stands,
+        // feedstock vats, mortar shells, gene banks) where priority/limits are meaningless.
+        public bool hideButtonOnSpecialStorage = true;
+        // Extra storage defNames to hide the button on (e.g. modded single-purpose storage). One
+        // exact, case-sensitive defName per entry; edited as one-per-line text in the settings panel.
+        public List<string> extraExcludedDefNames = new List<string>();
+
         public override void ExposeData()
         {
             base.ExposeData();
@@ -28,12 +37,20 @@ namespace PrecisionStockpileControl
             Scribe_Values.Look(ref priorityNumbering, "priorityNumbering", false);
             Scribe_Values.Look(ref reverseOrder, "reverseOrder", false);
             Scribe_Values.Look(ref debugLogging, "debugLogging", false);
+            Scribe_Values.Look(ref hideButtonOnSpecialStorage, "hideButtonOnSpecialStorage", true);
+            Scribe_Collections.Look(ref extraExcludedDefNames, "extraExcludedDefNames", LookMode.Value);
+            if (Scribe.mode == LoadSaveMode.LoadingVars && extraExcludedDefNames == null)
+                extraExcludedDefNames = new List<string>();
         }
     }
 
     public class PscMod : Mod
     {
         public static PscSettings Settings { get; private set; }
+
+        // Editable mirror of Settings.extraExcludedDefNames as one-per-line text. Seeded lazily on
+        // first draw; parsed back into the list whenever it changes.
+        private string excludedDefNamesBuffer;
 
         public PscMod(ModContentPack content) : base(content)
         {
@@ -89,6 +106,29 @@ namespace PrecisionStockpileControl
             if (Settings.priorityNumbering != prevNumbering) ResortAllMaps();
             listing.CheckboxLabeled("PSC_SettingsReverseOrder".Translate(), ref Settings.reverseOrder,
                 "PSC_SettingsReverseOrderTip".Translate());
+
+            listing.Gap(12f);
+            listing.Label("PSC_SettingsStorageButtonHeader".Translate());
+            listing.Gap(6f);
+            listing.CheckboxLabeled("PSC_SettingsHideButtonSpecial".Translate(), ref Settings.hideButtonOnSpecialStorage,
+                "PSC_SettingsHideButtonSpecialTip".Translate());
+            Text.Font = GameFont.Tiny;
+            GUI.color = PscUiTheme.NoteText;
+            listing.Label("PSC_SettingsExtraExcludedLabel".Translate());
+            GUI.color = Color.white;
+            Text.Font = GameFont.Small;
+            if (excludedDefNamesBuffer == null)
+                excludedDefNamesBuffer = string.Join("\n", Settings.extraExcludedDefNames);
+            string editedExcluded = Widgets.TextArea(listing.GetRect(72f), excludedDefNamesBuffer);
+            if (editedExcluded != excludedDefNamesBuffer)
+            {
+                excludedDefNamesBuffer = editedExcluded;
+                Settings.extraExcludedDefNames = editedExcluded
+                    .Split('\n')
+                    .Select(s => s.Trim())
+                    .Where(s => s.Length > 0)
+                    .ToList();
+            }
 
             // Developer-only diagnostic logging. Hidden outside RimWorld dev mode so it never clutters
             // a normal player's settings; logs gate purely on the setting (dev mode only controls
