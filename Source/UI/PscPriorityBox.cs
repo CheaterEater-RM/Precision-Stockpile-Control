@@ -48,9 +48,14 @@ namespace PrecisionStockpileControl
             {
                 var levelRect = new Rect(RowX, RowY, PriorityButtonW, RowH);
                 int level = PscOrder.LevelFor(settings.Priority, data?.subTier ?? 0);
-                if (Widgets.ButtonText(levelRect, "PSC_LevelBox".Translate(PscOrder.DisplayLevel(level))))
+                // Show the band name alongside the level so the level->band mapping is always visible.
+                if (Widgets.ButtonText(levelRect, "PSC_LevelBox".Translate(PscOrder.DisplayLevel(level),
+                        settings.Priority.Label().CapitalizeFirst())))
                     OpenLevelMenu(settings);
-                TooltipHandler.TipRegion(levelRect, "PSC_LevelTip".Translate());
+                // Reverse-aware: pass the displayed numbers for the highest (1) and lowest (10) levels
+                // so the tip reads correctly when "Reverse 1-10 numbering" is on.
+                TooltipHandler.TipRegion(levelRect,
+                    "PSC_LevelTip".Translate(PscOrder.DisplayLevel(1), PscOrder.DisplayLevel(10)));
             }
 
             var letterRect = new Rect(x, RowY, LetterW, RowH);

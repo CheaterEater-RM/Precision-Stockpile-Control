@@ -3,108 +3,114 @@
 
   <!-- Mod settings -->
   <PSC_SettingsCategory>Precision Stockpile Control</PSC_SettingsCategory>
-  <PSC_SettingsM1Note>More options arrive in later updates. The current release adds per-item maximums, refill thresholds, and batch hauling to stockpiles and shelves.</PSC_SettingsM1Note>
-  <PSC_SettingsFeederHeader>Feeder links</PSC_SettingsFeederHeader>
-  <PSC_SettingsDefaultOnlyFromSource>Restrict new destinations to their sources</PSC_SettingsDefaultOnlyFromSource>
-  <PSC_SettingsDefaultOnlyFromSourceTip>When you link a source to a stockpile for the first time, automatically turn on "Only from source" for it. You can still toggle it per stockpile.</PSC_SettingsDefaultOnlyFromSourceTip>
-  <PSC_SettingsDefaultOnlyToDestinations>Restrict new sources to their destinations</PSC_SettingsDefaultOnlyToDestinations>
-  <PSC_SettingsDefaultOnlyToDestinationsTip>When you link a destination to a stockpile for the first time, automatically turn on "Only to destinations" for it. You can still toggle it per stockpile.</PSC_SettingsDefaultOnlyToDestinationsTip>
-  <PSC_SettingsAutoPrioritySource>Auto-set source priority on link</PSC_SettingsAutoPrioritySource>
-  <PSC_SettingsAutoPrioritySourceTip>When you connect a source to a storage, automatically give the painted source a subpriority letter one step below the storage you selected, so the feeder requirement (a destination must outrank its source) is met right away. Stops at "z" (the bottom) and tells you when it can't place — set that by hand. Off by default.</PSC_SettingsAutoPrioritySourceTip>
-  <PSC_SettingsAutoPriorityDestination>Auto-set destination priority on link</PSC_SettingsAutoPriorityDestination>
-  <PSC_SettingsAutoPriorityDestinationTip>When you connect a destination to a storage, automatically give the painted destination a subpriority letter one step above the storage you selected, so the feeder requirement (a destination must outrank its source) is met right away. Stops at no letter (the top) and tells you when it can't place — set that by hand. Off by default.</PSC_SettingsAutoPriorityDestinationTip>
+  <PSC_SettingsIntro>Per-storage maximums, refill thresholds, batch hauling, routes, fine priority, and storage modes. Storage you don't touch behaves exactly like vanilla.</PSC_SettingsIntro>
+  <PSC_SettingsQuickStart>To start: select a stockpile or shelf and click Stockpile Control on its Storage tab.</PSC_SettingsQuickStart>
+  <PSC_SettingsFeederHeader>Storage routes</PSC_SettingsFeederHeader>
+  <PSC_SettingsDefaultOnlyFromSource>New destinations start "Pull only from sources"</PSC_SettingsDefaultOnlyFromSource>
+  <PSC_SettingsDefaultOnlyFromSourceTip>When you first set a source for a storage, automatically turn on "Pull only from sources" for it. You can still toggle it per storage.</PSC_SettingsDefaultOnlyFromSourceTip>
+  <PSC_SettingsDefaultOnlyToDestinations>New sources start "Push only to destinations"</PSC_SettingsDefaultOnlyToDestinations>
+  <PSC_SettingsDefaultOnlyToDestinationsTip>When you first set a destination for a storage, automatically turn on "Push only to destinations" for it. You can still toggle it per storage.</PSC_SettingsDefaultOnlyToDestinationsTip>
+  <PSC_SettingsAutoPrioritySource>Auto-lower source priority on new route</PSC_SettingsAutoPrioritySource>
+  <PSC_SettingsAutoPrioritySourceTip>When you set a source, automatically nudge its letter one step below the destination so the route works right away (a destination must outrank its source). Stops at "z" and warns you when it can't place — set that by hand. Off by default.</PSC_SettingsAutoPrioritySourceTip>
+  <PSC_SettingsAutoPriorityDestination>Auto-raise destination priority on new route</PSC_SettingsAutoPriorityDestination>
+  <PSC_SettingsAutoPriorityDestinationTip>When you set a destination, automatically nudge its letter one step above the source so the route works right away (a destination must outrank its source). Stops at no letter and warns you when it can't place — set that by hand. Off by default.</PSC_SettingsAutoPriorityDestinationTip>
   <PSC_SettingsFineOrderHeader>Fine order</PSC_SettingsFineOrderHeader>
+  <PSC_FineOrderLegend>Level {0} = highest, {1} = lowest. Letters break ties within a level: none &gt; a &gt; b &gt; c.</PSC_FineOrderLegend>
   <PSC_SettingsPriorityNumbering>Use 1–10 priority levels</PSC_SettingsPriorityNumbering>
-  <PSC_SettingsPriorityNumberingTip>Split each of the five vanilla priority bands into two levels, giving 1 (highest) to 10 (lowest). Existing stockpiles land on 1, 3, 5, 7 and 10. Turn this off to collapse back to the five bands; your letters still apply, but any feeder link that relied only on a sub-tier difference within the same band will stop working until you turn numbering back on.</PSC_SettingsPriorityNumberingTip>
+  <PSC_SettingsPriorityNumberingTip>Split each of the five vanilla priority bands into two levels: 1 (highest) to 10 (lowest). Existing storage lands on 1, 3, 5, 7 and 10. Turn this off to collapse back to the five bands — your letters still apply, but any ordering that relied on a level difference within one band stops working until you turn numbering back on.</PSC_SettingsPriorityNumberingTip>
   <PSC_SettingsReverseOrder>Reverse 1–10 numbering</PSC_SettingsReverseOrder>
-  <PSC_SettingsReverseOrderTip>Show the highest priority as 10 instead of 1. This only flips the displayed numbers; it does not change how stockpiles are ordered.</PSC_SettingsReverseOrderTip>
+  <PSC_SettingsReverseOrderTip>Show the highest priority as 10 instead of 1. Changes only the displayed numbers, not how storage is ordered.</PSC_SettingsReverseOrderTip>
   <PSC_SettingsDebugHeader>Debugging</PSC_SettingsDebugHeader>
   <PSC_SettingsDebugLogging>Verbose debug logging</PSC_SettingsDebugLogging>
-  <PSC_SettingsDebugLoggingTip>Log PSC's feeder, link, and ordering decisions to the dev console / Player.log. Only useful for diagnosing bugs; leave off for normal play.</PSC_SettingsDebugLoggingTip>
+  <PSC_SettingsDebugLoggingTip>Logs PSC's hauling and ordering decisions to the dev console / Player.log. For bug reports only; leave off for normal play.</PSC_SettingsDebugLoggingTip>
 
   <!-- Fine order: priority box beside the vanilla Priority button -->
   <PSC_LevelShort>Lvl {0}</PSC_LevelShort>
-  <PSC_LevelBox>Priority: {0}</PSC_LevelBox>
-  <PSC_LevelTip>Fine priority level (1 = highest, 10 = lowest). Two levels share each vanilla band; setting a level also sets the band.</PSC_LevelTip>
+  <PSC_LevelBox>Lvl {0} — {1}</PSC_LevelBox>
+  <PSC_LevelTip>Priority level — {0} = highest, {1} = lowest. Each vanilla priority band splits into two levels; setting a level also sets the band.</PSC_LevelTip>
   <PSC_LevelOption>{0} — {1}</PSC_LevelOption>
-  <PSC_LetterTip>Subpriority letter. Within the same priority, "a" outranks "b" outranks "c". No letter is highest.</PSC_LetterTip>
-  <PSC_LetterNone>No letter</PSC_LetterNone>
+  <PSC_LetterTip>Tiebreaker within the same priority. Order: none (highest) &gt; a &gt; b &gt; c … &gt; z.</PSC_LetterTip>
+  <PSC_LetterNone>None (highest)</PSC_LetterNone>
 
-  <!-- Auto-priority on link (clamp notices) -->
-  <PSC_AutoPriorityClampLow>Auto-priority couldn't place the source below the destination — it's already at the lowest subpriority ("z"). Set the priority by hand.</PSC_AutoPriorityClampLow>
-  <PSC_AutoPriorityClampHigh>Auto-priority couldn't place the destination above the source — it's already at the highest subpriority (no letter). Set the priority by hand.</PSC_AutoPriorityClampHigh>
+  <!-- Auto-priority on new route (clamp notices) -->
+  <PSC_AutoPriorityClampLow>Couldn't auto-lower the source below the destination — it's already at the lowest letter ("z"). Set the priority by hand.</PSC_AutoPriorityClampLow>
+  <PSC_AutoPriorityClampHigh>Couldn't auto-raise the destination above the source — it's already at the top (no letter). Set the priority by hand.</PSC_AutoPriorityClampHigh>
 
-  <!-- Feeder link gizmos -->
-  <PSC_ConnectSource>Connect source</PSC_ConnectSource>
-  <PSC_ConnectSourceDesc>Click or drag over other stockpiles or shelves to mark them as sources that feed this storage. Items will flow from a source to this storage when this storage has the higher priority.</PSC_ConnectSourceDesc>
-  <PSC_ConnectDestination>Connect destination</PSC_ConnectDestination>
-  <PSC_ConnectDestinationDesc>Click or drag over other stockpiles or shelves to mark them as destinations this storage feeds. Items will flow from this storage to a destination when the destination has the higher priority.</PSC_ConnectDestinationDesc>
-  <PSC_BreakConnection>Break connection</PSC_BreakConnection>
-  <PSC_BreakConnectionDesc>Click or drag over other stockpiles or shelves to remove any feeder link between them and this storage. Only connections to this storage are broken; a normal click on an unconnected storage does nothing.</PSC_BreakConnectionDesc>
-  <PSC_OnlyFromSource>Only from source</PSC_OnlyFromSource>
-  <PSC_OnlyFromSourceDesc>When on, this storage only accepts items hauled from one of its linked sources — never loose or ground items, and never from unlinked storage.</PSC_OnlyFromSourceDesc>
-  <PSC_OnlyToDestinations>Only to destinations</PSC_OnlyToDestinations>
-  <PSC_OnlyToDestinationsDesc>When on, items in this storage are only hauled to one of its linked destinations — never to any other storage.</PSC_OnlyToDestinationsDesc>
-  <PSC_NoSourceReason>Connect a source first.</PSC_NoSourceReason>
-  <PSC_NoDestinationReason>Connect a destination first.</PSC_NoDestinationReason>
-  <PSC_ShowConnections>Show connections</PSC_ShowConnections>
-  <PSC_ShowConnectionsDesc>Show feeder links for every stockpile on the map (not just the selected one) while a storage is selected.</PSC_ShowConnectionsDesc>
-  <PSC_ClearConnections>Clear all connections</PSC_ClearConnections>
-  <PSC_ClearConnectionsDesc>Remove feeder links in bulk. Right-click for two options: clear just this storage's connections, or clear every connection on the map. A normal click does nothing, to avoid clearing by accident.</PSC_ClearConnectionsDesc>
-  <PSC_ClearConnectionsHint>Right-click this button to clear connections.</PSC_ClearConnectionsHint>
-  <PSC_ClearConnectionsThisStockpile>Clear this storage's connections</PSC_ClearConnectionsThisStockpile>
-  <PSC_ClearConnectionsConfirm>Clear all feeder connections on this map</PSC_ClearConnectionsConfirm>
-  <PSC_ClearConnectionsConfirmDialog>Remove every feeder connection on this map? This cannot be undone.</PSC_ClearConnectionsConfirmDialog>
+  <!-- Route gizmos (the source -> destination feeder relationship) -->
+  <PSC_ConnectSource>Set source</PSC_ConnectSource>
+  <PSC_ConnectSourceDesc>Click or drag over other storage to route items from it into this one. Items move here when this storage outranks the source. (A destination must outrank its source.)</PSC_ConnectSourceDesc>
+  <PSC_ConnectDestination>Set destination</PSC_ConnectDestination>
+  <PSC_ConnectDestinationDesc>Click or drag over other storage to route items from this one into it. Items move there when it outranks this storage.</PSC_ConnectDestinationDesc>
+  <PSC_BreakConnection>Clear route</PSC_BreakConnection>
+  <PSC_BreakConnectionDesc>Click or drag over routed storage to remove the route between it and this storage. A plain click on unrouted storage does nothing.</PSC_BreakConnectionDesc>
+  <PSC_OnlyFromSource>Pull only from sources</PSC_OnlyFromSource>
+  <PSC_OnlyFromSourceDesc>When on, this storage accepts items only from its source storages — never ground items, and never storage it isn't routed from.</PSC_OnlyFromSourceDesc>
+  <PSC_OnlyToDestinations>Push only to destinations</PSC_OnlyToDestinations>
+  <PSC_OnlyToDestinationsDesc>When on, items here are hauled only to this storage's destinations — never to any other storage.</PSC_OnlyToDestinationsDesc>
+  <PSC_NoSourceReason>No source set yet.</PSC_NoSourceReason>
+  <PSC_NoDestinationReason>No destination set yet.</PSC_NoDestinationReason>
+  <PSC_ShowConnections>Show routes</PSC_ShowConnections>
+  <PSC_ShowConnectionsDesc>Show routes for every storage on the map, not just the selected one.</PSC_ShowConnectionsDesc>
+  <PSC_ClearConnections>Clear all routes</PSC_ClearConnections>
+  <PSC_ClearConnectionsDesc>Remove routes in bulk. Right-click for two options: clear just this storage's routes, or every route on the map. A plain click does nothing, to avoid clearing by accident.</PSC_ClearConnectionsDesc>
+  <PSC_ClearConnectionsHint>Right-click this button to clear routes.</PSC_ClearConnectionsHint>
+  <PSC_ClearConnectionsThisStockpile>Clear this storage's routes</PSC_ClearConnectionsThisStockpile>
+  <PSC_ClearConnectionsConfirm>Clear all routes on this map</PSC_ClearConnectionsConfirm>
+  <PSC_ClearConnectionsConfirmDialog>Remove every route on this map? This cannot be undone.</PSC_ClearConnectionsConfirmDialog>
 
-  <!-- Storage mode gizmo (M5.2, Flickable-style: storage on / off / accept only / retrieve only) -->
-  <PSC_StorageModeDesc>{0}\n\nClick to choose how this storage accepts and releases items.</PSC_StorageModeDesc>
-  <PSC_Mode_Normal>Storage on</PSC_Mode_Normal>
-  <PSC_Mode_NormalDesc>Storage on. Items are hauled in and out normally (vanilla behaviour).</PSC_Mode_NormalDesc>
-  <PSC_Mode_Off>Storage off</PSC_Mode_Off>
-  <PSC_Mode_OffDesc>Storage off. Pawns won't haul items in, and items already here are frozen in place — they won't be hauled out or used for cooking, crafting, doctoring, refueling, or building. Manually unforbidding a frozen item has no effect; switch the mode to release it. Pawns in a mental break can still take items.</PSC_Mode_OffDesc>
-  <PSC_Mode_AcceptOnly>Accept only</PSC_Mode_AcceptOnly>
-  <PSC_Mode_AcceptOnlyDesc>Accept only. Pawns haul items in as normal, but items already here are frozen — they won't be hauled out or used. Useful for a collection pile that fills but never drains. Manually unforbidding a frozen item has no effect; switch the mode to release it.</PSC_Mode_AcceptOnlyDesc>
-  <PSC_Mode_RetrieveOnly>Retrieve only</PSC_Mode_RetrieveOnly>
-  <PSC_Mode_RetrieveOnlyDesc>Retrieve only. Pawns won't haul new items in, but may freely haul out and use what's already here. Useful for draining a storage area you're emptying.</PSC_Mode_RetrieveOnlyDesc>
+  <!-- Storage mode gizmo (M5.2, Flickable-style: normal / frozen / fill only / drain only) -->
+  <PSC_StorageModeDesc>{0}\n\nClick to set how this storage takes items in and lets them out.</PSC_StorageModeDesc>
+  <PSC_Mode_Normal>Normal</PSC_Mode_Normal>
+  <PSC_Mode_NormalDesc>Items are hauled in and out normally.</PSC_Mode_NormalDesc>
+  <PSC_Mode_Off>Frozen</PSC_Mode_Off>
+  <PSC_Mode_OffDesc>Nothing is hauled in or out. Items here are locked in place — they can't be used for cooking, crafting, building, and so on. Unforbidding them by hand does nothing; change the mode to release them. (Pawns in a mental break can still take items.)</PSC_Mode_OffDesc>
+  <PSC_Mode_AcceptOnly>Fill only</PSC_Mode_AcceptOnly>
+  <PSC_Mode_AcceptOnlyDesc>Items are hauled in normally but locked once here — they can't leave or be used. Good for a pile that fills but never drains.</PSC_Mode_AcceptOnlyDesc>
+  <PSC_Mode_RetrieveOnly>Drain only</PSC_Mode_RetrieveOnly>
+  <PSC_Mode_RetrieveOnlyDesc>No new items come in, but pawns can freely take and use what's already here. Good for emptying a storage area.</PSC_Mode_RetrieveOnlyDesc>
 
   <!-- Storage tab button -->
-  <PSC_ButtonLabel>PSC</PSC_ButtonLabel>
+  <PSC_ButtonLabel>Stockpile Control</PSC_ButtonLabel>
+  <PSC_ButtonTip>Open Precision Stockpile Control for this storage.</PSC_ButtonTip>
 
   <!-- Control window -->
   <PSC_WindowTitle>Precision Stockpile Control</PSC_WindowTitle>
-  <PSC_Mode>Measure by</PSC_Mode>
+  <PSC_Mode>Count by</PSC_Mode>
   <PSC_ModeItems>items</PSC_ModeItems>
   <PSC_ModeStacks>stacks</PSC_ModeStacks>
   <PSC_Upper>Maximum</PSC_Upper>
-  <PSC_UpperShort>Upper</PSC_UpperShort>
-  <PSC_UpperUnlimited>No maximum (unlimited)</PSC_UpperUnlimited>
-  <PSC_Lower>Refill threshold</PSC_Lower>
-  <PSC_LowerShort>Lower</PSC_LowerShort>
+  <PSC_UpperShort>Max</PSC_UpperShort>
+  <PSC_UpperUnlimited>Unlimited</PSC_UpperUnlimited>
+  <PSC_Lower>Refill at</PSC_Lower>
+  <PSC_LowerShort>Refill</PSC_LowerShort>
   <PSC_LowerAlways>Always refill</PSC_LowerAlways>
   <PSC_Always>always</PSC_Always>
   <PSC_Maximum>maximum</PSC_Maximum>
+  <PSC_MaxHelp>Pawns won't haul in past this count.</PSC_MaxHelp>
+  <PSC_RefillHelp>Pawns ignore this storage until its count drops to here, then refill up to Maximum. Stops constant topping-up.</PSC_RefillHelp>
+  <PSC_CountByTip>Count limits by individual items, or by full stacks (one stack = this item's max stack size).</PSC_CountByTip>
   <PSC_BatchFill>Batch fill</PSC_BatchFill>
-  <PSC_BatchFillTip>Pawns won't fill this storage in a trip smaller than this many items. Items below this amount aren't hauled in until more accumulates at the source. 0 = off.</PSC_BatchFillTip>
+  <PSC_BatchFillTip>Minimum items per haul-in trip. Pawns wait for this many to pile up at the source before fetching. 0 = no minimum.</PSC_BatchFillTip>
   <PSC_BatchEmpty>Batch empty</PSC_BatchEmpty>
-  <PSC_BatchEmptyTip>Pawns won't remove items from this storage unless they can take at least this many in one trip. Items below this amount stay until more accumulates. 0 = off.</PSC_BatchEmptyTip>
+  <PSC_BatchEmptyTip>Minimum items per haul-out trip. Pawns leave fewer than this in place until more piles up. 0 = no minimum.</PSC_BatchEmptyTip>
   <PSC_Preview>Will set: {0}</PSC_Preview>
-  <PSC_SliderHintGlobal>Blank ends mean always refill / fill to maximum.</PSC_SliderHintGlobal>
-  <PSC_SliderHintItem>Blank ends mean always refill / fill to maximum. Tick marks follow stacks of {0} items.</PSC_SliderHintItem>
-  <PSC_SliderHintMixedStacks>Blank ends mean always refill / fill to maximum. Items mode is disabled because this selection contains different stack sizes.</PSC_SliderHintMixedStacks>
-  <PSC_ItemsModeMixedStacksTip>Items mode is disabled because this selection contains items with different stack sizes. Use stacks mode so each item keeps the same number of stacks.</PSC_ItemsModeMixedStacksTip>
-  <PSC_SoftCapNote>Pawns keep each item at or below its maximum when hauling. Rarely, items spawned straight into storage (such as from a workbench standing inside the stockpile) can still exceed it.</PSC_SoftCapNote>
+  <PSC_SliderHintGlobal>Leave an end blank for: always refill / fill to maximum.</PSC_SliderHintGlobal>
+  <PSC_SliderHintItem>Leave an end blank for: always refill / fill to maximum. Ticks mark stacks of {0}.</PSC_SliderHintItem>
+  <PSC_SliderHintMixedStacks>Leave an end blank for: always refill / fill to maximum. "Items" is off: this selection has mixed stack sizes.</PSC_SliderHintMixedStacks>
+  <PSC_ItemsModeMixedStacksTip>Can't count by items here — the selection mixes different stack sizes. Count by stacks instead.</PSC_ItemsModeMixedStacksTip>
+  <PSC_SoftCapNote>Pawns respect each maximum when hauling. Items spawned straight into storage (for example a workbench standing in the zone) can still exceed it.</PSC_SoftCapNote>
   <PSC_ApplyToSearch>Apply to search</PSC_ApplyToSearch>
-  <PSC_RemoveFromSearch>Remove from search</PSC_RemoveFromSearch>
-  <PSC_ApplyToAll>Apply to all allowed items</PSC_ApplyToAll>
-  <PSC_RemoveFromAll>Remove from all</PSC_RemoveFromAll>
+  <PSC_RemoveFromSearch>Clear search limits</PSC_RemoveFromSearch>
+  <PSC_ApplyToAll>Apply to all allowed</PSC_ApplyToAll>
+  <PSC_RemoveFromAll>Clear all limits</PSC_RemoveFromAll>
   <PSC_ApplyToSearchHint>These limits apply to every item matching the storage tab's search.</PSC_ApplyToSearchHint>
   <PSC_ApplyToAllHint>No search active — these limits apply to every item this storage allows. Type in the storage tab's search box to target specific items.</PSC_ApplyToAllHint>
 
   <!-- One-way migration from other stockpile-limit mods -->
   <PSC_MigrationLetterLabel>Stockpile limits imported</PSC_MigrationLetterLabel>
-  <PSC_MigrationImportedLine>Imported limits from {0} on {1} storage area(s).</PSC_MigrationImportedLine>
-  <PSC_MigrationCaveat>Some values were converted approximately — open a storage area's PSC panel to review or adjust them. Per-stack-size and percentage-only settings that PSC can't express were left out.</PSC_MigrationCaveat>
-  <PSC_MigrationFailed>{0} storage area(s) couldn't be imported and were left unlimited.</PSC_MigrationFailed>
+  <PSC_MigrationImportedLine>Imported limits from {0} for {1} storage area(s).</PSC_MigrationImportedLine>
+  <PSC_MigrationCaveat>Some values were approximated — open a storage's Stockpile Control panel to review or adjust them. Settings PSC can't express (per-stack-size or percentage-only) were skipped.</PSC_MigrationCaveat>
+  <PSC_MigrationFailed>{0} storage area(s) couldn't be imported and stay unlimited.</PSC_MigrationFailed>
   <PSC_MigrationModSatisfiedStorage>Satisfied Storage</PSC_MigrationModSatisfiedStorage>
   <PSC_MigrationModVarietyMatters>Variety Matters Stockpile</PSC_MigrationModVarietyMatters>
   <PSC_MigrationModStackGap>Stack Gap</PSC_MigrationModStackGap>
@@ -114,5 +120,35 @@
   <PSC_Cancel>Cancel</PSC_Cancel>
   <PSC_AllowClear>✓ Allow, no limit</PSC_AllowClear>
   <PSC_DisallowClear>✗ Disallow</PSC_DisallowClear>
+
+  <!-- Stockpile alarm (gizmo + dialog): alert when a storage gets too full or too empty -->
+  <PSC_Alarm_GizmoLabel>Stockpile alarm</PSC_Alarm_GizmoLabel>
+  <PSC_Alarm_GizmoDesc>Get an alert when this storage gets too full or too empty.\n\nLeft-click to set it up. Right-click to disarm this storage, or every alarm on the map.</PSC_Alarm_GizmoDesc>
+  <PSC_Alarm_FallbackLabel>Stockpile</PSC_Alarm_FallbackLabel>
+  <PSC_Alarm_HighLabel>Alert when full is at or above</PSC_Alarm_HighLabel>
+  <PSC_Alarm_LowLabel>Alert when full is at or below</PSC_Alarm_LowLabel>
+  <PSC_Alarm_OverlapWarning>The high threshold should be above the low threshold.</PSC_Alarm_OverlapWarning>
+  <PSC_Alarm_Sustain>Only alert if it lasts</PSC_Alarm_Sustain>
+  <PSC_Alarm_Hours>hours</PSC_Alarm_Hours>
+  <PSC_Alarm_SustainTip>How long the storage must stay over/under the threshold before alerting, so brief spikes are ignored. Leave at 0 to alert right away.</PSC_Alarm_SustainTip>
+  <PSC_Alarm_Repeat>Repeat</PSC_Alarm_Repeat>
+  <PSC_Alarm_Repeat_OneShot>Once, then cancel</PSC_Alarm_Repeat_OneShot>
+  <PSC_Alarm_Repeat_Daily>Once per day</PSC_Alarm_Repeat_Daily>
+  <PSC_Alarm_Repeat_Quadrum>Once per quadrum</PSC_Alarm_Repeat_Quadrum>
+  <PSC_Alarm_Notify>Notify with</PSC_Alarm_Notify>
+  <PSC_Alarm_Notify_Message>Message</PSC_Alarm_Notify_Message>
+  <PSC_Alarm_Notify_Letter>Letter</PSC_Alarm_Notify_Letter>
+  <PSC_Alarm_CustomMessage>Custom message</PSC_Alarm_CustomMessage>
+  <PSC_Alarm_CustomHint>Leave blank to use the default, which names the storage and its fill %.</PSC_Alarm_CustomHint>
+  <PSC_Alarm_CurrentFullness>Currently {0}% full</PSC_Alarm_CurrentFullness>
+  <PSC_Alarm_CurrentFullnessUnknown>No storage cells</PSC_Alarm_CurrentFullnessUnknown>
+  <PSC_Alarm_HighMsg>{0} is {1}% full.</PSC_Alarm_HighMsg>
+  <PSC_Alarm_LowMsg>{0} is low — only {1}% full.</PSC_Alarm_LowMsg>
+  <PSC_Alarm_LetterTitle>Stockpile alarm: {0}</PSC_Alarm_LetterTitle>
+  <PSC_Alarm_ArmHigh>Arm high alarm (≥ {0}% full)</PSC_Alarm_ArmHigh>
+  <PSC_Alarm_ArmLow>Arm low alarm (≤ {0}% full)</PSC_Alarm_ArmLow>
+  <PSC_Alarm_DisarmThis>Disarm alarm (this storage)</PSC_Alarm_DisarmThis>
+  <PSC_Alarm_DisarmAll>Disarm all alarms (this map)</PSC_Alarm_DisarmAll>
+  <PSC_Alarm_DisarmAllConfirm>Disarm every stockpile alarm on this map? This cannot be undone.</PSC_Alarm_DisarmAllConfirm>
 
 </LanguageData>

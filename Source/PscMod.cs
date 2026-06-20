@@ -51,6 +51,15 @@ namespace PrecisionStockpileControl
             var listing = new Listing_Standard();
             listing.Begin(inRect);
 
+            // Current-feature summary + quick-start, so the panel explains itself on first open.
+            Text.Font = GameFont.Tiny;
+            GUI.color = PscUiTheme.NoteText;
+            listing.Label("PSC_SettingsIntro".Translate());
+            listing.Label("PSC_SettingsQuickStart".Translate());
+            GUI.color = Color.white;
+            Text.Font = GameFont.Small;
+            listing.GapLine();
+
             listing.Label("PSC_SettingsFeederHeader".Translate());
             listing.Gap(6f);
             listing.CheckboxLabeled("PSC_SettingsDefaultOnlyFromSource".Translate(), ref Settings.defaultOnlyFromSource,
@@ -65,6 +74,13 @@ namespace PrecisionStockpileControl
             listing.Gap(12f);
             listing.Label("PSC_SettingsFineOrderHeader".Translate());
             listing.Gap(6f);
+            // Reverse-aware legend: DisplayLevel(1)/(10) give the displayed numbers for the highest
+            // and lowest levels, so it stays correct when "Reverse 1-10 numbering" is on.
+            Text.Font = GameFont.Tiny;
+            GUI.color = PscUiTheme.NoteText;
+            listing.Label("PSC_FineOrderLegend".Translate(PscOrder.DisplayLevel(1), PscOrder.DisplayLevel(10)));
+            GUI.color = Color.white;
+            Text.Font = GameFont.Small;
             // Toggling 1-10 changes whether sub-tier participates in ordering — re-sort every map's
             // haul-destination list so the change takes effect immediately.
             bool prevNumbering = Settings.priorityNumbering;

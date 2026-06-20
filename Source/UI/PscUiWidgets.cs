@@ -51,6 +51,22 @@ namespace PrecisionStockpileControl
             GUI.color = prev;
         }
 
+        // A faint "?" help glyph drawn beside a label; the caller registers the tooltip over the
+        // same rect. Kept here so the glyph style is consistent wherever in-window help appears.
+        public static void DrawHelpIcon(Rect rect)
+        {
+            var prevColor = GUI.color;
+            var prevFont = Text.Font;
+            var prevAnchor = Text.Anchor;
+            GUI.color = PscUiTheme.HintText;
+            Text.Font = GameFont.Tiny;
+            Text.Anchor = TextAnchor.MiddleCenter;
+            Widgets.Label(rect, "?");
+            Text.Anchor = prevAnchor;
+            Text.Font = prevFont;
+            GUI.color = prevColor;
+        }
+
         public static void DrawSliderRail(Rect rect)
         {
             if (SliderRail != null) Widgets.DrawAtlas(rect, SliderRail);

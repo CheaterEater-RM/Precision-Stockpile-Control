@@ -46,6 +46,46 @@ namespace PrecisionStockpileControl
             }
         }
 
+        // User-facing name for alarm messages / dialog titles. A StorageGroup uses its renamable
+        // label; a standalone storage uses its parent's slot-yielder label (the zone label for a
+        // stockpile, the building LabelCap for a shelf).
+        public string Label
+        {
+            get
+            {
+                if (group is StorageGroup sg) return sg.RenamableLabel;
+                if (group is SlotGroup slot && slot.parent != null) return slot.parent.SlotYielderLabel();
+                return null;
+            }
+        }
+
+        // Whole-unit fullness as occupied stack-slots / total stack-slots, rounded to 0-100. Slots,
+        // not items (deep-storage aware via GetMaxItemsAllowedInCell): robust for mixed-def piles and
+        // answers "how much room is left". Returns false for a unit with no cells. CellsList is a
+        // static temp — fully consumed into totalSlots before HeldThings is touched, never retained.
+        public bool TryGetFullnessPct(out int pct)
+        {
+            pct = 0;
+            var cells = group?.CellsList;
+            if (cells == null || cells.Count == 0) return false;
+            var map = Map;
+            int totalSlots = 0;
+            for (int i = 0; i < cells.Count; i++)
+                totalSlots += map != null ? cells[i].GetMaxItemsAllowedInCell(map) : 1;
+            if (totalSlots < cells.Count) totalSlots = cells.Count;
+            if (totalSlots <= 0) return false;
+
+            int occupied = 0;
+            var held = HeldThings;
+            if (held != null)
+                foreach (var t in held)
+                    if (t != null) occupied++;
+            if (occupied > totalSlots) occupied = totalSlots;
+
+            pct = Mathf.RoundToInt(100f * occupied / totalSlots);
+            return true;
+        }
+
         private static ISlotGroup Canonicalize(ISlotGroup slot)
         {
             if (slot == null) return null;

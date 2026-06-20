@@ -73,6 +73,11 @@ namespace PrecisionStockpileControl
         // edits it. Non-null invariant (mirrors `limits`); IsDefault means "no default set".
         public PscDefLimit defaultLimit = new PscDefLimit();
 
+        // Stockpile alarm (opt-in): null when unused, so a unit with no alarm writes nothing and
+        // costs nothing. Holds the high/low fullness thresholds, dwell, cadence, notify style, and
+        // its own persisted edge state. Shared across a linked StorageGroup like the rest of policy.
+        public PscAlarmConfig alarm;
+
         // ---- Runtime cache (never scribed; rebuilt from HeldThings) ----
         private readonly Dictionary<ThingDef, int> counts = new Dictionary<ThingDef, int>();
         private readonly HashSet<ThingDef> refilling = new HashSet<ThingDef>();   // hysteresis: present = currently refilling
@@ -83,7 +88,8 @@ namespace PrecisionStockpileControl
             limits.Count > 0 || (defaultLimit != null && !defaultLimit.IsDefault)
             || batch > 0 || batchEmpty > 0 || onlyFromSource || onlyToDestinations
             || subTier != 0 || !string.IsNullOrEmpty(letter)
-            || mode != PscStorageMode.Normal;
+            || mode != PscStorageMode.Normal
+            || (alarm != null && alarm.IsActive);
 
         public bool HasLimit(ThingDef def)
         {
@@ -232,6 +238,7 @@ namespace PrecisionStockpileControl
             mode = other.mode;
             defaultLimit = (other.defaultLimit != null && !other.defaultLimit.IsDefault)
                 ? other.defaultLimit.Clone() : new PscDefLimit();
+            alarm = (other.alarm != null && other.alarm.IsActive) ? other.alarm.Clone() : null;
             refilling.Clear();
             MarkAllDirty();
         }
@@ -259,6 +266,18 @@ namespace PrecisionStockpileControl
             else
             {
                 Scribe_Deep.Look(ref defaultLimit, "default");
+            }
+
+            // Alarm: write the <alarm> child only when armed (write-nothing-when-empty contract). On
+            // load, read it back; null stays the valid "no alarm" state (no PostLoadInit guard needed).
+            if (Scribe.mode == LoadSaveMode.Saving)
+            {
+                if (alarm != null && alarm.IsActive)
+                    Scribe_Deep.Look(ref alarm, "alarm");
+            }
+            else
+            {
+                Scribe_Deep.Look(ref alarm, "alarm");
             }
 
             if (Scribe.mode == LoadSaveMode.PostLoadInit)

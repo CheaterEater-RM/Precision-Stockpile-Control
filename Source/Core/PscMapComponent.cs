@@ -28,6 +28,10 @@ namespace PrecisionStockpileControl
         // (incl. one using only RetrieveOnly) never pays its per-call slot-group resolution.
         public bool anyFreezeModeActive;
 
+        // True when any tracked unit has an active stockpile alarm. Gates the alarm check pass in
+        // MapComponentTick so a colony using no alarm pays nothing.
+        public bool anyAlarmActive;
+
         // Authoritative directed feeder-link graph for this map (design §4.2) + its mutation/query
         // surface. Scribed via feeder.ExposeData below.
         private readonly PscFeederManager feeder;
@@ -47,6 +51,14 @@ namespace PrecisionStockpileControl
         private readonly List<StorageSettings> resyncSnapshot = new List<StorageSettings>();
         private int resyncCursor;
         private const int ResyncInterval = 250;
+
+        // Alarm check pass: every AlarmCheckInterval ticks, evaluate every tracked unit's alarm.
+        // Fullness changes slowly, so a coarse interval is plenty. The snapshot list avoids mutating
+        // `tracked` mid-iteration; the disabled list holds units whose alarm self-disabled (OneShot)
+        // and need a deferred NotifyPolicyChanged after the loop.
+        private readonly List<StorageSettings> alarmSnapshot = new List<StorageSettings>();
+        private readonly List<StorageSettings> alarmDisabled = new List<StorageSettings>();
+        private const int AlarmCheckInterval = 250;
 
         public PscMapComponent(Map map) : base(map)
         {
@@ -100,6 +112,7 @@ namespace PrecisionStockpileControl
             RecomputeFeederActive();
             RecomputeFineOrderActive();
             RecomputeFreezeModeActive();
+            RecomputeAlarmActive();
             RebuildDemand();
         }
 
@@ -114,6 +127,10 @@ namespace PrecisionStockpileControl
         private void RecomputeFreezeModeActive()
             => RecomputeGate(ref anyFreezeModeActive, "mode: gate anyFreezeModeActive",
                 d => d.mode == PscStorageMode.Off || d.mode == PscStorageMode.AcceptOnly);
+
+        private void RecomputeAlarmActive()
+            => RecomputeGate(ref anyAlarmActive, "alarm: gate anyAlarmActive",
+                d => d.alarm != null && d.alarm.IsActive);
 
         // Recompute a per-map early-out gate: true when any tracked unit's data satisfies `predicate`.
         // The predicate is a static lambda (no capture), so this allocates nothing per call.
@@ -178,6 +195,7 @@ namespace PrecisionStockpileControl
             RecomputeFeederActive();
             RecomputeFineOrderActive();
             RecomputeFreezeModeActive();
+            RecomputeAlarmActive();
             RebuildDemand();
         }
 
@@ -225,13 +243,54 @@ namespace PrecisionStockpileControl
         public override void MapComponentTick()
         {
             if (tracked.Count == 0) return;
-            if (Find.TickManager.TicksGame % ResyncInterval != 0) return;
+            int tick = Find.TickManager.TicksGame;
 
+            if (anyAlarmActive && tick % AlarmCheckInterval == 0)
+                RunAlarmChecks(tick);
+
+            if (tick % ResyncInterval != 0) return;
             resyncSnapshot.Clear();
             resyncSnapshot.AddRange(tracked);
             if (resyncSnapshot.Count == 0) return;
             if (resyncCursor >= resyncSnapshot.Count) resyncCursor = 0;
             PscStorageDataStore.TryGet(resyncSnapshot[resyncCursor++])?.MarkAllDirty();
+        }
+
+        // Evaluate every tracked unit's alarm against current fullness. Snapshot first because
+        // Evaluate can self-disable a OneShot side, which mutates `tracked` via NotifyPolicyChanged;
+        // apply those self-disables after the loop.
+        private void RunAlarmChecks(int now)
+        {
+            alarmSnapshot.Clear();
+            alarmSnapshot.AddRange(tracked);
+            alarmDisabled.Clear();
+            for (int i = 0; i < alarmSnapshot.Count; i++)
+            {
+                var s = alarmSnapshot[i];
+                var data = PscStorageDataStore.TryGet(s);
+                if (data?.alarm == null || !data.alarm.IsActive) continue;
+                var unit = PscHaulUnit.ResolveSettings(s);
+                if (!unit.IsValid) continue;
+                if (PscAlarmRunner.Evaluate(s, data, unit, now))
+                    alarmDisabled.Add(s);
+            }
+            for (int i = 0; i < alarmDisabled.Count; i++)
+                NotifyPolicyChanged(alarmDisabled[i]);
+        }
+
+        // Right-click "disarm all alarms on this map": clear every tracked unit's alarm config.
+        public void DisarmAllAlarms()
+        {
+            alarmSnapshot.Clear();
+            alarmSnapshot.AddRange(tracked);
+            for (int i = 0; i < alarmSnapshot.Count; i++)
+            {
+                var s = alarmSnapshot[i];
+                var data = PscStorageDataStore.TryGet(s);
+                if (data?.alarm == null) continue;
+                data.alarm = null;
+                NotifyPolicyChanged(s);
+            }
         }
     }
 }

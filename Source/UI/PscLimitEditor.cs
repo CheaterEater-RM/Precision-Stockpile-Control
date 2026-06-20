@@ -70,6 +70,8 @@ namespace PrecisionStockpileControl
                 ToggleMode(target);
             }
             GUI.enabled = prevEnabled;
+            if (target.ItemsModeAllowed)
+                TooltipHandler.TipRegion(modeButton, "PSC_CountByTip".Translate());
             if (!target.ItemsModeAllowed)
             {
                 TooltipHandler.TipRegion(modeButton, "PSC_ItemsModeMixedStacksTip".Translate());
@@ -147,6 +149,12 @@ namespace PrecisionStockpileControl
             Widgets.Label(upperLabel, "PSC_UpperShort".Translate());
             Text.Font = pf;
             Text.Anchor = pa;
+
+            // In-window help: a faint "?" beside each header; hovering the header shows the tip.
+            PscUiWidgets.DrawHelpIcon(new Rect(lowerLabel.xMax - 14f, lowerLabel.y, 14f, lowerLabel.height));
+            PscUiWidgets.DrawHelpIcon(new Rect(upperLabel.x, upperLabel.y, 14f, upperLabel.height));
+            TooltipHandler.TipRegion(lowerLabel, "PSC_RefillHelp".Translate());
+            TooltipHandler.TipRegion(upperLabel, "PSC_MaxHelp".Translate());
 
             DrawNullableField(lowerField, ref lowerVal, ref lowerBuf, 0, sliderMax);
             DrawNullableField(upperField, ref upperVal, ref upperBuf, 1, sliderMax);

@@ -58,6 +58,7 @@ namespace PrecisionStockpileControl
                 open.Retarget(__state.settings, PscHaulUnit.ResolveSettings(__state.settings), __state.search);
 
             var rect = PscUiWidgets.EntryButtonRect();
+            TooltipHandler.TipRegion(rect, "PSC_ButtonTip".Translate());
             if (Widgets.ButtonText(rect, "PSC_ButtonLabel".Translate()))
             {
                 // Toggle: if a PSC window is already open, the button closes it; otherwise open a
