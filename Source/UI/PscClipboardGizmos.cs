@@ -54,21 +54,26 @@ namespace PrecisionStockpileControl
             get
             {
                 if (!StorageSettingsClipboard.HasCopiedSettings) yield break;
-                yield return Option("PSC_PasteItemsLimits", () => PscScopedPaste.Apply(target, PscPasteScope.ItemsLimits));
-                yield return Option("PSC_PasteItemsLimitsRoutes", () => PscScopedPaste.Apply(target, PscPasteScope.ItemsLimitsRoutes));
-                yield return Option("PSC_PasteAllButPriorities", () => PscScopedPaste.Apply(target, PscPasteScope.EverythingButPriorities));
+                yield return Option("PSC_PasteItemsLimits", "PSC_PasteItemsLimitsTip", () => PscScopedPaste.Apply(target, PscPasteScope.ItemsLimits));
+                yield return Option("PSC_PasteItemsLimitsRoutes", "PSC_PasteItemsLimitsRoutesTip", () => PscScopedPaste.Apply(target, PscPasteScope.ItemsLimitsRoutes));
+                yield return Option("PSC_PasteAllButPriorities", "PSC_PasteAllButPrioritiesTip", () => PscScopedPaste.Apply(target, PscPasteScope.EverythingButPriorities));
                 // "Everything" duplicates left-click; kept in the menu for discoverability.
-                yield return Option("PSC_PasteEverything", () => StorageSettingsClipboard.PasteInto(target));
+                yield return Option("PSC_PasteEverything", "PSC_PasteEverythingTip", () => StorageSettingsClipboard.PasteInto(target));
             }
         }
 
-        private static FloatMenuOption Option(string key, Action act)
+        // Each option carries a hover tooltip (FloatMenuOption.tooltip -> TooltipHandler.TipRegion in
+        // FloatMenuOption.DoGUI) spelling out exactly which settings it does and does not bring over.
+        private static FloatMenuOption Option(string labelKey, string tipKey, Action act)
         {
-            return new FloatMenuOption(key.Translate(), () =>
+            return new FloatMenuOption(labelKey.Translate(), () =>
             {
                 SoundDefOf.Tick_High.PlayOneShotOnCamera();
                 act();
-            });
+            })
+            {
+                tooltip = new TipSignal(tipKey.Translate())
+            };
         }
     }
 

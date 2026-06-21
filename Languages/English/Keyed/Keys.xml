@@ -61,9 +61,13 @@
        still pastes everything (including priorities). -->
   <PSC_PasteScopedDesc>Paste storage settings. Right-click for scoped paste options: items only, items and routes, or everything but priorities.</PSC_PasteScopedDesc>
   <PSC_PasteItemsLimits>Paste items &amp; limits</PSC_PasteItemsLimits>
+  <PSC_PasteItemsLimitsTip>Pastes only which items are allowed or disallowed and their per-item limits. Leaves routes, priorities, and everything else untouched.</PSC_PasteItemsLimitsTip>
   <PSC_PasteItemsLimitsRoutes>Paste items, limits &amp; routes</PSC_PasteItemsLimitsRoutes>
+  <PSC_PasteItemsLimitsRoutesTip>Also pastes feeder routes and the pull-only / push-only flags. Leaves priorities and other settings untouched.</PSC_PasteItemsLimitsRoutesTip>
   <PSC_PasteAllButPriorities>Paste everything but priorities</PSC_PasteAllButPriorities>
+  <PSC_PasteAllButPrioritiesTip>Pastes items, limits, routes, batch settings, storage mode, and alarms — everything except the priority band and fine-order level.</PSC_PasteAllButPrioritiesTip>
   <PSC_PasteEverything>Paste everything</PSC_PasteEverything>
+  <PSC_PasteEverythingTip>Pastes every setting, including priorities. Same as left-clicking Paste.</PSC_PasteEverythingTip>
 
   <!-- On-map storage overlay (bottom-right play-settings toggle + per-storage info panels) -->
   <PSC_OverlayToggle>Storage overlay</PSC_OverlayToggle>
