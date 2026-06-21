@@ -3,8 +3,16 @@
 
   <!-- Mod settings -->
   <PSC_SettingsCategory>Precision Stockpile Control</PSC_SettingsCategory>
-  <PSC_SettingsIntro>Per-storage maximums, refill thresholds, batch hauling, routes, fine priority, and storage modes. Storage you don't touch behaves exactly like vanilla.</PSC_SettingsIntro>
-  <PSC_SettingsQuickStart>To start: select a stockpile or shelf and click Stockpile Control on its Storage tab.</PSC_SettingsQuickStart>
+  <!-- Side-tab nav labels -->
+  <PSC_SettingsTabWelcome>Welcome</PSC_SettingsTabWelcome>
+  <PSC_SettingsTabGeneral>General options</PSC_SettingsTabGeneral>
+  <PSC_SettingsTabUI>UI</PSC_SettingsTabUI>
+  <PSC_SettingsIntro>Opt-in stockpile tools. A stockpile you never touch behaves exactly like vanilla.</PSC_SettingsIntro>
+  <PSC_SettingsQuickStart>Quick start: select a stockpile or shelf, then click Stockpile Control on its Storage tab.</PSC_SettingsQuickStart>
+  <!-- Welcome tab: capability list (feature: what it does (where to find it)) -->
+  <PSC_WelcomeFeaturesHeader>What you can do</PSC_WelcomeFeaturesHeader>
+  <PSC_WelcomeFeatures>• Limits &amp; refill: cap an item's count, or refill only when low (Stockpile Control window, or an item row's marker)\n• Batch hauling: make pawns carry a minimum load per trip (window, or the toggle strip by the button)\n• Feeder routes: push/pull items between storages, source → destination (gizmos on a selected storage)\n• Storage modes: Normal, Frozen, Fill only, or Drain only (gizmo on a selected storage)\n• Fine priority: an a-z tiebreaker by the vanilla Priority button; optional 1-10 levels (turn on in General options)\n• Stockpile alarm: alert when a storage gets too full or too empty (gizmo on a selected storage)\n• On-map overlay: show priorities and all routes on the map (toggle in the bottom-right play settings)\n• Scoped paste: right-click the vanilla Paste button to paste only items, limits, or routes</PSC_WelcomeFeatures>
+  <PSC_WelcomeMore>More options in the General options and UI tabs.</PSC_WelcomeMore>
   <PSC_SettingsFeederHeader>Storage routes</PSC_SettingsFeederHeader>
   <PSC_SettingsDefaultOnlyFromSource>New destinations start "Pull only from sources"</PSC_SettingsDefaultOnlyFromSource>
   <PSC_SettingsDefaultOnlyFromSourceTip>When you first set a source for a storage, automatically turn on "Pull only from sources" for it. You can still toggle it per storage.</PSC_SettingsDefaultOnlyFromSourceTip>
@@ -20,7 +28,7 @@
   <PSC_SettingsPriorityNumberingTip>Split each of the five vanilla priority bands into two levels: 1 (highest) to 10 (lowest). Existing storage lands on 1, 3, 5, 7 and 10. Turn this off to collapse back to the five bands — your letters still apply, but any ordering that relied on a level difference within one band stops working until you turn numbering back on.</PSC_SettingsPriorityNumberingTip>
   <PSC_SettingsReverseOrder>Reverse 1–10 numbering</PSC_SettingsReverseOrder>
   <PSC_SettingsReverseOrderTip>Show the highest priority as 10 instead of 1. Changes only the displayed numbers, not how storage is ordered.</PSC_SettingsReverseOrderTip>
-  <PSC_SettingsOverlayHeader>Feeder overlay (testing)</PSC_SettingsOverlayHeader>
+  <PSC_SettingsOverlayHeader>Feeder overlay</PSC_SettingsOverlayHeader>
   <PSC_SettingsPortSpreading>Spread route endpoints</PSC_SettingsPortSpreading>
   <PSC_SettingsPortSpreadingTip>Fan route lines out along each storage's edge instead of running them all through its centre, so a tangle of routes stays readable. On by default; turn off for plain centre-to-centre lines.</PSC_SettingsPortSpreadingTip>
   <PSC_SettingsFocusDim>Dim unrelated routes</PSC_SettingsFocusDim>

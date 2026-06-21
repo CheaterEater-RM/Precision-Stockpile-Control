@@ -64,5 +64,18 @@ namespace PrecisionStockpileControl
         public const float RowLabelWidth = 128f;
         public const float RowLabelGap = 132f;          // label's left edge = checkbox.xMin - gap
         public const float RowLabelVContract = 2f;      // vertical inset of the label backdrop
+
+        // ---- Settings window: left side-tab nav --------------------------------------------------
+        // 2-pane settings layout: a fixed-width vertical text nav on the left, scrolling content on
+        // the right. Window is fixed (900×700) so these are plain constants, not clamp ranges.
+        public const float SettingsNavWidth = 160f;     // left nav column width
+        public const float SettingsNavGap = 12f;        // gap between nav and content
+        public const float SettingsNavRowHeight = 32f;  // one clickable tab row
+        public const float SettingsNavRowGap = 2f;      // vertical gap between rows
+        public const float SettingsNavLabelInset = 8f;  // label's left inset inside its row
+        // Selected/hover row backings (faint white boxes); kept here so the alphas don't drift.
+        public static readonly Color SettingsNavSelected = new Color(1f, 1f, 1f, 0.13f);
+        public static readonly Color SettingsNavHover = new Color(1f, 1f, 1f, 0.06f);
+        public static readonly Color SettingsNavDivider = new Color(1f, 1f, 1f, 0.18f);  // nav|content seam
     }
 }

@@ -16,7 +16,7 @@ namespace PrecisionStockpileControl
         public bool feederPortSpreading = true;       // overlay: fan route endpoints along the storage perimeter (declutter)
         public bool feederFocusDim = true;            // overlay: dim routes not touching the hovered/selected storage
         public bool feederFlowDots = false;           // overlay: animate flow dots on the hovered/selected pile's valid routes
-        public float feederLineWidth = 0.06f;         // overlay: route line thickness (arrows/✕ scale with it); dev-tunable
+        public float feederLineWidth = 0.06f;         // overlay: route line thickness (arrows/✕ scale with it)
         public bool debugLogging = false;             // dev-mode diagnostic logging (PscLog)
 
         public override void ExposeData()
@@ -40,9 +40,24 @@ namespace PrecisionStockpileControl
     {
         public static PscSettings Settings { get; private set; }
 
-        // Scroll state for the settings window (content can exceed the window height).
-        private Vector2 settingsScroll;
-        private float settingsHeight = 600f;
+        // The settings panel is a 2-pane side-tab layout: a vertical text nav on the left selects
+        // which page of controls the scrolling content pane on the right shows.
+        private enum SettingsTab { Welcome, General, Ui }
+
+        // Nav order + label key per tab, kept together so the nav loop and the content switch can't
+        // drift apart. Welcome is first and the default selection.
+        private static readonly (SettingsTab tab, string labelKey)[] Tabs =
+        {
+            (SettingsTab.Welcome, "PSC_SettingsTabWelcome"),
+            (SettingsTab.General, "PSC_SettingsTabGeneral"),
+            (SettingsTab.Ui, "PSC_SettingsTabUI"),
+        };
+
+        // UI-only state on the Mod singleton: lives the whole session, never saved, never a leaky
+        // static. Per-tab scroll so each page remembers its own position; per-tab height self-corrects.
+        private SettingsTab currentTab = SettingsTab.Welcome;
+        private readonly Vector2[] tabScroll = new Vector2[3];
+        private readonly float[] tabHeight = { 300f, 300f, 300f };
 
         public PscMod(ModContentPack content) : base(content)
         {
@@ -57,20 +72,100 @@ namespace PrecisionStockpileControl
 
         public override void DoSettingsWindowContents(Rect inRect)
         {
-            var view = new Rect(0f, 0f, inRect.width - 20f, settingsHeight);
-            Widgets.BeginScrollView(inRect, ref settingsScroll, view);
+            // The mod-settings window is a fixed 900×700, so the nav/content split is plain arithmetic
+            // off inRect — no resizable-window clamp math needed.
+            var navRect = new Rect(inRect.x, inRect.y, PscUiTheme.SettingsNavWidth, inRect.height);
+            var contentRect = new Rect(navRect.xMax + PscUiTheme.SettingsNavGap, inRect.y,
+                inRect.width - PscUiTheme.SettingsNavWidth - PscUiTheme.SettingsNavGap, inRect.height);
+
+            DrawNav(navRect);
+
+            var prevColor = GUI.color;
+            GUI.color = PscUiTheme.SettingsNavDivider;
+            Widgets.DrawLineVertical(navRect.xMax + PscUiTheme.SettingsNavGap / 2f, inRect.y, inRect.height);
+            GUI.color = prevColor;
+
+            DrawContent(contentRect);
+        }
+
+        // Left nav: one clickable text row per tab; selected/hovered rows get a faint backing box.
+        private void DrawNav(Rect rect)
+        {
+            float y = rect.y;
+            var prevAnchor = Text.Anchor;
+            Text.Anchor = TextAnchor.MiddleLeft;
+            foreach (var (tab, labelKey) in Tabs)
+            {
+                var row = new Rect(rect.x, y, rect.width, PscUiTheme.SettingsNavRowHeight);
+                if (currentTab == tab) Widgets.DrawBoxSolid(row, PscUiTheme.SettingsNavSelected);
+                else if (Mouse.IsOver(row)) Widgets.DrawBoxSolid(row, PscUiTheme.SettingsNavHover);
+
+                var labelRect = new Rect(row.x + PscUiTheme.SettingsNavLabelInset, row.y,
+                    row.width - PscUiTheme.SettingsNavLabelInset, row.height);
+                Widgets.Label(labelRect, labelKey.Translate());
+
+                if (Widgets.ButtonInvisible(row))
+                {
+                    currentTab = tab;
+                    tabScroll[(int)tab] = Vector2.zero;   // open each freshly-clicked tab at the top
+                }
+                y += PscUiTheme.SettingsNavRowHeight + PscUiTheme.SettingsNavRowGap;
+            }
+            Text.Anchor = prevAnchor;
+        }
+
+        // Right pane: a per-tab scroll view that self-sizes to its content, dispatched by tab.
+        private void DrawContent(Rect rect)
+        {
+            int idx = (int)currentTab;
+            // View height is never smaller than the visible pane (and NaN-safe: Mathf.Max(NaN, h) == h),
+            // so a bad self-measured height can't collapse Listing.Begin's BeginGroup clip to nothing.
+            float viewH = Mathf.Max(tabHeight[idx], rect.height);
+            var view = new Rect(0f, 0f, rect.width - 20f, viewH);
+            Widgets.BeginScrollView(rect, ref tabScroll[idx], view);
             var listing = new Listing_Standard();
             listing.Begin(view);
 
-            // Current-feature summary + quick-start, so the panel explains itself on first open.
+            switch (currentTab)
+            {
+                case SettingsTab.Welcome: DrawWelcomeTab(listing); break;
+                case SettingsTab.General: DrawGeneralTab(listing); break;
+                case SettingsTab.Ui: DrawUiTab(listing); break;
+            }
+
+            listing.End();
+            float measured = listing.CurHeight;   // self-size for next frame; reject a degenerate value
+            tabHeight[idx] = (float.IsNaN(measured) || measured < 0f) ? rect.height : measured;
+            Widgets.EndScrollView();
+        }
+
+        // Welcome: a capability-first orientation page — what PSC can do and where to find each
+        // thing — so the panel explains itself on first open. Hierarchy is font size + the muted
+        // NoteText footer (no rich-text bold), matching the rest of PSC's UI.
+        private void DrawWelcomeTab(Listing_Standard listing)
+        {
+            Text.Font = GameFont.Small;
+            listing.Label("PSC_SettingsIntro".Translate());        // one-line hook
+            listing.Gap(6f);
+            listing.Label("PSC_SettingsQuickStart".Translate());   // one-line quick start
+            listing.Gap(12f);
+            listing.Label("PSC_WelcomeFeaturesHeader".Translate());
+            listing.Gap(4f);
+            // Draw each bullet as its own label (split the keyed \n list) rather than one large
+            // multi-line label, mirroring how the other tabs draw and letting each line wrap on its own.
+            foreach (var line in ((string)"PSC_WelcomeFeatures".Translate()).Split('\n'))
+                listing.Label(line);
+            listing.Gap(12f);
             Text.Font = GameFont.Tiny;
             GUI.color = PscUiTheme.NoteText;
-            listing.Label("PSC_SettingsIntro".Translate());
-            listing.Label("PSC_SettingsQuickStart".Translate());
+            listing.Label("PSC_WelcomeMore".Translate());          // muted pointer to the other tabs
             GUI.color = Color.white;
             Text.Font = GameFont.Small;
-            listing.GapLine();
+        }
 
+        // General options: storage-route defaults + fine order, with dev-only logging pinned at the bottom.
+        private void DrawGeneralTab(Listing_Standard listing)
+        {
             listing.Label("PSC_SettingsFeederHeader".Translate());
             listing.Gap(6f);
             listing.CheckboxLabeled("PSC_SettingsDefaultOnlyFromSource".Translate(), ref Settings.defaultOnlyFromSource,
@@ -101,26 +196,12 @@ namespace PrecisionStockpileControl
             listing.CheckboxLabeled("PSC_SettingsReverseOrder".Translate(), ref Settings.reverseOrder,
                 "PSC_SettingsReverseOrderTip".Translate());
 
-            // Developer-only diagnostic logging. Hidden outside RimWorld dev mode so it never clutters
-            // a normal player's settings; logs gate purely on the setting (dev mode only controls
-            // visibility), so a player who turns it on can leave dev mode and still capture a trace.
+            // Developer-only diagnostic logging, pinned at the bottom of this page. Hidden outside dev
+            // mode so it never clutters a normal player's settings; logs gate purely on the setting
+            // (dev mode only controls visibility), so a player who turns it on can leave dev mode and
+            // still capture a trace.
             if (Prefs.DevMode)
             {
-                // Feeder-overlay rendering toggles. Shipped ON for everyone (the declutter is the
-                // intended look); exposed only in dev mode so the normal panel stays uncluttered while
-                // these are tuned in-game.
-                listing.Gap(12f);
-                listing.Label("PSC_SettingsOverlayHeader".Translate());
-                listing.Gap(6f);
-                listing.CheckboxLabeled("PSC_SettingsPortSpreading".Translate(), ref Settings.feederPortSpreading,
-                    "PSC_SettingsPortSpreadingTip".Translate());
-                listing.CheckboxLabeled("PSC_SettingsFocusDim".Translate(), ref Settings.feederFocusDim,
-                    "PSC_SettingsFocusDimTip".Translate());
-                listing.CheckboxLabeled("PSC_SettingsFlowDots".Translate(), ref Settings.feederFlowDots,
-                    "PSC_SettingsFlowDotsTip".Translate());
-                listing.Label("PSC_SettingsLineWidth".Translate(Settings.feederLineWidth.ToString("0.000")));
-                Settings.feederLineWidth = listing.Slider(Settings.feederLineWidth, 0.02f, 0.16f);
-
                 listing.Gap(12f);
                 listing.Label("PSC_SettingsDebugHeader".Translate());
                 listing.Gap(6f);
@@ -128,10 +209,21 @@ namespace PrecisionStockpileControl
                     "PSC_SettingsDebugLoggingTip".Translate());
                 PscLog.Enabled = Settings.debugLogging;   // keep the cached gate in sync with the toggle
             }
+        }
 
-            listing.End();
-            settingsHeight = listing.CurHeight;   // self-size the scroll view for next frame
-            Widgets.EndScrollView();
+        // UI: feeder-overlay rendering. Player-facing — these tune how the on-map overlay looks.
+        private void DrawUiTab(Listing_Standard listing)
+        {
+            listing.Label("PSC_SettingsOverlayHeader".Translate());
+            listing.Gap(6f);
+            listing.CheckboxLabeled("PSC_SettingsPortSpreading".Translate(), ref Settings.feederPortSpreading,
+                "PSC_SettingsPortSpreadingTip".Translate());
+            listing.CheckboxLabeled("PSC_SettingsFocusDim".Translate(), ref Settings.feederFocusDim,
+                "PSC_SettingsFocusDimTip".Translate());
+            listing.CheckboxLabeled("PSC_SettingsFlowDots".Translate(), ref Settings.feederFlowDots,
+                "PSC_SettingsFlowDotsTip".Translate());
+            listing.Label("PSC_SettingsLineWidth".Translate(Settings.feederLineWidth.ToString("0.000")));
+            Settings.feederLineWidth = listing.Slider(Settings.feederLineWidth, 0.02f, 0.16f);
         }
 
         private static void ResortAllMaps()
