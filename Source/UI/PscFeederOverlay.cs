@@ -15,6 +15,10 @@ namespace PrecisionStockpileControl
     {
         private static readonly Color GoodColor = new Color(0.30f, 0.92f, 0.34f, 0.85f);
         private static readonly Color BadColor = new Color(0.92f, 0.22f, 0.22f, 0.90f);
+        // Dimmed variants for routes not touching the focused (hovered/selected) unit: same hue,
+        // desaturated and low-alpha so they recede without vanishing.
+        private static readonly Color GoodColorDim = new Color(0.42f, 0.70f, 0.44f, 0.20f);
+        private static readonly Color BadColorDim = new Color(0.72f, 0.42f, 0.42f, 0.22f);
         private static readonly Dictionary<int, Material> MatCache = new Dictionary<int, Material>();
 
         // Reused per-frame scratch so the draw path allocates nothing steady-state.
@@ -32,6 +36,11 @@ namespace PrecisionStockpileControl
             var links = psc.Links;
             if (links.IsEmpty) return;
             if (map != Find.CurrentMap) return;
+            if (Find.ScreenshotModeHandler.Active) return;   // parity with the panel overlay
+
+            var settings = PscMod.Settings;
+            bool portSpreading = settings == null || settings.feederPortSpreading;
+            bool focusDim = settings == null || settings.feederFocusDim;
 
             // Overlay on -> draw every route (no selection needed). Overlay off -> legacy behaviour:
             // draw only routes incident to the selected storage (nothing if none is selected).
@@ -45,6 +54,12 @@ namespace PrecisionStockpileControl
 
             BuildIdMap(map);
             centerCache.Clear();
+            if (portSpreading) PscFeederLayout.EnsureBuilt(map, psc);
+
+            // Focus target for dimming (overlay-all mode only — overlay-off already shows just the
+            // selected unit's routes). The unit under the cursor, else the selected one; null => no
+            // dimming. One cursor->cell resolve per frame, no iteration.
+            string focusId = (overlay && focusDim) ? ResolveFocusId(map) : null;
 
             var list = links.Links;
             for (int i = 0; i < list.Count; i++)
@@ -53,11 +68,34 @@ namespace PrecisionStockpileControl
                 if (!overlay && l.sourceId != selId && l.destId != selId) continue;
                 if (!idMap.TryGetValue(l.sourceId, out var su) || !idMap.TryGetValue(l.destId, out var du)) continue;
                 if (su.Settings == null || du.Settings == null) continue;
-                if (!TryCenter(l.sourceId, su, out var a) || !TryCenter(l.destId, du, out var b)) continue;
+
+                Vector3 a, b;
+                if (!portSpreading || !PscFeederLayout.TryGetPorts(i, out a, out b))
+                {
+                    // Spreading off, or no port for this route (unresolved/degenerate): centroid fallback.
+                    if (!TryCenter(l.sourceId, su, out a) || !TryCenter(l.destId, du, out b)) continue;
+                }
 
                 bool valid = psc.HasFunctionalFeederEdge(su, du);
-                DrawLink(a, b, valid);
+                bool incident = focusId == null || l.sourceId == focusId || l.destId == focusId;
+                DrawLink(a, b, valid, incident);
             }
+        }
+
+        // The unit under the mouse, falling back to the selected unit. Used only for focus/dim.
+        private static string ResolveFocusId(Map map)
+        {
+            IntVec3 cell = UI.MouseCell();
+            if (cell.InBounds(map))
+            {
+                var hovered = PscHaulUnit.ResolveCell(cell, map);
+                if (hovered.IsValid)
+                {
+                    var id = hovered.UniqueLoadID;
+                    if (id != null) return id;
+                }
+            }
+            return TryGetSelectedUnit(map, out var sel) ? sel.UniqueLoadID : null;
         }
 
         private static bool TryGetSelectedUnit(Map map, out PscHaulUnit unit)
@@ -106,11 +144,14 @@ namespace PrecisionStockpileControl
 
         // ---- primitives (Contagion pattern) ----
 
-        private static void DrawLink(Vector3 a, Vector3 b, bool valid)
+        private static void DrawLink(Vector3 a, Vector3 b, bool valid, bool incident)
         {
             float y = AltitudeLayer.MetaOverlays.AltitudeFor() + 0.1f;
             a.y = y; b.y = y;
-            Material mat = GetMat(valid ? GoodColor : BadColor);
+            Color color = valid
+                ? (incident ? GoodColor : GoodColorDim)
+                : (incident ? BadColor : BadColorDim);
+            Material mat = GetMat(color);   // arrowheads / crosses inherit the (possibly dimmed) material
             GenDraw.DrawLineBetween(a, b, mat, 0.06f);
             DrawArrows(a, b, mat);
             if (!valid) DrawCrosses(a, b, mat);

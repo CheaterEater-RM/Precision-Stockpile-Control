@@ -38,6 +38,13 @@ namespace PrecisionStockpileControl
         private readonly Dictionary<string, List<string>> sourcesByDest = new Dictionary<string, List<string>>();
         private bool dirty = true;
 
+        // Bumped on every edge mutation. The overlay's port-layout cache (PscFeederLayout) reads this
+        // so it can rebuild only when the route set actually changed, not every frame. Runtime-only,
+        // never scribed. All mutations route through MarkDirty() so no site can forget to bump it.
+        private int generation;
+        public int Generation => generation;
+        private void MarkDirty() { dirty = true; generation++; }
+
         public bool IsEmpty => links.Count == 0;
         public List<PscFeederLink> Links => links;   // read-only iteration for the overlay
 
@@ -97,14 +104,14 @@ namespace PrecisionStockpileControl
             if (!IsValidEdge(sourceId, destId) || sourceId == destId) return false;
             if (HasEdge(sourceId, destId)) return false;
             links.Add(new PscFeederLink(sourceId, destId));
-            dirty = true;
+            MarkDirty();
             return true;
         }
 
         public bool RemoveEdge(string sourceId, string destId)
         {
             int n = links.RemoveAll(l => l.sourceId == sourceId && l.destId == destId);
-            if (n > 0) dirty = true;
+            if (n > 0) MarkDirty();
             return n > 0;
         }
 
@@ -112,7 +119,7 @@ namespace PrecisionStockpileControl
         {
             if (string.IsNullOrEmpty(id)) return false;
             int n = links.RemoveAll(l => l.sourceId == id || l.destId == id);
-            if (n > 0) dirty = true;
+            if (n > 0) MarkDirty();
             return n > 0;
         }
 
@@ -120,7 +127,7 @@ namespace PrecisionStockpileControl
         {
             if (links.Count == 0) return false;
             links.Clear();
-            dirty = true;
+            MarkDirty();
             return true;
         }
 
@@ -149,7 +156,7 @@ namespace PrecisionStockpileControl
         {
             if (liveIds == null) return false;
             int n = links.RemoveAll(l => !liveIds.Contains(l.sourceId) || !liveIds.Contains(l.destId));
-            if (n > 0) dirty = true;
+            if (n > 0) MarkDirty();
             return n > 0;
         }
 
@@ -160,7 +167,7 @@ namespace PrecisionStockpileControl
             {
                 if (links == null) links = new List<PscFeederLink>();
                 links.RemoveAll(l => !IsValidEdge(l));
-                dirty = true;
+                MarkDirty();
             }
         }
     }

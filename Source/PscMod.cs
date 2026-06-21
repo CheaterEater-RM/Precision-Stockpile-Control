@@ -15,6 +15,8 @@ namespace PrecisionStockpileControl
         public bool defaultOnlyToDestinations = true; // M3 — seed strictness on first destination link
         public bool priorityNumbering = false;        // M4 — show 1-10 levels (two sub-tiers per band)
         public bool reverseOrder = false;             // M4 — 1-10 label flip only (ordering unchanged)
+        public bool feederPortSpreading = true;       // overlay: fan route endpoints along the storage perimeter (declutter)
+        public bool feederFocusDim = true;            // overlay: dim routes not touching the hovered/selected storage
         public bool debugLogging = false;             // dev-mode diagnostic logging (PscLog)
 
         // Hide the PSC button on single-purpose containers (bookcases, graves, outfit stands,
@@ -33,6 +35,8 @@ namespace PrecisionStockpileControl
             Scribe_Values.Look(ref defaultOnlyToDestinations, "defaultOnlyToDestinations", true);
             Scribe_Values.Look(ref priorityNumbering, "priorityNumbering", false);
             Scribe_Values.Look(ref reverseOrder, "reverseOrder", false);
+            Scribe_Values.Look(ref feederPortSpreading, "feederPortSpreading", true);
+            Scribe_Values.Look(ref feederFocusDim, "feederFocusDim", true);
             Scribe_Values.Look(ref debugLogging, "debugLogging", false);
             Scribe_Values.Look(ref hideButtonOnSpecialStorage, "hideButtonOnSpecialStorage", true);
             Scribe_Collections.Look(ref extraExcludedDefNames, "extraExcludedDefNames", LookMode.Value);
@@ -132,6 +136,17 @@ namespace PrecisionStockpileControl
             // visibility), so a player who turns it on can leave dev mode and still capture a trace.
             if (Prefs.DevMode)
             {
+                // Feeder-overlay rendering toggles. Shipped ON for everyone (the declutter is the
+                // intended look); exposed only in dev mode so the normal panel stays uncluttered while
+                // these are tuned in-game.
+                listing.Gap(12f);
+                listing.Label("PSC_SettingsOverlayHeader".Translate());
+                listing.Gap(6f);
+                listing.CheckboxLabeled("PSC_SettingsPortSpreading".Translate(), ref Settings.feederPortSpreading,
+                    "PSC_SettingsPortSpreadingTip".Translate());
+                listing.CheckboxLabeled("PSC_SettingsFocusDim".Translate(), ref Settings.feederFocusDim,
+                    "PSC_SettingsFocusDimTip".Translate());
+
                 listing.Gap(12f);
                 listing.Label("PSC_SettingsDebugHeader".Translate());
                 listing.Gap(6f);
