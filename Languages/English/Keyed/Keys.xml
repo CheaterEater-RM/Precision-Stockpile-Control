@@ -46,19 +46,24 @@
   <PSC_ConnectDestination>Set destination</PSC_ConnectDestination>
   <PSC_ConnectDestinationDesc>Click or drag over other storage to route items from this one into it. Items move there when it outranks this storage.</PSC_ConnectDestinationDesc>
   <PSC_BreakConnection>Clear route</PSC_BreakConnection>
-  <PSC_BreakConnectionDesc>Click or drag over routed storage to remove the route between it and this storage. A plain click on unrouted storage does nothing.</PSC_BreakConnectionDesc>
+  <PSC_BreakConnectionDesc>Left-click or drag over a routed storage to break that one route. Right-click for bulk options: clear this storage's routes, or every route on the map.</PSC_BreakConnectionDesc>
   <PSC_OnlyFromSource>Pull only from sources</PSC_OnlyFromSource>
   <PSC_OnlyFromSourceDesc>When on, this storage accepts items only from its source storages — never ground items, and never storage it isn't routed from.</PSC_OnlyFromSourceDesc>
   <PSC_OnlyToDestinations>Push only to destinations</PSC_OnlyToDestinations>
   <PSC_OnlyToDestinationsDesc>When on, items here are hauled only to this storage's destinations — never to any other storage.</PSC_OnlyToDestinationsDesc>
   <PSC_NoSourceReason>No source set yet.</PSC_NoSourceReason>
   <PSC_NoDestinationReason>No destination set yet.</PSC_NoDestinationReason>
-  <PSC_ClearConnections>Clear all routes</PSC_ClearConnections>
-  <PSC_ClearConnectionsDesc>Remove routes in bulk. Right-click for two options: clear just this storage's routes, or every route on the map. A plain click does nothing, to avoid clearing by accident.</PSC_ClearConnectionsDesc>
-  <PSC_ClearConnectionsHint>Right-click this button to clear routes.</PSC_ClearConnectionsHint>
   <PSC_ClearConnectionsThisStockpile>Clear this storage's routes</PSC_ClearConnectionsThisStockpile>
   <PSC_ClearConnectionsConfirm>Clear all routes on this map</PSC_ClearConnectionsConfirm>
   <PSC_ClearConnectionsConfirmDialog>Remove every route on this map? This cannot be undone.</PSC_ClearConnectionsConfirmDialog>
+
+  <!-- Scoped paste: right-click the vanilla Paste button to paste only some settings. Left-click
+       still pastes everything (including priorities). -->
+  <PSC_PasteScopedDesc>Paste storage settings. Right-click for scoped paste options: items only, items and routes, or everything but priorities.</PSC_PasteScopedDesc>
+  <PSC_PasteItemsLimits>Paste items &amp; limits</PSC_PasteItemsLimits>
+  <PSC_PasteItemsLimitsRoutes>Paste items, limits &amp; routes</PSC_PasteItemsLimitsRoutes>
+  <PSC_PasteAllButPriorities>Paste everything but priorities</PSC_PasteAllButPriorities>
+  <PSC_PasteEverything>Paste everything</PSC_PasteEverything>
 
   <!-- On-map storage overlay (bottom-right play-settings toggle + per-storage info panels) -->
   <PSC_OverlayToggle>Storage overlay</PSC_OverlayToggle>

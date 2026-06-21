@@ -46,6 +46,17 @@ namespace PrecisionStockpileControl
         RetrieveOnly = 3,  // haul out / use allowed; no haul in (pile drains, never refills)
     }
 
+    // Which slice of policy a scoped right-click "Paste" applies. A widening ladder, so CopyScopedFrom
+    // can gate fields with >=. The vanilla Priority band and PSC fine-order (subTier/letter) are NEVER
+    // copied by any of these — only the unscoped left-click "everything" paste (vanilla CopyFrom path)
+    // carries priorities. Save-irrelevant (UI selection only; never scribed).
+    public enum PscPasteScope : byte
+    {
+        ItemsLimits = 0,              // per-def limits only (+ the vanilla allow/disallow filter, applied by the caller)
+        ItemsLimitsRoutes = 1,        // + feeder routes (applied by the caller) + the pull/push flags
+        EverythingButPriorities = 2,  // + batch / batchEmpty / mode / alarm
+    }
+
     // PSC policy + runtime count cache attached to one vanilla StorageSettings object (keyed in
     // PscStorageDataStore). A StorageGroup shares one StorageSettings across its linked members,
     // so keying here shares PSC policy and counts across a linked group automatically.
@@ -225,6 +236,44 @@ namespace PrecisionStockpileControl
             letter = other.letter;
             mode = other.mode;
             alarm = (other.alarm != null && other.alarm.IsActive) ? other.alarm.Clone() : null;
+            refilling.Clear();
+            MarkAllDirty();
+        }
+
+        // Scoped copy for the right-click "paste only some settings" menu. Replaces the IN-SCOPE fields
+        // on this from `other` (a null `other` clears them), leaving out-of-scope policy untouched.
+        // Never copies fine-order subTier/letter or the vanilla Priority band. The vanilla allow/disallow
+        // filter and the feeder routes themselves live off PscStorageData and are applied by the caller
+        // (PscScopedPaste.Apply).
+        public void CopyScopedFrom(PscStorageData other, PscPasteScope scope)
+        {
+            // Items & limits — every scope.
+            limits = new Dictionary<ThingDef, PscDefLimit>();
+            if (other != null)
+            {
+                foreach (var kv in other.limits)
+                {
+                    if (kv.Key != null && kv.Value != null && !kv.Value.IsDefault)
+                        limits[kv.Key] = kv.Value.Clone();
+                }
+            }
+
+            // Routes scope and wider — the pull-only / push-only flags.
+            if (scope >= PscPasteScope.ItemsLimitsRoutes)
+            {
+                onlyFromSource = other?.onlyFromSource ?? false;
+                onlyToDestinations = other?.onlyToDestinations ?? false;
+            }
+
+            // Everything-but-priorities — batch, storage mode, and alarm.
+            if (scope >= PscPasteScope.EverythingButPriorities)
+            {
+                batch = other?.batch ?? 0;
+                batchEmpty = other?.batchEmpty ?? 0;
+                mode = other?.mode ?? PscStorageMode.Normal;
+                alarm = (other?.alarm != null && other.alarm.IsActive) ? other.alarm.Clone() : null;
+            }
+
             refilling.Clear();
             MarkAllDirty();
         }

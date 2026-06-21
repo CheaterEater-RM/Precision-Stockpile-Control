@@ -1,6 +1,8 @@
+using System.Collections.Generic;
 using RimWorld;
 using UnityEngine;
 using Verse;
+using Verse.Sound;
 
 namespace PrecisionStockpileControl
 {
@@ -41,6 +43,37 @@ namespace PrecisionStockpileControl
         }
         // Intentionally no DrawStyleCategory override -> SelectedStyle stays null -> single-cell
         // mouse-down application, no rectangle/area drag.
+
+        // Right-clicking the "Clear route" tool pops the bulk-clear menu (the standalone "Clear all
+        // routes" button was folded in here). Left-click / drag still breaks one route at a time;
+        // right-click opens this menu instead of selecting the paint tool. Only the Break tool offers
+        // it — the Set source / Set destination tools have no bulk equivalent.
+        public override IEnumerable<FloatMenuOption> RightClickFloatMenuOptions
+        {
+            get
+            {
+                if (mode != PscFeederLinkMode.Break) yield break;
+                var psc = PscMapComponent.For(self.Map);
+                if (psc == null) yield break;
+                yield return new FloatMenuOption("PSC_ClearConnectionsThisStockpile".Translate(), () =>
+                {
+                    psc.ClearFeederLinksFor(self);
+                    SoundDefOf.Click.PlayOneShotOnCamera();
+                });
+                yield return new FloatMenuOption("PSC_ClearConnectionsConfirm".Translate(), () =>
+                {
+                    // Map-wide clear is destructive; gate it behind a confirmation dialog.
+                    Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
+                        "PSC_ClearConnectionsConfirmDialog".Translate(),
+                        () =>
+                        {
+                            psc.ClearAllFeederLinks();
+                            SoundDefOf.Click.PlayOneShotOnCamera();
+                        },
+                        destructive: true));
+                });
+            }
+        }
 
         private Map TargetMap => self.Map;
 

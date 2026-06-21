@@ -2,13 +2,12 @@ using System.Collections.Generic;
 using RimWorld;
 using UnityEngine;
 using Verse;
-using Verse.Sound;
 
 namespace PrecisionStockpileControl
 {
-    // The six feeder gizmos shown on a selected stockpile / shelf (design §10.6, design-goals §UI):
-    // Connect source, Connect destination, Only-from-source (toggle), Only-to-destinations (toggle),
-    // Show connections (toggle), Clear all connections (right-click required).
+    // The feeder gizmos shown on a selected stockpile / shelf (design §10.6, design-goals §UI):
+    // Set source, Set destination, Clear route (paint tool; right-click for bulk clears),
+    // Pull-only (toggle), Push-only (toggle).
     //
     // Icons currently reuse vanilla command textures (custom art is tracked in 05_WISHLIST.md).
     [StaticConstructorOnStartup]
@@ -19,7 +18,6 @@ namespace PrecisionStockpileControl
         private static readonly Texture2D OnlyFromTex = Load("UI/Commands/LinkStorageSettings");
         private static readonly Texture2D OnlyToTex = Load("UI/Commands/SelectAllLinked");
         private static readonly Texture2D BreakTex = Load("UI/Designators/Cancel");
-        private static readonly Texture2D ClearTex = Load("UI/Designators/Cancel");
 
         private static Texture2D Load(string path) => ContentFinder<Texture2D>.Get(path, reportFailure: false) ?? BaseContent.BadTex;
 
@@ -61,16 +59,8 @@ namespace PrecisionStockpileControl
 
             // The overlay (all routes / panels) is toggled by the bottom-right play-settings button
             // (PlaySettings_GlobalControls_Patch) — no per-storage "Show routes" gizmo any more.
-
-            yield return new Command_ClearConnections
-            {
-                defaultLabel = "PSC_ClearConnections".Translate(),
-                defaultDesc = "PSC_ClearConnectionsDesc".Translate(),
-                icon = ClearTex,
-                psc = psc,
-                unit = unit,
-                action = () => Messages.Message("PSC_ClearConnectionsHint".Translate(), MessageTypeDefOf.RejectInput, historical: false)
-            };
+            // Route-clearing (this storage / whole map) lives on the "Clear route" tool's right-click
+            // menu (Designator_PscFeederLink), not a separate button.
         }
 
         private static void ToggleFlag(StorageSettings settings, bool fromSource)
@@ -82,36 +72,5 @@ namespace PrecisionStockpileControl
             PscMapComponent.NotifyPolicyChanged(settings);
         }
 
-        // Clear requires a right-click (a plain click only nudges the player). The actual clears —
-        // this stockpile only, or the whole map — live in the right-click float menu.
-        private class Command_ClearConnections : Command_Action
-        {
-            public PscMapComponent psc;
-            public PscHaulUnit unit;
-
-            public override IEnumerable<FloatMenuOption> RightClickFloatMenuOptions
-            {
-                get
-                {
-                    yield return new FloatMenuOption("PSC_ClearConnectionsThisStockpile".Translate(), () =>
-                    {
-                        psc?.ClearFeederLinksFor(unit);
-                        SoundDefOf.Click.PlayOneShotOnCamera();
-                    });
-                    yield return new FloatMenuOption("PSC_ClearConnectionsConfirm".Translate(), () =>
-                    {
-                        // Map-wide clear is destructive; gate it behind a confirmation dialog.
-                        Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                            "PSC_ClearConnectionsConfirmDialog".Translate(),
-                            () =>
-                            {
-                                psc?.ClearAllFeederLinks();
-                                SoundDefOf.Click.PlayOneShotOnCamera();
-                            },
-                            destructive: true));
-                    });
-                }
-            }
-        }
     }
 }
