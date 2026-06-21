@@ -118,14 +118,14 @@ namespace PrecisionStockpileControl
         public void LoadFrom(PscDefLimit lim, PscLimitEditorTarget target = null)
         {
             target ??= new PscLimitEditorTarget();
-            stacksMode = false;
             lowerVal = lim != null && lim.Lower.HasValue ? lim.Lower.Value : (int?)null;
             upperVal = lim != null && lim.Upper.HasValue ? lim.Upper.Value : (int?)null;
-            if (!target.ItemsModeAllowed)
-            {
-                ConvertItemsToStacks(target);
-                stacksMode = true;
-            }
+            // Default to stacks mode so the displayed unit stays stable as the selection changes (the
+            // player can toggle to items when a single stack size makes it available). The stored value
+            // is in items, so convert for display when we have a stack basis; fall back to items only
+            // when there is no stack context to convert against.
+            stacksMode = target.HasStackContext;
+            if (stacksMode) ConvertItemsToStacks(target);
             SyncBuffers();
         }
 

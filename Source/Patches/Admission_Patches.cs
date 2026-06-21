@@ -57,7 +57,10 @@ namespace PrecisionStockpileControl
             if (!sourceIsTarget && source.IsValid)
             {
                 var srcData = PscStorageDataStore.TryGet(source.Settings);
-                if (srcData != null && srcData.batchEmpty > 0 && t.stackCount < srcData.batchEmpty)
+                // Same exemption as onlyToDestinations above: never let "no small removals" trap an item
+                // the source no longer allows — a disallowed/misplaced item must stay evacuable.
+                if (srcData != null && srcData.batchEmpty > 0 && t.stackCount < srcData.batchEmpty
+                    && source.Settings.AllowedToAccept(t))
                 {
                     LogReject(t, source, "underBatchEmpty",
                         $"batchEmpty: rejected {t.def.defName} leaving {source.UniqueLoadID} (source stack {t.stackCount} < batchEmpty {srcData.batchEmpty})");
@@ -128,7 +131,12 @@ namespace PrecisionStockpileControl
             if (source.IsValid)
             {
                 var srcData = PscStorageDataStore.TryGet(source.Settings);
-                if (srcData != null && srcData.onlyToDestinations)
+                // A source no longer accepting this item (player disallowed its def, or it's a leftover)
+                // must stay evacuable to ANY storage — onlyToDestinations only holds the source's VALID
+                // contents. AllowedToAccept is vanilla's "validly stored here" test; the nested call is
+                // safe (the item's current unit == source, so that postfix early-outs on sourceIsTarget)
+                // and short-circuits last, so it only runs when this gate would otherwise reject.
+                if (srcData != null && srcData.onlyToDestinations && source.Settings.AllowedToAccept(t))
                 {
                     LogReject(t, unit, "onlyToDestinations",
                         $"feeder: rejected {t.def.defName} -> {unit.UniqueLoadID} (source onlyToDestinations, no functional edge)");
