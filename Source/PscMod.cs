@@ -5,14 +5,12 @@ using Verse;
 
 namespace PrecisionStockpileControl
 {
-    // Mod settings. M1 ships no behavioural toggles; the fields below are groundwork for later
-    // milestones (M3 auto-priority, M4 subpriority linking) and are persisted now so the schema
-    // is stable before those features land.
+    // Mod settings. Every toggle below is a live feature: feeder strictness defaults + auto-priority,
+    // 1-10 priority numbering + reverse, storage-button visibility, and dev-mode diagnostic logging.
     public class PscSettings : ModSettings
     {
         public bool autosetSourcePriority = false;      // D4 — Connect-source: step the painted source DOWN one letter (off by default)
         public bool autosetDestinationPriority = false; // D4 — Connect-destination: step the painted destination UP one letter (off by default)
-        public bool linkSubpriorities = false;        // M4 (§11.4)
         public bool defaultOnlyFromSource = true;     // M3 — seed strictness on first source link
         public bool defaultOnlyToDestinations = true; // M3 — seed strictness on first destination link
         public bool priorityNumbering = false;        // M4 — show 1-10 levels (two sub-tiers per band)
@@ -31,7 +29,6 @@ namespace PrecisionStockpileControl
             base.ExposeData();
             Scribe_Values.Look(ref autosetSourcePriority, "autosetSourcePriority", false);
             Scribe_Values.Look(ref autosetDestinationPriority, "autosetDestinationPriority", false);
-            Scribe_Values.Look(ref linkSubpriorities, "linkSubpriorities", false);
             Scribe_Values.Look(ref defaultOnlyFromSource, "defaultOnlyFromSource", true);
             Scribe_Values.Look(ref defaultOnlyToDestinations, "defaultOnlyToDestinations", true);
             Scribe_Values.Look(ref priorityNumbering, "priorityNumbering", false);

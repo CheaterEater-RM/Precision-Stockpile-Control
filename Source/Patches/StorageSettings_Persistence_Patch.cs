@@ -36,10 +36,14 @@ namespace PrecisionStockpileControl
         }
     }
 
-    // Copy/paste + link-init seam (design §7, §11.6). Both StorageSettingsClipboard.Copy and
-    // .PasteInto route through CopyFrom, as does StorageGroup.InitFrom on link. One postfix deep-
-    // copies PSC policy from source to target (never counts — those are unit-specific). Pasting
-    // vanilla (PSC-free) settings clears the target's PSC policy.
+    // Copy/paste + link-init seam (design §7, §11.6). StorageSettings.CopyFrom is vanilla's general
+    // settings-transfer point: player copy/paste (StorageSettingsClipboard), StorageGroup.InitFrom on
+    // link, and also build-finish (Frame.CompleteConstruction), caravan pack/unpack (Moveable*), and
+    // def-init defaults (Building_Storage.PostMake from defaultStorageSettings). One postfix deep-
+    // copies PSC policy from source to target (never counts — those are unit-specific) on all of them.
+    // Pasting/initialising from PSC-free settings clears the target's PSC policy. Safe on the non-paste
+    // paths: an empty source is a no-op Remove, and NotifyPolicyChanged no-ops when owner is unresolved
+    // (def-load / clipboard).
     [HarmonyPatch(typeof(StorageSettings), nameof(StorageSettings.CopyFrom))]
     public static class StorageSettings_CopyFrom_Patch
     {

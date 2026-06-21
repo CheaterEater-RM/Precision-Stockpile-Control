@@ -236,13 +236,13 @@ namespace PrecisionStockpileControl
                         }
 
                         PscStorageDataStore.Set(settings, data);
-                        data.Notify_DefaultLimitSet(unit);                   // seed refill from contents
+                        data.Notify_LimitsSeeded(unit);                      // seed refill from contents
                         PscMapComponent.NotifyPolicyChanged(settings);
                         imported.TryGetValue(rec.kind, out int c);
                         imported[rec.kind] = c + 1;
                         if (PscLog.Enabled)
                             PscLog.Msg($"migrate: imported {RawName(rec.kind)} onto {unit.UniqueLoadID} "
-                                + $"(default {data.defaultLimit.lowerRaw}/{data.defaultLimit.upperRaw}, perDef={data.limits.Count})");
+                                + $"(perDef={data.limits.Count})");
                     }
                     catch (Exception ex)
                     {
@@ -279,9 +279,10 @@ namespace PrecisionStockpileControl
         }
 
         // Stack Gap: allowedPerItem -> exact per-def upper caps; the stackGapPercents range -> a
-        // whole-unit default cap/refill, approximating Stack Gap's per-stack pow curve
-        // (round(maxStack * percent^factor) per stack, x stack slots). Approximate — the basis (global
-        // max stack size + display factor) lives in Stack Gap's settings, gone once it's removed.
+        // per-def cap/refill applied across all currently-allowed defs, approximating Stack Gap's
+        // per-stack pow curve (round(maxStack * percent^factor) per stack, x stack slots). Approximate
+        // — the basis (global max stack size + display factor) lives in Stack Gap's settings, gone
+        // once it's removed.
         private static bool ConvertStackGap(Pending rec, PscHaulUnit unit, StorageSettings settings, PscStorageData data)
         {
             bool any = false;
@@ -302,59 +303,86 @@ namespace PrecisionStockpileControl
                 int basis = MaxStackBasis(settings);
                 Capacity(unit, out _, out int slots);
                 slots = Mathf.Max(1, slots);
+                int? defUpper = null, defLower = null;
                 if (rec.gapMax < 1f)
                 {
                     int perStack = Mathf.Max(1, Mathf.RoundToInt(basis * Mathf.Pow(rec.gapMax, StackGapLogFactor)));
-                    data.defaultLimit.Upper = Mathf.Clamp(perStack * slots, 1, SaneItemCap);
+                    defUpper = Mathf.Clamp(perStack * slots, 1, SaneItemCap);
                     any = true;
                 }
                 if (rec.gapMin > 0f)
                 {
                     int perStack = Mathf.RoundToInt(basis * Mathf.Pow(rec.gapMin, StackGapLogFactor));
                     int lower = Mathf.Clamp(perStack * slots, 0, SaneItemCap);
-                    if (data.defaultLimit.Upper.HasValue && lower > data.defaultLimit.Upper.Value)
-                        lower = data.defaultLimit.Upper.Value;
-                    if (lower > 0) { data.defaultLimit.Lower = lower; any = true; }
+                    if (defUpper.HasValue && lower > defUpper.Value) lower = defUpper.Value;
+                    if (lower > 0) { defLower = lower; any = true; }
                 }
+                ApplyDefaultToAllowed(settings, data, defLower, defUpper);
             }
             return any;
         }
 
-        // Satisfied Storage: whole-zone refill % -> default lower (no upper exists). Clean conceptual
-        // fit; the absolute item value uses an approximate capacity basis.
+        // Satisfied Storage: whole-zone refill % -> a per-def refill threshold across all allowed
+        // defs (no upper exists). Clean conceptual fit; the absolute item value uses an approximate
+        // capacity basis.
         private static bool ConvertSatisfied(Pending rec, PscHaulUnit unit, StorageSettings settings, PscStorageData data)
         {
             if (rec.fillPercent >= 100f) return false;           // 100% = vanilla "refill when empty"
             int capacity = CapacityItems(unit, settings);
             int lower = Mathf.Clamp(Mathf.FloorToInt(capacity * (rec.fillPercent / 100f)), 0, SaneItemCap);
             if (lower <= 0) return false;
-            data.defaultLimit.Lower = lower;
+            ApplyDefaultToAllowed(settings, data, lower, null);
             return true;
         }
 
-        // Variety Matters: duplicate-stack cap -> default upper (approx via max stack size); cell-fill
-        // % -> default lower. Per-stack-size cap is dropped (PSC never touches def.stackLimit).
+        // Variety Matters: duplicate-stack cap -> per-def upper (approx via max stack size); cell-fill
+        // % -> per-def lower; both applied across all allowed defs. Per-stack-size cap is dropped
+        // (PSC never touches def.stackLimit).
         private static bool ConvertVariety(Pending rec, PscHaulUnit unit, StorageSettings settings, PscStorageData data)
         {
-            bool any = false;
+            int? defUpper = null, defLower = null;
             if (rec.dupLimit >= 0)
-            {
-                data.defaultLimit.Upper = Mathf.Clamp(rec.dupLimit * MaxStackBasis(settings), 1, SaneItemCap);
-                any = true;
-            }
+                defUpper = Mathf.Clamp(rec.dupLimit * MaxStackBasis(settings), 1, SaneItemCap);
             if (rec.cellFill < 1f)
             {
                 int capacity = CapacityItems(unit, settings);
                 int lower = Mathf.Clamp(Mathf.FloorToInt(capacity * rec.cellFill), 0, SaneItemCap);
                 if (lower > 0)
                 {
-                    if (data.defaultLimit.Upper.HasValue && lower > data.defaultLimit.Upper.Value)
-                        lower = data.defaultLimit.Upper.Value;
-                    data.defaultLimit.Lower = lower;
-                    any = true;
+                    if (defUpper.HasValue && lower > defUpper.Value) lower = defUpper.Value;
+                    defLower = lower;
                 }
             }
-            return any;
+            if (defLower == null && defUpper == null) return false;
+            ApplyDefaultToAllowed(settings, data, defLower, defUpper);
+            return true;
+        }
+
+        // Expand a whole-stockpile imported limit into explicit per-def entries over the unit's
+        // currently-allowed defs (PSC has no whole-unit default — every limit is per-def). A per-def
+        // upper already written from an exact source (Stack Gap's allowedPerItem) is kept; the
+        // imported default only fills gaps. The lower threshold applies to every allowed def, clamped
+        // to that def's upper. Future-allowed defs are not covered — the player can re-apply via the
+        // control window's "Apply to all allowed".
+        private static void ApplyDefaultToAllowed(StorageSettings settings, PscStorageData data, int? lower, int? upper)
+        {
+            if ((lower == null && upper == null) || settings?.filter == null) return;
+            foreach (var def in settings.filter.AllowedThingDefs)
+            {
+                if (def == null) continue;
+                if (!data.limits.TryGetValue(def, out var lim) || lim == null)
+                {
+                    lim = new PscDefLimit();
+                    data.limits[def] = lim;
+                }
+                if (upper.HasValue && !lim.Upper.HasValue) lim.Upper = upper.Value;
+                if (lower.HasValue && !lim.Lower.HasValue)
+                {
+                    int l = lower.Value;
+                    if (lim.Upper.HasValue && l > lim.Upper.Value) l = lim.Upper.Value;
+                    lim.Lower = l;
+                }
+            }
         }
 
         // ── capacity / basis helpers (off any hot path — runs once per migrated unit, at load) ────

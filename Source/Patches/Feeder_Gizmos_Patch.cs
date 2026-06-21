@@ -17,6 +17,7 @@ namespace PrecisionStockpileControl
         {
             foreach (var g in __result) yield return g;
             if (Find.Selector.NumSelected != 1) yield break;
+            if (PscStorageButtonFilter.ShouldHide(__instance)) yield break;  // opt-out hides gizmos too, not just the tab button
             var settings = __instance.GetStoreSettings();
             var unit = PscHaulUnit.ResolveSettings(settings);
             if (!unit.IsValid) yield break;
@@ -34,6 +35,7 @@ namespace PrecisionStockpileControl
             foreach (var g in __result) yield return g;
             if (Find.Selector.NumSelected != 1) yield break;
             if (!__instance.Spawned) yield break;
+            if (PscStorageButtonFilter.ShouldHide(__instance)) yield break;  // opt-out hides gizmos too, not just the tab button
             var settings = __instance.GetStoreSettings();
             var unit = PscHaulUnit.ResolveSettings(settings);
             if (!unit.IsValid) yield break;

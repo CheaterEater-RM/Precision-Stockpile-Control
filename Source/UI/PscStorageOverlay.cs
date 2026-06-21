@@ -127,10 +127,11 @@ namespace PrecisionStockpileControl
                 MeasureAndPlace(p, anchor);
             }
 
-            if (active == 0) { Text.Font = GameFont.Small; return; }
+            if (active == 0) { ReleasePoolTail(); Text.Font = GameFont.Small; return; }
 
             Declutter();
             for (int i = 0; i < active; i++) DrawPanel(pool[i]);
+            ReleasePoolTail();   // drop stale unit/data refs in unused tail slots so a deleted pile isn't pinned
 
             Text.Font = GameFont.Small;
         }
@@ -149,6 +150,18 @@ namespace PrecisionStockpileControl
             else { p = new Panel(); pool.Add(p); }
             active++;
             return p;
+        }
+
+        // Null the unit/data refs in pool slots beyond `active` so an unused panel (after a pile is
+        // deleted or fewer are visible this frame) doesn't pin a dead SlotGroup/StorageGroup alive
+        // until that slot is next reused. Bounded by peak panel count; only ever iterated [0, active).
+        private static void ReleasePoolTail()
+        {
+            for (int i = active; i < pool.Count; i++)
+            {
+                pool[i].unit = default;
+                pool[i].data = null;
+            }
         }
 
         // Pick the screen position to anchor the panel above. Works in screen space (no world-axis

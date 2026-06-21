@@ -36,7 +36,7 @@ namespace PrecisionStockpileControl
     {
         public static void Postfix(Building_Storage __instance, Thing newItem)
         {
-            PscFeederHaulContext.Clear(newItem);
+            if (!PscFeederHaulContext.IsEmpty) PscFeederHaulContext.Clear(newItem);
             if (PscStorageDataStore.IsEmpty) return;
             PscCount.MarkDirty(__instance.GetStoreSettings(), newItem?.def);
         }
@@ -58,7 +58,7 @@ namespace PrecisionStockpileControl
     {
         public static void Postfix(Zone_Stockpile __instance, Thing newItem)
         {
-            PscFeederHaulContext.Clear(newItem);
+            if (!PscFeederHaulContext.IsEmpty) PscFeederHaulContext.Clear(newItem);
             if (PscStorageDataStore.IsEmpty) return;
             PscCount.MarkDirty(__instance.GetStoreSettings(), newItem?.def);
         }

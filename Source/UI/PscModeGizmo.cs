@@ -76,7 +76,8 @@ namespace PrecisionStockpileControl
             var map = unit.Map;
             var held = unit.HeldThings;
             if (map == null || held == null) return;
-            // Snapshot: Notify_* mutates lister state while we iterate the grid-backed HeldThings.
+            // Snapshot defensively (ToList): HeldThings is grid-backed and not invalidated by the
+            // lister Notify_* calls below, but a snapshot keeps this robust if HeldThings ever changes.
             foreach (var t in held.ToList())
             {
                 if (t == null || !t.Spawned) continue;

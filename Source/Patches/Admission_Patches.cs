@@ -68,13 +68,13 @@ namespace PrecisionStockpileControl
             // --- Limit / batch gates (M1/M2) ---
             data ??= PscStorageDataStore.TryGet(__instance);
             if (data == null) return;
-            bool hasLimit = data.HasEffectiveLimit(t.def);
+            bool hasLimit = data.HasLimit(t.def);
             if (!hasLimit && data.batch <= 0) return;    // no effective limit and no batch -> vanilla
             if (sourceIsTarget) return;                  // D16: never reject a unit's own contents
 
             if (hasLimit)
             {
-                var lim = data.GetEffectiveLimit(t.def);
+                var lim = data.GetLimit(t.def);
                 int n = data.GetCount(t.def, unit);
 
                 // Upper — the maximum (M2 makes this a hard cap at drop time via HardCap_Patches)
@@ -197,18 +197,29 @@ namespace PrecisionStockpileControl
             bool sourceHasBatchEmpty = sourceData != null && sourceData.batchEmpty > 0;
             // The target-keyed clamps need a limit or fill-batch; the source-keyed batch-empty cancel below
             // must run even when the target has no PSC policy, so it can't share a single early-out.
-            bool targetHasClampPolicy = data != null && (data.HasEffectiveLimit(t.def) || data.batch > 0);
+            bool targetHasClampPolicy = data != null && (data.HasLimit(t.def) || data.batch > 0);
             if (!targetHasClampPolicy && !sourceHasBatchEmpty) return;
 
             if (data != null)
             {
                 // Upper clamp — cap the planned count so the trip never plans past the maximum.
-                if (data.HasEffectiveLimit(t.def))
+                if (data.HasLimit(t.def))
                 {
-                    var lim = data.GetEffectiveLimit(t.def);
+                    var lim = data.GetLimit(t.def);
                     if (lim.Upper.HasValue)
                     {
                         int room = Math.Max(0, lim.Upper.Value - data.GetCount(t.def, targetUnit));
+                        if (room <= 0)
+                        {
+                            // No room (reservation-overshoot window between admission and job build):
+                            // cancel rather than emit a count-0 job, which trips vanilla's
+                            // Toils_Haul.ErrorCheckForCarry "Invalid count: 0" Log.Error + 1-item trip.
+                            if (PscLog.Enabled) PscLog.Msg(
+                                $"limit: cancelled haul of {t.def.defName} -> {targetUnit.UniqueLoadID} (at/over cap, no room)");
+                            PscFeederHaulContext.Clear(t);
+                            __result = null;
+                            return;
+                        }
                         if (__result.count > room)
                         {
                             if (PscLog.Enabled) PscLog.Msg(

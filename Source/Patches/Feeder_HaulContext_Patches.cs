@@ -11,6 +11,7 @@ namespace PrecisionStockpileControl
         public static void Postfix(Pawn_CarryTracker __instance, Thing item, int __result)
         {
             if (__result <= 0) return;
+            if (PscFeederHaulContext.IsEmpty) return;   // nothing in flight -> nothing to transfer
             PscFeederHaulContext.Transfer(item, __instance.CarriedThing);
         }
     }
@@ -20,6 +21,9 @@ namespace PrecisionStockpileControl
     {
         public static void Postfix(Thing __instance)
         {
+            // Cheapest gate first (AGENTS.md §6.2): with no feeder haul in flight there is no route to
+            // clear, so skip the GetSlotGroup resolution that would otherwise run on EVERY item spawn.
+            if (PscFeederHaulContext.IsEmpty) return;
             if (__instance?.def?.category != ThingCategory.Item) return;
             if (PscHaulUnit.ResolveCurrent(__instance).IsValid) return;
             PscFeederHaulContext.Clear(__instance);

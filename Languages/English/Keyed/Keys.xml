@@ -87,10 +87,8 @@
   <PSC_ModeStacks>stacks</PSC_ModeStacks>
   <PSC_Upper>Maximum</PSC_Upper>
   <PSC_UpperShort>Max</PSC_UpperShort>
-  <PSC_UpperUnlimited>Unlimited</PSC_UpperUnlimited>
   <PSC_Lower>Refill at</PSC_Lower>
   <PSC_LowerShort>Refill</PSC_LowerShort>
-  <PSC_LowerAlways>Always refill</PSC_LowerAlways>
   <PSC_Always>always</PSC_Always>
   <PSC_Maximum>maximum</PSC_Maximum>
   <PSC_MaxHelp>Pawns won't haul in past this count.</PSC_MaxHelp>

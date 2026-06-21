@@ -8,8 +8,8 @@ namespace PrecisionStockpileControl
     // Per-map runtime index. Auto-instantiated by RimWorld for every map (Map.FillComponents
     // reflects over MapComponent subclasses) — no Def needed.
     //
-    // Holds: anyPscActive (per-map early-out), the demand index (D17 groundwork — def -> tracked
-    // units that have a rule for it), and the staggered resync backstop. The feeder link graph (M3)
+    // Holds: anyPscActive + the per-feature early-out gates (anyFeederActive / anyFineOrderActive /
+    // anyFreezeModeActive / anyAlarmActive) and the staggered resync backstop. The feeder link graph
     // and its mutation/query surface live in PscFeederManager; this component is the facade for it.
     public class PscMapComponent : MapComponent
     {
@@ -41,12 +41,6 @@ namespace PrecisionStockpileControl
         // Tracked = active StorageSettings whose owner resolves onto THIS map. Maintained on
         // policy change (runtime) and rebuilt in FinalizeInit (load).
         private readonly HashSet<StorageSettings> tracked = new HashSet<StorageSettings>();
-
-        // Demand index (D17). M1 granularity: "has a non-default rule for this def". M3 will refine
-        // it to "currently accepting". Not consulted on the M1 hot path (the global store lookup is
-        // already the early-out) — built now so feeder routing has it ready.
-        private readonly Dictionary<ThingDef, List<StorageSettings>> demandIndex
-            = new Dictionary<ThingDef, List<StorageSettings>>();
 
         private readonly List<StorageSettings> resyncSnapshot = new List<StorageSettings>();
         private int resyncCursor;
@@ -113,7 +107,6 @@ namespace PrecisionStockpileControl
             RecomputeFineOrderActive();
             RecomputeFreezeModeActive();
             RecomputeAlarmActive();
-            RebuildDemand();
         }
 
         private void RecomputeFeederActive()
@@ -147,32 +140,22 @@ namespace PrecisionStockpileControl
             gate = any;
         }
 
-        private void RebuildDemand()
-        {
-            demandIndex.Clear();
-            foreach (var s in tracked)
-            {
-                var d = PscStorageDataStore.TryGet(s);
-                if (d == null) continue;
-                foreach (var kv in d.limits)
-                {
-                    if (kv.Key == null || kv.Value == null || kv.Value.IsDefault) continue;
-                    if (!demandIndex.TryGetValue(kv.Key, out var list))
-                    {
-                        list = new List<StorageSettings>();
-                        demandIndex[kv.Key] = list;
-                    }
-                    list.Add(s);
-                }
-            }
-        }
-
         public override void FinalizeInit()
         {
             base.FinalizeInit();
             // Drop feeder edges whose endpoints are no longer live storage on this map (removed
             // storage, removed mod, cross-map paste garbage) — self-heals each load.
             PruneFeederLinksAndFlags(markDirty: true);
+        }
+
+        // On map removal, drop the static references that would otherwise pin this dead map's object
+        // graph alive until the next load: the For() memo, and any in-flight feeder routes on this map
+        // (keyed by now-destroyed Things, holding this Map).
+        public override void MapRemoved()
+        {
+            base.MapRemoved();
+            if (ReferenceEquals(map, lastForMap)) { lastForMap = null; lastForComp = null; }
+            PscFeederHaulContext.ClearForMap(map);
         }
 
         internal void RebuildTrackingFromStore(bool markDirty)
@@ -196,7 +179,6 @@ namespace PrecisionStockpileControl
             RecomputeFineOrderActive();
             RecomputeFreezeModeActive();
             RecomputeAlarmActive();
-            RebuildDemand();
         }
 
         // Called after a fine-order edit (sub-tier / letter / band via the level box). Updates

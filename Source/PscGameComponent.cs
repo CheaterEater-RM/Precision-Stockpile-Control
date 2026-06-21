@@ -13,6 +13,7 @@ namespace PrecisionStockpileControl
         {
             PscStorageDataStore.Clear();
             PscMigration.ClearPending();
+            PscFeederHaulContext.ClearAll();   // routes are keyed by live Things; never inherit a prior session's
         }
 
         // Runs after every map's FinalizeInit (Game.FinalizeInit -> GameComponentUtility.FinalizeInit),

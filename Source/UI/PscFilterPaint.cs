@@ -41,7 +41,8 @@ namespace PrecisionStockpileControl
         public static bool VanillaPaintAllow => PscReflection.WidgetsCheckboxPaintingState;
 
         // Records that a vanilla paint cleared one or more limits on this storage. The expensive
-        // NotifyPolicyChanged (RebuildDemand is O(all limits)) is deferred and flushed once per drag.
+        // NotifyPolicyChanged (rebuilds tracking + the early-out gates over all tracked units) is
+        // deferred and flushed once per drag.
         public static void MarkVanillaPaintDirty(StorageSettings s)
         {
             vanillaPaintDirty = true;
@@ -50,7 +51,7 @@ namespace PrecisionStockpileControl
 
         // Called every frame from the FillTab finalizer. Fires the single deferred NotifyPolicyChanged
         // once the paint drag has ended. If the tab closes mid-drag the flush is skipped; the data is
-        // already correct and the demand index self-heals via the staggered resync backstop.
+        // already correct and tracking self-heals on the next policy edit / load.
         public static void FlushPendingVanillaPaint()
         {
             if (!vanillaPaintDirty) return;

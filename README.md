@@ -1,15 +1,15 @@
 # Precision Stockpile Control
 
-Precision Stockpile Control is a RimWorld 1.6 mod planned around opt-in, low-overhead stockpile controls.
+Precision Stockpile Control is a RimWorld 1.6 mod built around opt-in, low-overhead stockpile controls.
 
 ## Features
 
 - Per-item stockpile maximums and refill thresholds (per stockpile / shelf / linked group)
-- A per-stockpile **default limit** (applies to all items that don't have their own limit)
 - Batch hauling, both directions — **batch fill** (never *add* fewer than N items in a trip) and **batch empty** (never *remove* fewer than N items in a trip)
 - Routes that feed items from one storage into another (source → destination)
 - Four per-storage **modes** — normal / frozen / fill only / drain only (Flickable-style)
 - **Stockpile alarms** — a message (or letter) when a storage gets too full or too empty, with anti-spam controls
+- An on-map **storage overlay** — a bottom-right toggle floats each storage's limits / mode / alarm / routes at a glance
 - Fine-grained ordering within a priority band: a–z subpriority and an optional 1–10 priority mode
 - Pick Up And Haul and LWM Deep Storage / multi-stack aware
 - **Imports your limits when you switch from another stockpile-limit mod** (one-way)
@@ -36,9 +36,10 @@ run PSC's final trip-size backstop, so enforcement there is per-stack rather tha
 ### About the search box
 
 Open a storage area's **Stockpile Control** panel, type in the storage tab's search box, and use **Apply to search**
-/ **Clear search limits** to set or clear a limit on every matching item at once. The search matches by
-material/category as well as by name, so it catches items whose label doesn't contain the word —
-searching `meat` includes beef and pork, `leather` includes birdskin, `wool` includes every wool. This
+/ **Clear search limits** to set or clear a limit on every matching item at once. With no search active those
+buttons read **Apply to all allowed** / **Clear all limits** and act on everything the storage currently allows.
+The search matches by material/category as well as by name, so it catches items whose label doesn't contain the
+word — searching `meat` includes beef and pork, `leather` includes birdskin, `wool` includes every wool. This
 mirrors what the storage list itself shows when you search.
 
 ### About routes
@@ -110,9 +111,10 @@ until you set a limit. Removed, limited items simply become "allowed" (unlimited
 ## Development Status
 
 M1 (core limits), M2 (focused hard cap, batch, Pick Up And Haul / multi-stack integration), M3
-(routes), M4 (fine ordering — a–z subpriority and 1–10 priority), M5 part 1 (one-way
-migration from other limit mods + a per-stockpile default limit), and M5 part 2 (the four storage
-modes) are code complete and in-game verified. The authoritative design is in `docs/DESIGN.md`.
+(routes), M4 (fine ordering — a–z subpriority and 1–10 priority), M5 part 1 (one-way migration from
+other limit mods), and M5 part 2 (the four storage modes) are code complete and in-game verified. The
+stockpile alarms and on-map storage overlay are code complete and in final testing. The authoritative
+design is in `docs/DESIGN.md`.
 
 ## Credits
 

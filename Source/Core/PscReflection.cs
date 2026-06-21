@@ -80,6 +80,9 @@ namespace PrecisionStockpileControl
         public static IStoreSettingsParent GetSelStoreSettingsParent(ITab_Storage tab)
         {
             if (SelStoreSettingsParentGetter == null || tab == null) return null;
+            // Deliberate silent swallow: this runs on a per-frame UI path, so a per-call Log would
+            // spam. The resolve-time LogMissing already reports a vanished seam once at startup; here
+            // callers null-check, so degrading to null is safe.
             try { return SelStoreSettingsParentGetter.Invoke(tab, null) as IStoreSettingsParent; }
             catch { return null; }
         }
@@ -97,6 +100,8 @@ namespace PrecisionStockpileControl
                 if (qs == null) return null;
                 return QuickSearchFilterField.GetValue(qs) as QuickSearchFilter;
             }
+            // Deliberate silent swallow (per-frame UI path; resolve-time LogMissing already reports a
+            // vanished seam once at startup; callers null-check).
             catch { return null; }
         }
 

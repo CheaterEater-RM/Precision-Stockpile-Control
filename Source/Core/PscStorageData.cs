@@ -9,7 +9,7 @@ namespace PrecisionStockpileControl
     public class PscDefLimit : IExposable
     {
         public int lowerRaw = -1;   // -1 = unset (D15: "always refill"); 0 = only when empty; N = refill at <= N
-        public int upperRaw = -1;   // -1 = unset (unlimited); N = target maximum (soft cap until M2)
+        public int upperRaw = -1;   // -1 = unset (unlimited); N = the maximum (hard cap at drop time)
 
         public int? Lower
         {
@@ -59,19 +59,13 @@ namespace PrecisionStockpileControl
         // Invariant: non-null. Set at construction, re-created by CopyPolicyFrom, and restored on load
         // by the PostLoadInit guard in ExposeData. Runtime reads therefore skip container null-checks.
         public Dictionary<ThingDef, PscDefLimit> limits = new Dictionary<ThingDef, PscDefLimit>();
-        public int batch;                 // batch fill (M2): 0 = off, never bring fewer than N in one trip
+        public int batch;                 // batch fill: 0 = off, never bring fewer than N in one trip
         public int batchEmpty;            // batch empty: 0 = off, never remove fewer than N out in one trip
-        public bool onlyFromSource;       // groundwork (M3)
-        public bool onlyToDestinations;   // groundwork (M3)
-        public byte subTier;              // groundwork (M4): 0 = unset
-        public string letter;             // groundwork (M4): null/empty = none
-        public PscStorageMode mode;       // M5.2: hauling mode (Normal = vanilla)
-
-        // Per-unit default limit: applies to any allowed def that has no explicit per-def entry.
-        // Tracked in items, same sentinel shape as a per-def limit. This is where whole-stockpile
-        // limits from other mods land on migration, and the "all items" row in the control window
-        // edits it. Non-null invariant (mirrors `limits`); IsDefault means "no default set".
-        public PscDefLimit defaultLimit = new PscDefLimit();
+        public bool onlyFromSource;       // feeder: accept only items from a linked source unit
+        public bool onlyToDestinations;   // feeder: send contents only to a linked destination unit
+        public byte subTier;              // fine-order 1-10 sub-tier: 0 = unset
+        public string letter;             // fine-order a-z subpriority: null/empty = none
+        public PscStorageMode mode;       // hauling mode (Normal = vanilla)
 
         // Stockpile alarm (opt-in): null when unused, so a unit with no alarm writes nothing and
         // costs nothing. Holds the high/low fullness thresholds, dwell, cadence, notify style, and
@@ -85,12 +79,15 @@ namespace PrecisionStockpileControl
         private bool allDirty = true;
 
         public bool HasPersistentPolicy =>
-            limits.Count > 0 || (defaultLimit != null && !defaultLimit.IsDefault)
+            limits.Count > 0
             || batch > 0 || batchEmpty > 0 || onlyFromSource || onlyToDestinations
             || subTier != 0 || !string.IsNullOrEmpty(letter)
             || mode != PscStorageMode.Normal
             || (alarm != null && alarm.IsActive);
 
+        // Per-def limit accessors. The admission, hard-cap, and refill paths gate on HasLimit then
+        // read GetLimit; the filter-row / per-item editor UI uses the same pair. Limits are always
+        // explicit per-def entries (whole-stockpile imports are expanded to per-def on migration).
         public bool HasLimit(ThingDef def)
         {
             return def != null && limits.TryGetValue(def, out var l) && l != null && !l.IsDefault;
@@ -101,26 +98,12 @@ namespace PrecisionStockpileControl
             return (def != null && limits.TryGetValue(def, out var l)) ? l : null;
         }
 
-        // Effective limit for a def: an explicit non-default per-def entry wins; otherwise the
-        // per-unit default (when set); otherwise none. The admission, hard-cap, and refill hot
-        // paths use these so a default limit transparently covers every allowed def — while the
-        // filter-row / per-item editor UI keeps using HasLimit/GetLimit (explicit only).
-        public bool HasEffectiveLimit(ThingDef def) => GetEffectiveLimit(def) != null;
-
-        public PscDefLimit GetEffectiveLimit(ThingDef def)
-        {
-            if (def != null && limits.TryGetValue(def, out var l) && l != null && !l.IsDefault) return l;
-            return (defaultLimit != null && !defaultLimit.IsDefault) ? defaultLimit : null;
-        }
-
-        // True when any per-def or the per-unit default limit is set. Manual loop (no LINQ) since the
-        // `limits` dict can hold IsDefault entries — mirrors the filtering in HasPersistentPolicy /
-        // RebuildDemand. Used by the on-map overlay's "limits active" status icon.
+        // True when any non-default per-def limit is set. Manual loop (no LINQ) since the `limits`
+        // dict can hold IsDefault entries. Used by the on-map overlay's "limits active" status icon.
         public bool HasAnyLimit
         {
             get
             {
-                if (defaultLimit != null && !defaultLimit.IsDefault) return true;
                 foreach (var kv in limits)
                     if (kv.Value != null && !kv.Value.IsDefault) return true;
                 return false;
@@ -164,15 +147,6 @@ namespace PrecisionStockpileControl
                 counts.TryGetValue(kv.Key, out var c);
                 UpdateRefilling(kv.Key, c, kv.Value);
             }
-            // Default-covered present defs (those without an explicit entry) also need refill state.
-            if (defaultLimit != null && !defaultLimit.IsDefault)
-            {
-                foreach (var kv in counts)
-                {
-                    if (limits.ContainsKey(kv.Key)) continue;
-                    UpdateRefilling(kv.Key, kv.Value, defaultLimit);
-                }
-            }
         }
 
         private void RecomputeDef(ThingDef def, PscHaulUnit unit)
@@ -191,7 +165,7 @@ namespace PrecisionStockpileControl
             }
             counts[def] = sum;
             dirtyDefs.Remove(def);
-            UpdateRefilling(def, sum, GetEffectiveLimit(def));
+            UpdateRefilling(def, sum, GetLimit(def));
         }
 
         // Hysteresis edge logic (D15): refill turns ON at count <= lower, OFF at count >= upper.
@@ -218,19 +192,19 @@ namespace PrecisionStockpileControl
             }
         }
 
-        // Called when the per-unit default limit is created/changed (UI or migration). Recomputes
-        // and seeds refill ON for every present def covered by an effective lower threshold and
-        // below its upper, so a freshly-defaulted stockpile fills up before hysteresis takes over.
-        // The whole-unit analogue of Notify_LimitSet.
-        public void Notify_DefaultLimitSet(PscHaulUnit unit)
+        // Seeds refill state ON for every per-def limit from current contents (multi-def UI apply or
+        // migration). The whole-set analogue of Notify_LimitSet: a freshly limited def below its upper
+        // fills up before hysteresis takes over.
+        public void Notify_LimitsSeeded(PscHaulUnit unit)
         {
             MarkAllDirty();
-            RecomputeAll(unit);
-            foreach (var kv in counts)
+            foreach (var kv in limits)
             {
-                var lim = GetEffectiveLimit(kv.Key);
-                if (lim != null && lim.Lower.HasValue && !(lim.Upper.HasValue && kv.Value >= lim.Upper.Value))
-                    refilling.Add(kv.Key);
+                var lim = kv.Value;
+                if (lim == null || lim.IsDefault || !lim.Lower.HasValue) continue;
+                int c = GetCount(kv.Key, unit);
+                if (!(lim.Upper.HasValue && c >= lim.Upper.Value)) refilling.Add(kv.Key);
+                else refilling.Remove(kv.Key);
             }
         }
 
@@ -250,8 +224,6 @@ namespace PrecisionStockpileControl
             subTier = other.subTier;
             letter = other.letter;
             mode = other.mode;
-            defaultLimit = (other.defaultLimit != null && !other.defaultLimit.IsDefault)
-                ? other.defaultLimit.Clone() : new PscDefLimit();
             alarm = (other.alarm != null && other.alarm.IsActive) ? other.alarm.Clone() : null;
             refilling.Clear();
             MarkAllDirty();
@@ -259,7 +231,15 @@ namespace PrecisionStockpileControl
 
         public void ExposeData()
         {
-            Scribe_Collections.Look(ref limits, "limits", LookMode.Def, LookMode.Deep);
+            // logNullErrors:false — when a CONTENT mod is removed but PSC is kept, per-def keys for
+            // its defs no longer resolve. The PostLoadInit prune below drops those entries; passing
+            // false keeps vanilla's BuildDictionary from logging a red error per missing key first,
+            // so the documented "silent self-heal on load" is actually silent. (Working lists are
+            // throwaway scratch — the full Look overload is the only one exposing logNullErrors.)
+            List<ThingDef> limitsKeysWork = null;
+            List<PscDefLimit> limitsValuesWork = null;
+            Scribe_Collections.Look(ref limits, "limits", LookMode.Def, LookMode.Deep,
+                ref limitsKeysWork, ref limitsValuesWork, logNullErrors: false);
             Scribe_Values.Look(ref batch, "batch", 0);
             Scribe_Values.Look(ref batchEmpty, "batchEmpty", 0);
             Scribe_Values.Look(ref onlyFromSource, "onlyFromSource", false);
@@ -268,22 +248,9 @@ namespace PrecisionStockpileControl
             Scribe_Values.Look(ref letter, "letter");
             Scribe_Values.Look(ref mode, "mode", PscStorageMode.Normal);
 
-            // Default limit: write the <default> child only when set, so a policy that has no
-            // default stays as clean as before (the "write nothing when empty" save contract).
-            // On load (and the no-op non-saving modes) read it back; PostLoadInit restores the
-            // non-null invariant when no node was present.
-            if (Scribe.mode == LoadSaveMode.Saving)
-            {
-                if (defaultLimit != null && !defaultLimit.IsDefault)
-                    Scribe_Deep.Look(ref defaultLimit, "default");
-            }
-            else
-            {
-                Scribe_Deep.Look(ref defaultLimit, "default");
-            }
-
             // Alarm: write the <alarm> child only when armed (write-nothing-when-empty contract). On
-            // load, read it back; null stays the valid "no alarm" state (no PostLoadInit guard needed).
+            // load (LoadingVars) read it back; null stays the valid "no alarm" state (no PostLoadInit
+            // guard needed).
             if (Scribe.mode == LoadSaveMode.Saving)
             {
                 if (alarm != null && alarm.IsActive)
@@ -297,7 +264,6 @@ namespace PrecisionStockpileControl
             if (Scribe.mode == LoadSaveMode.PostLoadInit)
             {
                 if (limits == null) limits = new Dictionary<ThingDef, PscDefLimit>();
-                if (defaultLimit == null) defaultLimit = new PscDefLimit();
                 // Drop entries whose def no longer resolves (mod removed) or that are default.
                 List<ThingDef> toRemove = null;
                 foreach (var kv in limits)

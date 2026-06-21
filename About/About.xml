@@ -6,11 +6,9 @@
   <supportedVersions>
     <li>1.6</li>
   </supportedVersions>
-  <description>Set exact per-storage limits, refill thresholds, and hauling batch sizes. Route items from one storage into another, fine-tune priority, or switch a storage to fill-only / drain-only / frozen. Stockpiles you don't configure behave exactly like vanilla.
-
-Storage modes are inspired by Flickable Storage by Mlie (MIT); the four mode icons are reused from it. PSC reimplements the behavior with its own mechanism. https://github.com/emipa606/FlickableStorage</description>
+  <description>Set exact per-storage limits, refill thresholds, and hauling batch sizes. Route items from one storage into another, fine-tune priority, or switch a storage to fill-only / drain-only / frozen. Stockpiles you don't configure behave exactly like vanilla.</description>
   <modVersion>0.1.0</modVersion>
-  <url></url>
+  <url>https://github.com/CheaterEater-RM/Precision-Stockpile-Control</url>
 
   <modDependencies>
     <li>
