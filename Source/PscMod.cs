@@ -1,12 +1,10 @@
-using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 using Verse;
 
 namespace PrecisionStockpileControl
 {
     // Mod settings. Every toggle below is a live feature: feeder strictness defaults + auto-priority,
-    // 1-10 priority numbering + reverse, storage-button visibility, and dev-mode diagnostic logging.
+    // 1-10 priority numbering + reverse, overlay rendering, and dev-mode diagnostic logging.
     public class PscSettings : ModSettings
     {
         public bool autosetSourcePriority = false;      // D4 — Connect-source: step the painted source DOWN one letter (off by default)
@@ -17,14 +15,9 @@ namespace PrecisionStockpileControl
         public bool reverseOrder = false;             // M4 — 1-10 label flip only (ordering unchanged)
         public bool feederPortSpreading = true;       // overlay: fan route endpoints along the storage perimeter (declutter)
         public bool feederFocusDim = true;            // overlay: dim routes not touching the hovered/selected storage
+        public bool feederFlowDots = false;           // overlay: animate flow dots on the hovered/selected pile's valid routes
+        public float feederLineWidth = 0.06f;         // overlay: route line thickness (arrows/✕ scale with it); dev-tunable
         public bool debugLogging = false;             // dev-mode diagnostic logging (PscLog)
-
-        // Hide the PSC button on single-purpose containers (bookcases, graves, outfit stands,
-        // feedstock vats, mortar shells, gene banks) where priority/limits are meaningless.
-        public bool hideButtonOnSpecialStorage = true;
-        // Extra storage defNames to hide the button on (e.g. modded single-purpose storage). One
-        // exact, case-sensitive defName per entry; edited as one-per-line text in the settings panel.
-        public List<string> extraExcludedDefNames = new List<string>();
 
         public override void ExposeData()
         {
@@ -37,11 +30,9 @@ namespace PrecisionStockpileControl
             Scribe_Values.Look(ref reverseOrder, "reverseOrder", false);
             Scribe_Values.Look(ref feederPortSpreading, "feederPortSpreading", true);
             Scribe_Values.Look(ref feederFocusDim, "feederFocusDim", true);
+            Scribe_Values.Look(ref feederFlowDots, "feederFlowDots", false);
+            Scribe_Values.Look(ref feederLineWidth, "feederLineWidth", 0.06f);
             Scribe_Values.Look(ref debugLogging, "debugLogging", false);
-            Scribe_Values.Look(ref hideButtonOnSpecialStorage, "hideButtonOnSpecialStorage", true);
-            Scribe_Collections.Look(ref extraExcludedDefNames, "extraExcludedDefNames", LookMode.Value);
-            if (Scribe.mode == LoadSaveMode.LoadingVars && extraExcludedDefNames == null)
-                extraExcludedDefNames = new List<string>();
         }
     }
 
@@ -49,9 +40,9 @@ namespace PrecisionStockpileControl
     {
         public static PscSettings Settings { get; private set; }
 
-        // Editable mirror of Settings.extraExcludedDefNames as one-per-line text. Seeded lazily on
-        // first draw; parsed back into the list whenever it changes.
-        private string excludedDefNamesBuffer;
+        // Scroll state for the settings window (content can exceed the window height).
+        private Vector2 settingsScroll;
+        private float settingsHeight = 600f;
 
         public PscMod(ModContentPack content) : base(content)
         {
@@ -66,8 +57,10 @@ namespace PrecisionStockpileControl
 
         public override void DoSettingsWindowContents(Rect inRect)
         {
+            var view = new Rect(0f, 0f, inRect.width - 20f, settingsHeight);
+            Widgets.BeginScrollView(inRect, ref settingsScroll, view);
             var listing = new Listing_Standard();
-            listing.Begin(inRect);
+            listing.Begin(view);
 
             // Current-feature summary + quick-start, so the panel explains itself on first open.
             Text.Font = GameFont.Tiny;
@@ -108,29 +101,6 @@ namespace PrecisionStockpileControl
             listing.CheckboxLabeled("PSC_SettingsReverseOrder".Translate(), ref Settings.reverseOrder,
                 "PSC_SettingsReverseOrderTip".Translate());
 
-            listing.Gap(12f);
-            listing.Label("PSC_SettingsStorageButtonHeader".Translate());
-            listing.Gap(6f);
-            listing.CheckboxLabeled("PSC_SettingsHideButtonSpecial".Translate(), ref Settings.hideButtonOnSpecialStorage,
-                "PSC_SettingsHideButtonSpecialTip".Translate());
-            Text.Font = GameFont.Tiny;
-            GUI.color = PscUiTheme.NoteText;
-            listing.Label("PSC_SettingsExtraExcludedLabel".Translate());
-            GUI.color = Color.white;
-            Text.Font = GameFont.Small;
-            if (excludedDefNamesBuffer == null)
-                excludedDefNamesBuffer = string.Join("\n", Settings.extraExcludedDefNames);
-            string editedExcluded = Widgets.TextArea(listing.GetRect(72f), excludedDefNamesBuffer);
-            if (editedExcluded != excludedDefNamesBuffer)
-            {
-                excludedDefNamesBuffer = editedExcluded;
-                Settings.extraExcludedDefNames = editedExcluded
-                    .Split('\n')
-                    .Select(s => s.Trim())
-                    .Where(s => s.Length > 0)
-                    .ToList();
-            }
-
             // Developer-only diagnostic logging. Hidden outside RimWorld dev mode so it never clutters
             // a normal player's settings; logs gate purely on the setting (dev mode only controls
             // visibility), so a player who turns it on can leave dev mode and still capture a trace.
@@ -146,6 +116,10 @@ namespace PrecisionStockpileControl
                     "PSC_SettingsPortSpreadingTip".Translate());
                 listing.CheckboxLabeled("PSC_SettingsFocusDim".Translate(), ref Settings.feederFocusDim,
                     "PSC_SettingsFocusDimTip".Translate());
+                listing.CheckboxLabeled("PSC_SettingsFlowDots".Translate(), ref Settings.feederFlowDots,
+                    "PSC_SettingsFlowDotsTip".Translate());
+                listing.Label("PSC_SettingsLineWidth".Translate(Settings.feederLineWidth.ToString("0.000")));
+                Settings.feederLineWidth = listing.Slider(Settings.feederLineWidth, 0.02f, 0.16f);
 
                 listing.Gap(12f);
                 listing.Label("PSC_SettingsDebugHeader".Translate());
@@ -156,6 +130,8 @@ namespace PrecisionStockpileControl
             }
 
             listing.End();
+            settingsHeight = listing.CurHeight;   // self-size the scroll view for next frame
+            Widgets.EndScrollView();
         }
 
         private static void ResortAllMaps()

@@ -21,6 +21,26 @@ namespace PrecisionStockpileControl
         private static readonly Color BadColorDim = new Color(0.72f, 0.42f, 0.42f, 0.22f);
         private static readonly Dictionary<int, Material> MatCache = new Dictionary<int, Material>();
 
+        // ---- line + flow-dot tuning ----
+        private const float DefaultLineWidth = 0.06f;   // shipped line thickness; tunable via the dev slider
+        private const float ArrowWidthFrac = 0.667f;    // arrowhead stroke as a fraction of the line width
+        private const float CrossWidthFrac = 0.833f;    // ✕ stroke as a fraction of the line width
+        private const int DotCount = 3;                 // beads per animated route
+        private const float DotSpeed = 2f;              // bead travel speed (cells/sec, real time)
+        private const float DotScale = 0.15f;           // bead diameter (cells)
+
+        // Round, double-sided dot mesh for the flow beads (built once, lazily). Round = direction-
+        // agnostic (unlike the old square quad); double-sided so it shows regardless of cull mode.
+        private static Mesh dotMesh;
+
+        // Feathered line texture (alpha ramps 0→1→0 across the width axis) so the line/arrow/✕ quads
+        // get soft, anti-aliased edges instead of hard stair-steps. Built once, lazily.
+        private static Texture2D lineTex;
+
+        // Per-frame snapshot of the render settings, read by the primitives without extra args.
+        private static bool sFlowDots;
+        private static float sLineWidth = DefaultLineWidth;
+
         // Reused per-frame scratch so the draw path allocates nothing steady-state.
         private static readonly Dictionary<string, PscHaulUnit> idMap = new Dictionary<string, PscHaulUnit>();
 
@@ -41,6 +61,8 @@ namespace PrecisionStockpileControl
             var settings = PscMod.Settings;
             bool portSpreading = settings == null || settings.feederPortSpreading;
             bool focusDim = settings == null || settings.feederFocusDim;
+            sFlowDots = settings != null && settings.feederFlowDots;
+            sLineWidth = Mathf.Clamp(settings?.feederLineWidth ?? DefaultLineWidth, 0.02f, 0.2f);
 
             // Overlay on -> draw every route (no selection needed). Overlay off -> legacy behaviour:
             // draw only routes incident to the selected storage (nothing if none is selected).
@@ -78,7 +100,8 @@ namespace PrecisionStockpileControl
 
                 bool valid = psc.HasFunctionalFeederEdge(su, du);
                 bool incident = focusId == null || l.sourceId == focusId || l.destId == focusId;
-                DrawLink(a, b, valid, incident);
+                bool focused = focusId != null && (l.sourceId == focusId || l.destId == focusId);
+                DrawLink(a, b, valid, incident, focused);
             }
         }
 
@@ -144,16 +167,21 @@ namespace PrecisionStockpileControl
 
         // ---- primitives (Contagion pattern) ----
 
-        private static void DrawLink(Vector3 a, Vector3 b, bool valid, bool incident)
+        private static void DrawLink(Vector3 a, Vector3 b, bool valid, bool incident, bool focused)
         {
             float y = AltitudeLayer.MetaOverlays.AltitudeFor() + 0.1f;
             a.y = y; b.y = y;
             Color color = valid
                 ? (incident ? GoodColor : GoodColorDim)
                 : (incident ? BadColor : BadColorDim);
-            Material mat = GetMat(color);   // arrowheads / crosses inherit the (possibly dimmed) material
-            GenDraw.DrawLineBetween(a, b, mat, 0.06f);
-            DrawArrows(a, b, mat);
+            Material mat = GetMat(color);
+            GenDraw.DrawLineBetween(a, b, mat, sLineWidth);
+
+            // Flow dots AUGMENT the chevron (Council: never rely on motion alone): on a focused valid
+            // route, draw a dimmed chevron as a static direction anchor, then bright moving dots over it.
+            bool dots = sFlowDots && valid && focused;
+            DrawArrows(a, b, dots ? GetMat(GoodColorDim) : mat);
+            if (dots) DrawFlowDots(a, b);
             if (!valid) DrawCrosses(a, b, mat);
         }
 
@@ -174,8 +202,8 @@ namespace PrecisionStockpileControl
             const float arm = 0.28f, wid = 0.2f;
             Vector3 perp = new Vector3(-dir.z, 0f, dir.x);
             Vector3 back = tip - dir * arm;
-            GenDraw.DrawLineBetween(tip, back + perp * wid, mat, 0.04f);
-            GenDraw.DrawLineBetween(tip, back - perp * wid, mat, 0.04f);
+            GenDraw.DrawLineBetween(tip, back + perp * wid, mat, sLineWidth * ArrowWidthFrac);
+            GenDraw.DrawLineBetween(tip, back - perp * wid, mat, sLineWidth * ArrowWidthFrac);
         }
 
         private static void DrawCrosses(Vector3 origin, Vector3 end, Material mat)
@@ -192,9 +220,80 @@ namespace PrecisionStockpileControl
             for (int i = 1; i <= n; i++)
             {
                 Vector3 c = Vector3.Lerp(origin, end, i / (float)(n + 1));
-                GenDraw.DrawLineBetween(c - d1, c + d1, mat, 0.05f);
-                GenDraw.DrawLineBetween(c - d2, c + d2, mat, 0.05f);
+                GenDraw.DrawLineBetween(c - d1, c + d1, mat, sLineWidth * CrossWidthFrac);
+                GenDraw.DrawLineBetween(c - d2, c + d2, mat, sLineWidth * CrossWidthFrac);
             }
+        }
+
+        // Round beads flowing source→dest along the route. Real-time phase so they keep moving while the
+        // game is paused (the faint chevron under them carries direction regardless). DotSpeed is in
+        // cells/sec, so visual speed is roughly route-length-independent.
+        private static void DrawFlowDots(Vector3 a, Vector3 b)
+        {
+            float y = a.y;
+            float len = (new Vector3(b.x - a.x, 0f, b.z - a.z)).magnitude;
+            float cycle = Time.realtimeSinceStartup * DotSpeed / Mathf.Max(len, 0.5f);
+            Material mat = GetMat(GoodColor);
+            Mesh mesh = DotMesh();
+            for (int k = 0; k < DotCount; k++)
+            {
+                float t = cycle + k / (float)DotCount;
+                t -= Mathf.Floor(t);
+                Vector3 p = Vector3.Lerp(a, b, t); p.y = y;
+                Graphics.DrawMesh(mesh,
+                    Matrix4x4.TRS(p, Quaternion.identity, new Vector3(DotScale, 1f, DotScale)),
+                    mat, 0);
+            }
+        }
+
+        // A unit-diameter filled circle (radius 0.5) as a triangle fan, doubled so both faces render
+        // regardless of the shader's cull mode. Every vertex UV is (0.5, 0.5) — the feathered line
+        // texture's opaque centre — so the dot stays a solid colour disc (its roundness is geometry).
+        private static Mesh DotMesh()
+        {
+            if (dotMesh != null) return dotMesh;
+            const int seg = 16;
+            var verts = new Vector3[seg + 1];
+            var uvs = new Vector2[seg + 1];
+            verts[0] = Vector3.zero;
+            for (int i = 0; i < seg; i++)
+            {
+                float ang = i / (float)seg * Mathf.PI * 2f;
+                verts[i + 1] = new Vector3(Mathf.Cos(ang) * 0.5f, 0f, Mathf.Sin(ang) * 0.5f);
+            }
+            for (int i = 0; i < uvs.Length; i++) uvs[i] = new Vector2(0.5f, 0.5f);
+            var tris = new int[seg * 6];   // front + back faces
+            int t = 0;
+            for (int i = 0; i < seg; i++)
+            {
+                int v1 = i + 1, v2 = (i + 1) % seg + 1;
+                tris[t++] = 0; tris[t++] = v1; tris[t++] = v2;   // front
+                tris[t++] = 0; tris[t++] = v2; tris[t++] = v1;   // back
+            }
+            dotMesh = new Mesh { name = "PscFeederDot", vertices = verts, uv = uvs, triangles = tris };
+            dotMesh.RecalculateBounds();
+            return dotMesh;
+        }
+
+        // 32×1 texture with alpha opaque in the centre, feathering to 0 at the two width edges. plane10
+        // maps U to the line's width axis, and MetaOverlay multiplies texture alpha by colour alpha, so
+        // this softens the long edges of every line/arrow/✕ → anti-aliased without a custom shader.
+        private static Texture2D LineTex()
+        {
+            if (lineTex != null) return lineTex;
+            const int w = 32;
+            var tex = new Texture2D(w, 1, TextureFormat.ARGB32, false)
+            { name = "PscFeederLine", wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+            for (int x = 0; x < w; x++)
+            {
+                float u = (x + 0.5f) / w;                       // 0..1 across the width
+                float d = Mathf.Abs(u * 2f - 1f);               // 0 centre .. 1 edge
+                float a = Mathf.Clamp01((1f - d) / 0.25f);      // opaque centre, ~12.5% feather each edge
+                tex.SetPixel(x, 0, new Color(1f, 1f, 1f, a));
+            }
+            tex.Apply();
+            lineTex = tex;
+            return lineTex;
         }
 
         private static Material GetMat(Color c)
@@ -203,7 +302,7 @@ namespace PrecisionStockpileControl
                       | (Mathf.RoundToInt(c.b * 255f) << 8) | Mathf.RoundToInt(c.a * 255f);
             if (!MatCache.TryGetValue(key, out var m))
             {
-                m = MaterialPool.MatFrom(BaseContent.WhiteTex, ShaderDatabase.MetaOverlay, c);
+                m = MaterialPool.MatFrom(LineTex(), ShaderDatabase.MetaOverlay, c);
                 m.enableInstancing = true;
                 MatCache[key] = m;
             }

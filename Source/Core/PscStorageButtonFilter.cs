@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using RimWorld;
 using Verse;
 
@@ -18,8 +17,9 @@ namespace PrecisionStockpileControl
     // Reel's Expanded Storage and other Adaptive Storage Framework packs are deliberately NOT listed:
     // they are full multi-stack storage with a priority and settable limits (the vanilla storage
     // tab), so PSC's features genuinely apply — including their books-only "bookshelf", which (unlike
-    // a vanilla Building_Bookcase) has a priority and a settable book count. Players who want a
-    // specific modded storage excluded add its defName to the editable list in mod options.
+    // a vanilla Building_Bookcase) has a priority and a settable book count. To exclude a specific
+    // modded storage, patch its ThingDef with the PscStorageExclusion mod extension (XML-only; there
+    // is no in-menu blacklist). The built-in type list below is definitive and always applies.
     public static class PscStorageButtonFilter
     {
         private static readonly Type[] BuiltinHiddenTypes =
@@ -35,25 +35,15 @@ namespace PrecisionStockpileControl
         public static bool ShouldHide(IStoreSettingsParent parent)
         {
             if (parent == null) return false;
-            var settings = PscMod.Settings;
-            if (settings == null) return false;
 
-            if (settings.hideButtonOnSpecialStorage)
-            {
-                for (int i = 0; i < BuiltinHiddenTypes.Length; i++)
-                    if (BuiltinHiddenTypes[i].IsInstanceOfType(parent))
-                        return true;
-            }
-
-            List<string> extra = settings.extraExcludedDefNames;
-            if (extra != null && extra.Count > 0)
-            {
-                ThingDef def = ResolveDef(parent);
-                if (def != null && extra.Contains(def.defName))
+            // Built-in single-purpose blacklist — definitive, always on.
+            for (int i = 0; i < BuiltinHiddenTypes.Length; i++)
+                if (BuiltinHiddenTypes[i].IsInstanceOfType(parent))
                     return true;
-            }
 
-            return false;
+            // XML-only path: any ThingDef patched with the PscStorageExclusion mod extension.
+            ThingDef def = ResolveDef(parent);
+            return def != null && def.HasModExtension<PscStorageExclusion>();
         }
 
         // The storage tab's parent is the building itself for most storage, but a ThingComp for

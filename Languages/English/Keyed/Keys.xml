@@ -20,15 +20,14 @@
   <PSC_SettingsPriorityNumberingTip>Split each of the five vanilla priority bands into two levels: 1 (highest) to 10 (lowest). Existing storage lands on 1, 3, 5, 7 and 10. Turn this off to collapse back to the five bands — your letters still apply, but any ordering that relied on a level difference within one band stops working until you turn numbering back on.</PSC_SettingsPriorityNumberingTip>
   <PSC_SettingsReverseOrder>Reverse 1–10 numbering</PSC_SettingsReverseOrder>
   <PSC_SettingsReverseOrderTip>Show the highest priority as 10 instead of 1. Changes only the displayed numbers, not how storage is ordered.</PSC_SettingsReverseOrderTip>
-  <PSC_SettingsStorageButtonHeader>Button visibility</PSC_SettingsStorageButtonHeader>
-  <PSC_SettingsHideButtonSpecial>Hide on single-purpose storage</PSC_SettingsHideButtonSpecial>
-  <PSC_SettingsHideButtonSpecialTip>Hide the Stockpile Control button on storage where priority and limits don't apply: bookcases, graves and sarcophagi, growth vats, biosculpter pods, mortar shell racks, and gene banks. Doesn't affect normal shelves, stockpiles, or modded storage. On by default.</PSC_SettingsHideButtonSpecialTip>
-  <PSC_SettingsExtraExcludedLabel>Also hide on these storage defNames (one per line, exact and case-sensitive):</PSC_SettingsExtraExcludedLabel>
   <PSC_SettingsOverlayHeader>Feeder overlay (testing)</PSC_SettingsOverlayHeader>
   <PSC_SettingsPortSpreading>Spread route endpoints</PSC_SettingsPortSpreading>
   <PSC_SettingsPortSpreadingTip>Fan route lines out along each storage's edge instead of running them all through its centre, so a tangle of routes stays readable. On by default; turn off for plain centre-to-centre lines.</PSC_SettingsPortSpreadingTip>
   <PSC_SettingsFocusDim>Dim unrelated routes</PSC_SettingsFocusDim>
   <PSC_SettingsFocusDimTip>When the overlay shows every route, fade out the ones that don't touch the storage under your cursor (or the selected one), so its routes stand out. On by default.</PSC_SettingsFocusDimTip>
+  <PSC_SettingsFlowDots>Animated flow dots</PSC_SettingsFlowDots>
+  <PSC_SettingsFlowDotsTip>While you hover or select a storage, show dots flowing along its working routes (over a faint direction arrow). Only its routes animate, and only ones that actually move items. Off by default.</PSC_SettingsFlowDotsTip>
+  <PSC_SettingsLineWidth>Route line width: {0}</PSC_SettingsLineWidth>
   <PSC_SettingsDebugHeader>Debugging</PSC_SettingsDebugHeader>
   <PSC_SettingsDebugLogging>Verbose debug logging</PSC_SettingsDebugLogging>
   <PSC_SettingsDebugLoggingTip>Logs PSC's hauling and ordering decisions to the dev console / Player.log. For bug reports only; leave off for normal play.</PSC_SettingsDebugLoggingTip>
