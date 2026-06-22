@@ -117,38 +117,55 @@ namespace PrecisionStockpileControl
     {
         public static void Postfix(Zone __instance)
         {
-            if (!(__instance is Zone_Stockpile)) return;
+            if (!(__instance is Zone_Stockpile stockpile)) return;
             var psc = PscMapComponent.For(__instance.Map);
             psc?.RemoveFeederEndpoint(__instance.GetUniqueLoadID());
+            // A zone is always standalone (zones never join StorageGroups), so its StorageSettings is
+            // uniquely its own — drop the store entry so a deleted stockpile's policy doesn't linger
+            // (keeping IsEmpty false and pinning the orphaned settings) for the rest of the session.
+            PscStorageDataStore.Remove(stockpile.GetStoreSettings());
         }
     }
 
-    [HarmonyPatch(typeof(Building_Storage), nameof(Building_Storage.DeSpawn))]
-    public static class Building_Storage_DeSpawn_FeederPatch
-    {
-        public static void Prefix(Building_Storage __instance, out Map __state)
-        {
-            __state = __instance.Spawned ? __instance.Map : null;
-        }
-
-        public static void Postfix(Map __state)
-        {
-            PscMapComponent.For(__state)?.PruneFeederLinksAndFlags();
-        }
-    }
+    // NO DeSpawn patch (deliberately). A Building_Storage despawn is usually TEMPORARY — minify /
+    // uninstall to relocate it (MinifyUtility.MakeMinified calls DeSpawnOrDeselect, never Destroy, and
+    // keeps the building as MinifiedThing.InnerThing, so its StorageSettings instance AND persistent
+    // thing id survive). Pruning on DeSpawn would silently drop the unit's feeder routes (its endpoint
+    // id is momentarily not live) even though the very same id returns on reinstall. A route to a
+    // temporarily-absent endpoint is harmless — HasFunctionalFeederEdge resolves only live units, so it
+    // simply carries nothing until the storage is back. Permanent removal is handled by Destroy below;
+    // a grouped member's despawn is still pruned via StorageGroupManager.Notify_MemberRemoved.
 
     [HarmonyPatch(typeof(Building_Storage), nameof(Building_Storage.Destroy))]
     public static class Building_Storage_Destroy_FeederPatch
     {
-        public static void Prefix(Building_Storage __instance, out Map __state)
+        public static void Prefix(Building_Storage __instance, out PscBuildingDestroyState __state)
         {
-            __state = __instance.Spawned ? __instance.Map : null;
+            __state = new PscBuildingDestroyState
+            {
+                map = __instance.Spawned ? __instance.Map : null,
+                // Only a STANDALONE building owns its StorageSettings; a grouped member's policy lives on
+                // the shared StorageGroup settings that the other members still use, so never drop that.
+                ownSettings = (__instance as IStorageGroupMember)?.Group == null
+                    ? __instance.GetStoreSettings() : null,
+            };
         }
 
-        public static void Postfix(Map __state)
+        public static void Postfix(PscBuildingDestroyState __state)
         {
-            PscMapComponent.For(__state)?.PruneFeederLinksAndFlags();
+            // Free the destroyed standalone unit's policy so it doesn't linger in the static store for
+            // the rest of the session (which would keep IsEmpty false, so the hot-path early-outs never
+            // re-engage, and pin the orphaned settings object alive). Permanent only — minify uses
+            // DeSpawn, not Destroy, so a minified pile keeps its limits to restore on reinstall.
+            if (__state.ownSettings != null) PscStorageDataStore.Remove(__state.ownSettings);
+            PscMapComponent.For(__state.map)?.PruneFeederLinksAndFlags();
         }
+    }
+
+    public sealed class PscBuildingDestroyState
+    {
+        public Map map;
+        public StorageSettings ownSettings;
     }
 
     [HarmonyPatch(typeof(StorageGroupManager), nameof(StorageGroupManager.Notify_MemberRemoved))]

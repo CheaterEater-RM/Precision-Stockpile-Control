@@ -22,7 +22,7 @@ namespace PrecisionStockpileControl
         private static readonly Dictionary<int, Material> MatCache = new Dictionary<int, Material>();
 
         // ---- line + flow-dot tuning ----
-        private const float DefaultLineWidth = 0.06f;   // shipped line thickness; tunable via the dev slider
+        private const float DefaultLineWidth = 0.04f;   // shipped line thickness; tunable via the dev slider
         private const float ArrowWidthFrac = 0.667f;    // arrowhead stroke as a fraction of the line width
         private const float CrossWidthFrac = 0.833f;    // ✕ stroke as a fraction of the line width
         private const int DotCount = 3;                 // beads per animated route

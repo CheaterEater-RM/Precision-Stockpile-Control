@@ -170,7 +170,12 @@ namespace PrecisionStockpileControl
                     if (unit.IsValid && unit.Map == map)
                     {
                         tracked.Add(kv.Key);
-                        if (markDirty) kv.Value.MarkAllDirty();
+                        // markDirty == true only at load (FinalizeInit). The runtime `refilling`
+                        // (hysteresis) set is never scribed, so a freshly loaded unit has it empty;
+                        // re-derive it from current contents (ON for any limited def below its upper)
+                        // rather than just MarkAllDirty, or a pile saved mid-refill (count between
+                        // lower and upper) would deserialize stuck not-refilling and never fill again.
+                        if (markDirty) kv.Value.Notify_LimitsSeeded(unit);
                     }
                 }
             }

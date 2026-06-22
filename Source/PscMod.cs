@@ -13,10 +13,10 @@ namespace PrecisionStockpileControl
         public bool defaultOnlyToDestinations = true; // M3 — seed strictness on first destination link
         public bool priorityNumbering = false;        // M4 — show 1-10 levels (two sub-tiers per band)
         public bool reverseOrder = false;             // M4 — 1-10 label flip only (ordering unchanged)
-        public bool feederPortSpreading = true;       // overlay: fan route endpoints along the storage perimeter (declutter)
+        public bool feederPortSpreading = false;      // overlay: fan route endpoints along the storage perimeter (declutter)
         public bool feederFocusDim = true;            // overlay: dim routes not touching the hovered/selected storage
-        public bool feederFlowDots = false;           // overlay: animate flow dots on the hovered/selected pile's valid routes
-        public float feederLineWidth = 0.06f;         // overlay: route line thickness (arrows/✕ scale with it)
+        public bool feederFlowDots = true;            // overlay: animate flow dots on the hovered/selected pile's valid routes
+        public float feederLineWidth = 0.04f;         // overlay: route line thickness (arrows/✕ scale with it)
         public bool debugLogging = false;             // dev-mode diagnostic logging (PscLog)
 
         public override void ExposeData()
@@ -28,11 +28,29 @@ namespace PrecisionStockpileControl
             Scribe_Values.Look(ref defaultOnlyToDestinations, "defaultOnlyToDestinations", true);
             Scribe_Values.Look(ref priorityNumbering, "priorityNumbering", false);
             Scribe_Values.Look(ref reverseOrder, "reverseOrder", false);
-            Scribe_Values.Look(ref feederPortSpreading, "feederPortSpreading", true);
+            Scribe_Values.Look(ref feederPortSpreading, "feederPortSpreading", false);
             Scribe_Values.Look(ref feederFocusDim, "feederFocusDim", true);
-            Scribe_Values.Look(ref feederFlowDots, "feederFlowDots", false);
-            Scribe_Values.Look(ref feederLineWidth, "feederLineWidth", 0.06f);
+            Scribe_Values.Look(ref feederFlowDots, "feederFlowDots", true);
+            Scribe_Values.Look(ref feederLineWidth, "feederLineWidth", 0.04f);
             Scribe_Values.Look(ref debugLogging, "debugLogging", false);
+        }
+
+        // Restore every setting to its shipped default. Kept in lockstep with the field initialisers
+        // above (and the Scribe defaults) — one place to change a default, one place to reset it. The
+        // reset button on every settings tab calls this; it resets ALL settings, not just one tab's.
+        public void ResetToDefaults()
+        {
+            autosetSourcePriority = false;
+            autosetDestinationPriority = false;
+            defaultOnlyFromSource = true;
+            defaultOnlyToDestinations = true;
+            priorityNumbering = false;
+            reverseOrder = false;
+            feederPortSpreading = false;
+            feederFocusDim = true;
+            feederFlowDots = true;
+            feederLineWidth = 0.04f;
+            debugLogging = false;
         }
     }
 
@@ -114,15 +132,22 @@ namespace PrecisionStockpileControl
             Text.Anchor = prevAnchor;
         }
 
-        // Right pane: a per-tab scroll view that self-sizes to its content, dispatched by tab.
+        // Right pane: a per-tab scroll view that self-sizes to its content, dispatched by tab. A fixed
+        // reset strip is reserved at the very bottom of the pane (outside the scroll) so the "reset all"
+        // button stays visible on every tab regardless of scroll position or content length.
         private void DrawContent(Rect rect)
         {
+            var scrollRect = new Rect(rect.x, rect.y, rect.width,
+                rect.height - PscUiTheme.SettingsResetStripHeight);
+            var resetRect = new Rect(rect.x, scrollRect.yMax, rect.width,
+                PscUiTheme.SettingsResetStripHeight);
+
             int idx = (int)currentTab;
             // View height is never smaller than the visible pane (and NaN-safe: Mathf.Max(NaN, h) == h),
             // so a bad self-measured height can't collapse Listing.Begin's BeginGroup clip to nothing.
-            float viewH = Mathf.Max(tabHeight[idx], rect.height);
-            var view = new Rect(0f, 0f, rect.width - 20f, viewH);
-            Widgets.BeginScrollView(rect, ref tabScroll[idx], view);
+            float viewH = Mathf.Max(tabHeight[idx], scrollRect.height);
+            var view = new Rect(0f, 0f, scrollRect.width - 20f, viewH);
+            Widgets.BeginScrollView(scrollRect, ref tabScroll[idx], view);
             var listing = new Listing_Standard();
             listing.Begin(view);
 
@@ -135,8 +160,29 @@ namespace PrecisionStockpileControl
 
             listing.End();
             float measured = listing.CurHeight;   // self-size for next frame; reject a degenerate value
-            tabHeight[idx] = (float.IsNaN(measured) || measured < 0f) ? rect.height : measured;
+            tabHeight[idx] = (float.IsNaN(measured) || measured < 0f) ? scrollRect.height : measured;
             Widgets.EndScrollView();
+
+            DrawResetButton(resetRect);
+        }
+
+        // The shared "reset all settings" control, drawn on every tab. The tooltip spells out that it
+        // restores ALL settings (every tab), not just the active page, so a player can't mistake it for
+        // a per-tab reset. After resetting, re-sync the cached log gate and re-sort haul destinations in
+        // case 1-10 numbering changed.
+        private void DrawResetButton(Rect strip)
+        {
+            float btnW = Mathf.Min(PscUiTheme.SettingsResetButtonWidth, strip.width);
+            var btnRect = new Rect(strip.x, strip.yMax - PscUiTheme.SettingsResetButtonHeight,
+                btnW, PscUiTheme.SettingsResetButtonHeight);
+
+            TooltipHandler.TipRegion(btnRect, "PSC_SettingsResetAllTip".Translate());
+            if (Widgets.ButtonText(btnRect, "PSC_SettingsResetAll".Translate()))
+            {
+                Settings.ResetToDefaults();
+                PscLog.Enabled = Settings.debugLogging;   // keep the cached gate in sync with the reset value
+                ResortAllMaps();                          // 1-10 numbering may have flipped back to default
+            }
         }
 
         // Welcome: a capability-first orientation page — what PSC can do and where to find each

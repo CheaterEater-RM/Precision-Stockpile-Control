@@ -77,5 +77,12 @@ namespace PrecisionStockpileControl
         public static readonly Color SettingsNavSelected = new Color(1f, 1f, 1f, 0.13f);
         public static readonly Color SettingsNavHover = new Color(1f, 1f, 1f, 0.06f);
         public static readonly Color SettingsNavDivider = new Color(1f, 1f, 1f, 0.18f);  // nav|content seam
+
+        // ---- Settings window: bottom reset strip --------------------------------------------------
+        // A fixed strip reserved below the scrolling content pane (every tab) for the "reset all" button,
+        // so the button never scrolls away. Height includes a little breathing room above the button.
+        public const float SettingsResetStripHeight = 42f;
+        public const float SettingsResetButtonHeight = 30f;
+        public const float SettingsResetButtonWidth = 200f;
     }
 }

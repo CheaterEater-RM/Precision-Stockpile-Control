@@ -30,15 +30,17 @@
   <PSC_SettingsReverseOrderTip>Show the highest priority as 10 instead of 1. Changes only the displayed numbers, not how storage is ordered.</PSC_SettingsReverseOrderTip>
   <PSC_SettingsOverlayHeader>Feeder overlay</PSC_SettingsOverlayHeader>
   <PSC_SettingsPortSpreading>Spread route endpoints</PSC_SettingsPortSpreading>
-  <PSC_SettingsPortSpreadingTip>Fan route lines out along each storage's edge instead of running them all through its centre, so a tangle of routes stays readable. On by default; turn off for plain centre-to-centre lines.</PSC_SettingsPortSpreadingTip>
+  <PSC_SettingsPortSpreadingTip>Fan route lines out along each storage's edge instead of running them all through its centre, so a tangle of routes stays readable. Off by default; turn on if your routes overlap and become hard to read.</PSC_SettingsPortSpreadingTip>
   <PSC_SettingsFocusDim>Dim unrelated routes</PSC_SettingsFocusDim>
   <PSC_SettingsFocusDimTip>When the overlay shows every route, fade out the ones that don't touch the storage under your cursor (or the selected one), so its routes stand out. On by default.</PSC_SettingsFocusDimTip>
   <PSC_SettingsFlowDots>Animated flow dots</PSC_SettingsFlowDots>
-  <PSC_SettingsFlowDotsTip>While you hover or select a storage, show dots flowing along its working routes (over a faint direction arrow). Only its routes animate, and only ones that actually move items. Off by default.</PSC_SettingsFlowDotsTip>
+  <PSC_SettingsFlowDotsTip>While you hover or select a storage, show dots flowing along its working routes (over a faint direction arrow). Only its routes animate, and only ones that actually move items. On by default.</PSC_SettingsFlowDotsTip>
   <PSC_SettingsLineWidth>Route line width: {0}</PSC_SettingsLineWidth>
   <PSC_SettingsDebugHeader>Debugging</PSC_SettingsDebugHeader>
   <PSC_SettingsDebugLogging>Verbose debug logging</PSC_SettingsDebugLogging>
   <PSC_SettingsDebugLoggingTip>Logs PSC's hauling and ordering decisions to the dev console / Player.log. For bug reports only; leave off for normal play.</PSC_SettingsDebugLoggingTip>
+  <PSC_SettingsResetAll>Reset to default</PSC_SettingsResetAll>
+  <PSC_SettingsResetAllTip>Restore ALL Precision Stockpile Control settings to their defaults, across every tab, not just this one.</PSC_SettingsResetAllTip>
 
   <!-- Fine order: priority box beside the vanilla Priority button -->
   <PSC_LevelShort>Lvl {0}</PSC_LevelShort>
@@ -51,6 +53,9 @@
   <!-- Auto-priority on new route (clamp notices) -->
   <PSC_AutoPriorityClampLow>Couldn't auto-lower the source below the destination — it's already at the lowest letter ("z"). Set the priority by hand.</PSC_AutoPriorityClampLow>
   <PSC_AutoPriorityClampHigh>Couldn't auto-raise the destination above the source — it's already at the top (no letter). Set the priority by hand.</PSC_AutoPriorityClampHigh>
+
+  <!-- Warning when a route is created that can't carry items (destination doesn't outrank source) -->
+  <PSC_RouteNotFunctional>Route created, but it won't carry items yet: a destination must outrank its source. Raise the destination's priority, lower the source's, or turn on auto-priority in settings.</PSC_RouteNotFunctional>
 
   <!-- Route gizmos (the source -> destination feeder relationship) -->
   <PSC_ConnectSource>Set source</PSC_ConnectSource>
@@ -93,7 +98,7 @@
   <PSC_Mode_Off>Frozen</PSC_Mode_Off>
   <PSC_Mode_OffDesc>Nothing is hauled in or out. Items here are locked in place — they can't be used for cooking, crafting, building, and so on. Unforbidding them by hand does nothing; change the mode to release them. (Pawns in a mental break can still take items.)</PSC_Mode_OffDesc>
   <PSC_Mode_AcceptOnly>Fill only</PSC_Mode_AcceptOnly>
-  <PSC_Mode_AcceptOnlyDesc>Items are hauled in normally but locked once here — they can't leave or be used. Good for a pile that fills but never drains.</PSC_Mode_AcceptOnlyDesc>
+  <PSC_Mode_AcceptOnlyDesc>Items are hauled in normally but locked once here — they can't leave or be used. Good for a pile that fills but never drains. Note: while it's filling, cooks, doctors and bills won't draw from it (a frozen food or ingredient pile won't feed anyone). Switch the mode to release what's here.</PSC_Mode_AcceptOnlyDesc>
   <PSC_Mode_RetrieveOnly>Drain only</PSC_Mode_RetrieveOnly>
   <PSC_Mode_RetrieveOnlyDesc>No new items come in, but pawns can freely take and use what's already here. Good for emptying a storage area.</PSC_Mode_RetrieveOnlyDesc>
 
@@ -118,7 +123,7 @@
   <PSC_BatchFill>Batch fill</PSC_BatchFill>
   <PSC_BatchFillTip>Minimum items per haul-in trip. Pawns wait for this many to pile up at the source before fetching. 0 = no minimum.</PSC_BatchFillTip>
   <PSC_BatchEmpty>Batch empty</PSC_BatchEmpty>
-  <PSC_BatchEmptyTip>Minimum items per haul-out trip. Pawns leave fewer than this in place until more piles up. 0 = no minimum.</PSC_BatchEmptyTip>
+  <PSC_BatchEmptyTip>Minimum items per haul-out trip. Pawns leave fewer than this in place until more piles up, so a small leftover that never grows stays put. It can still be eaten or used, but a non-consumable like steel just waits. 0 = no minimum.</PSC_BatchEmptyTip>
   <PSC_Preview>Will set: {0}</PSC_Preview>
   <PSC_SliderHintGlobal>Leave an end blank for: always refill / fill to maximum.</PSC_SliderHintGlobal>
   <PSC_SliderHintItem>Leave an end blank for: always refill / fill to maximum. Ticks mark stacks of {0}.</PSC_SliderHintItem>

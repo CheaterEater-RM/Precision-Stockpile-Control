@@ -97,12 +97,35 @@ namespace PrecisionStockpileControl
                 }
             }
 
-            // Batch (D12): never start a trip with a source stack smaller than the batch size.
-            if (data.batch > 0 && t.stackCount < data.batch)
+            // Batch (D12): the trip must be able to deliver at least `batch` in one go.
+            if (data.batch > 0)
             {
-                LogReject(t, unit, "underBatch",
-                    $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (source stack {t.stackCount} < batch {data.batch})");
-                __result = false; return;
+                // Source-stack gate: never start a trip from a stack smaller than the batch size.
+                if (t.stackCount < data.batch)
+                {
+                    LogReject(t, unit, "underBatch",
+                        $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (source stack {t.stackCount} < batch {data.batch})");
+                    __result = false; return;
+                }
+
+                // Destination-room gate: a capped unit that can't fit a full batch (room < batch) is not
+                // a valid batch destination — reject here so vanilla stops treating it as one. Without
+                // this, a capped+batched pile sitting in its top <batch window (0 < upper-n < batch)
+                // passes admission every haul scan but has the resulting job cancelled by the
+                // HaulToCellStorageJob room<batch clamp, churning plan/cancel forever while loose stock
+                // exists. The last <batch items are intentionally never topped off ("no small trips");
+                // this only stops the wasted re-planning. (n < upper already holds — the over-cap gate
+                // above returned otherwise — so room >= 1 here.)
+                if (hasLimit)
+                {
+                    var lim = data.GetLimit(t.def);
+                    if (lim.Upper.HasValue && lim.Upper.Value - data.GetCount(t.def, unit) < data.batch)
+                    {
+                        LogReject(t, unit, "underBatchRoom",
+                            $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (room < batch {data.batch})");
+                        __result = false; return;
+                    }
+                }
             }
         }
 

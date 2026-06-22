@@ -56,7 +56,14 @@ namespace PrecisionStockpileControl
             }
             else
             {
-                PscStorageDataStore.GetOrCreate(__instance).CopyPolicyFrom(src);
+                var data = PscStorageDataStore.GetOrCreate(__instance);
+                data.CopyPolicyFrom(src);
+                // CopyPolicyFrom clears the runtime refill (hysteresis) state. Re-derive it from the
+                // target's current contents (paste / StorageGroup link / build-finish / caravan unpack
+                // all route through CopyFrom), or a between-thresholds pile would be left stuck
+                // not-refilling. No-op for clipboard / def-init targets whose owner doesn't resolve.
+                var unit = PscHaulUnit.ResolveSettings(__instance);
+                if (unit.IsValid) data.Notify_LimitsSeeded(unit);
             }
             PscMapComponent.NotifyPolicyChanged(__instance);
         }

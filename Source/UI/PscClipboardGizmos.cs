@@ -104,6 +104,10 @@ namespace PrecisionStockpileControl
             {
                 tgtData ??= PscStorageDataStore.GetOrCreate(target);
                 tgtData.CopyScopedFrom(srcData, scope);
+                // CopyScopedFrom cleared the runtime refill (hysteresis) state; re-derive it from the
+                // target's contents so a between-thresholds pile isn't left stuck not-refilling.
+                var pasteUnit = PscHaulUnit.ResolveSettings(target);
+                if (pasteUnit.IsValid) tgtData.Notify_LimitsSeeded(pasteUnit);
                 if (!tgtData.HasPersistentPolicy) PscStorageDataStore.Remove(target);
             }
 

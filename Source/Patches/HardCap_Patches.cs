@@ -55,6 +55,17 @@ namespace PrecisionStockpileControl
             ref Thing resultingThing, Action<Thing, int> placedAction, ref bool __result)
         {
             if (PscStorageDataStore.IsEmpty) return true;       // run vanilla
+            // Only enforce at the Direct drop seam. The normal haul path (Toils_Haul.
+            // PlaceHauledThingInCell) drops with ThingPlaceMode.Direct and checks the returned bool,
+            // running a find-better -> haul-aside fallback on our false/incomplete return — so the
+            // cap holds AND the remainder is relocated. The Near/Radius callers (Pawn_JobTracker.
+            // CleanupCurrentJob, Pawn.DropAndForbidEverything on death/downing/capture, mental-break
+            // start, force-eject, drafted drop) IGNORE the bool and have no fallback; vanilla Near
+            // would spill the stack to an adjacent free cell. Capping them here would instead strand
+            // the item in the carry tracker (and on death destroy it with cleanup — silent loss).
+            // Let vanilla place those normally; the cap is already enforced at haul-plan time and the
+            // Direct seam, and a forced/cleanup drop is an evacuation path that must never strand.
+            if (mode != ThingPlaceMode.Direct) return true;
             var carried = __instance.CarriedThing;
             if (carried == null) return true;
             var map = __instance.pawn?.MapHeld;

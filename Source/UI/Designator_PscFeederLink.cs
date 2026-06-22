@@ -97,13 +97,34 @@ namespace PrecisionStockpileControl
             switch (mode)
             {
                 case PscFeederLinkMode.Source:                                            // picked unit feeds self
-                    if (psc.AddFeederLink(other, self)) AutoPriority(dest: self, source: other);
+                    if (psc.AddFeederLink(other, self))
+                    {
+                        AutoPriority(dest: self, source: other);
+                        WarnIfDeadRoute(psc, source: other, dest: self);
+                    }
                     break;
                 case PscFeederLinkMode.Destination:                                       // self feeds picked unit
-                    if (psc.AddFeederLink(self, other)) AutoPriority(dest: other, source: self);
+                    if (psc.AddFeederLink(self, other))
+                    {
+                        AutoPriority(dest: other, source: self);
+                        WarnIfDeadRoute(psc, source: self, dest: other);
+                    }
                     break;
                 case PscFeederLinkMode.Break: psc.BreakFeederLink(self, other); break;    // drop any link between them
             }
+        }
+
+        // A route whose destination doesn't outrank its source carries nothing (D5). Auto-priority, when
+        // enabled, nudges the painted unit so the route works at once; when it's off (the default) the
+        // only other cue is the red overlay line — which the player may not have open. Surface a clear
+        // message so a freshly-made dead route isn't a silent mystery, per "make the problem obvious
+        // rather than divine the player's intent" (we deliberately do NOT auto-reorder their piles here).
+        // Checked AFTER AutoPriority so we stay quiet when it already made the route functional. Constant
+        // text => RimWorld collapses a paint-drag's repeats into one counted message instead of spamming.
+        private void WarnIfDeadRoute(PscMapComponent psc, PscHaulUnit source, PscHaulUnit dest)
+        {
+            if (psc.HasFunctionalFeederEdge(source, dest)) return;
+            Messages.Message("PSC_RouteNotFunctional".Translate(), MessageTypeDefOf.RejectInput, historical: false);
         }
 
         // Auto-priority (D4): on a freshly created link, nudge the PAINTED unit one fine-order letter
