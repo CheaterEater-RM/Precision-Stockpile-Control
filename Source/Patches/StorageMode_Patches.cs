@@ -35,8 +35,27 @@ namespace PrecisionStockpileControl
             if (!unit.IsValid) return;
 
             var data = PscStorageDataStore.TryGet(unit.Settings);
-            if (data != null && (data.mode == PscStorageMode.Off || data.mode == PscStorageMode.AcceptOnly))
-                __result = true;                         // virtual freeze — real flag untouched
+            if (data == null) return;
+            if (data.mode != PscStorageMode.Off && data.mode != PscStorageMode.AcceptOnly) return;
+
+            // Freeze only what this unit legitimately holds. An item it would NOT accept right now —
+            // disallowed by its filter, or pushed OVER its per-def cap (force-dropped by a downed
+            // hauler, a bill product landing in the zone, map-gen scatter) — must stay drainable through
+            // normal hauling rather than be locked in. Principle: over-cap / disallowed items drain
+            // normally; they just aren't prevented from entering. Both checks run only for an item
+            // already resolved into a freeze unit (a narrow subset of this hot path) and read the cached
+            // count, so the common path is unchanged. Per-Thing freeze can't isolate just the excess
+            // stacks, so an over-cap def un-freezes wholesale, drains/uses back down, and re-freezes
+            // at/under cap; a no-cap Fill-only pile (no upper) still freezes all its allowed contents.
+            if (!unit.Settings.filter.Allows(t)) return;            // disallowed -> leave drainable
+            if (data.HasLimit(t.def))
+            {
+                var lim = data.GetLimit(t.def);
+                if (lim.Upper.HasValue && data.GetCount(t.def, unit) > lim.Upper.Value)
+                    return;                                         // over cap -> leave excess drainable
+            }
+
+            __result = true;                             // virtual freeze — real flag untouched
         }
     }
 }

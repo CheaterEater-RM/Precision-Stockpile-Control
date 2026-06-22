@@ -73,7 +73,32 @@ namespace PrecisionStockpileControl
             if (data == null) return;
             bool hasLimit = data.HasLimit(t.def);
             if (!hasLimit && data.batch <= 0) return;    // no effective limit and no batch -> vanilla
-            if (sourceIsTarget) return;                  // D16: never reject a unit's own contents
+
+            // D16: a unit's own contents are normally always valid (never reject/eject them). The ONE
+            // documented exception (DESIGN §8): contents STRICTLY over the per-def cap read as misplaced,
+            // so vanilla's normal hauling drains the excess to any other valid storage and stops EXACTLY
+            // at the cap (== upper is valid again). Covers force-dropped excess, direct spawns, and
+            // lowering a limit below current contents. Tighten-only (a vanilla true -> false). The
+            // drain-trip clamp in HaulToCellStorageJob keeps a single hauler from overshooting below the
+            // cap (anti-oscillation). Reads the cached count, no scan.
+            if (sourceIsTarget)
+            {
+                if (hasLimit)
+                {
+                    var ownLim = data.GetLimit(t.def);
+                    if (ownLim.Upper.HasValue)
+                    {
+                        int ownCount = data.GetCount(t.def, unit);
+                        if (ownCount > ownLim.Upper.Value)
+                        {
+                            LogReject(t, unit, "overCapDrain",
+                                $"limit: draining over-cap {t.def.defName} from {unit.UniqueLoadID} ({ownCount} > cap {ownLim.Upper.Value})");
+                            __result = false; return;
+                        }
+                    }
+                }
+                return;                                  // own contents otherwise always valid (D16)
+            }
 
             if (hasLimit)
             {
@@ -226,10 +251,12 @@ namespace PrecisionStockpileControl
             var data = PscStorageDataStore.TryGet(canon.Settings);
             var sourceData = sourceUnit.IsValid ? PscStorageDataStore.TryGet(sourceUnit.Settings) : null;
             bool sourceHasBatchEmpty = sourceData != null && sourceData.batchEmpty > 0;
-            // The target-keyed clamps need a limit or fill-batch; the source-keyed batch-empty cancel below
-            // must run even when the target has no PSC policy, so it can't share a single early-out.
+            bool sourceHasLimit = sourceData != null && sourceData.HasLimit(t.def);
+            // The target-keyed clamps need a limit or fill-batch; the source-keyed batch-empty cancel and
+            // the source-over-cap drain clamp below must run even when the target has no PSC policy, so
+            // they can't share a single early-out.
             bool targetHasClampPolicy = data != null && (data.HasLimit(t.def) || data.batch > 0);
-            if (!targetHasClampPolicy && !sourceHasBatchEmpty) return;
+            if (!targetHasClampPolicy && !sourceHasBatchEmpty && !sourceHasLimit) return;
 
             if (data != null)
             {
@@ -272,11 +299,36 @@ namespace PrecisionStockpileControl
                 }
             }
 
+            // Source-over-cap excess (DESIGN §8 anti-oscillation). When the source unit holds STRICTLY
+            // more than its cap for this def, the AllowedToAccept carve-out has made the excess read as
+            // misplaced and this trip is draining it. Compute the excess once; reads the cached count, no
+            // scan. srcExcess <= 0 means the source is within cap (a normal haul-out), so neither the
+            // drain clamp nor the batch-empty exemption below engages.
+            int srcExcess = 0;
+            if (sourceHasLimit)
+            {
+                var srcLim = sourceData.GetLimit(t.def);
+                if (srcLim.Upper.HasValue)
+                    srcExcess = Math.Max(0, sourceData.GetCount(t.def, sourceUnit) - srcLim.Upper.Value);
+            }
+
+            // Drain clamp: clamp an over-cap drain to exactly the excess so a single hauler lands the
+            // source on its cap rather than overshooting below it (which could otherwise re-trigger refill
+            // and ping-pong). Mirrors the target room clamp above.
+            if (__result != null && srcExcess > 0 && __result.count > srcExcess)
+            {
+                if (PscLog.Enabled) PscLog.Msg(
+                    $"limit: clamped over-cap drain of {t.def.defName} from {sourceUnit.UniqueLoadID} to {srcExcess} (excess over cap)");
+                __result.count = srcExcess;
+            }
+
             // Batch empty (source-keyed): the trip must take at least batchEmpty OUT of the source — cancel an
             // under-batch removal. Runs last so it sees the final clamped count (vanilla room + carry capacity
             // + the upper clamp above). Best-effort under inventory-haul mods (PUAH / Hauler's Dream) which
             // don't build their bulk jobs through HaulToCellStorageJob; the admission gate is the line there.
-            if (__result != null && sourceHasBatchEmpty && __result.count < sourceData.batchEmpty)
+            // Exempt an over-cap DRAIN (srcExcess > 0): evacuating excess the player capped out takes
+            // priority over "no small removal trips", so a sub-batchEmpty excess is never trapped.
+            if (__result != null && sourceHasBatchEmpty && srcExcess <= 0 && __result.count < sourceData.batchEmpty)
             {
                 if (PscLog.Enabled) PscLog.Msg(
                     $"batchEmpty: cancelled under-batch removal of {t.def.defName} from {sourceUnit.UniqueLoadID} ({__result.count} < batchEmpty {sourceData.batchEmpty})");

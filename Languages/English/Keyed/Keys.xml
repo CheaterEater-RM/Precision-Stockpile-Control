@@ -96,9 +96,9 @@
   <PSC_Mode_Normal>Normal</PSC_Mode_Normal>
   <PSC_Mode_NormalDesc>Items are hauled in and out normally.</PSC_Mode_NormalDesc>
   <PSC_Mode_Off>Frozen</PSC_Mode_Off>
-  <PSC_Mode_OffDesc>Nothing is hauled in or out. Items here are locked in place — they can't be used for cooking, crafting, building, and so on. Unforbidding them by hand does nothing; change the mode to release them. (Pawns in a mental break can still take items.)</PSC_Mode_OffDesc>
+  <PSC_Mode_OffDesc>Items this storage accepts are frozen in place: nothing is hauled in, and what's here can't be hauled out or used for cooking, crafting, building, and so on. Unforbidding them by hand does nothing; change the mode to release them. Items it would not accept (a disallowed type, or amounts over a per-item maximum) are not frozen and can still be hauled away. (Pawns in a mental break can still take items.)</PSC_Mode_OffDesc>
   <PSC_Mode_AcceptOnly>Fill only</PSC_Mode_AcceptOnly>
-  <PSC_Mode_AcceptOnlyDesc>Items are hauled in normally but locked once here — they can't leave or be used. Good for a pile that fills but never drains. Note: while it's filling, cooks, doctors and bills won't draw from it (a frozen food or ingredient pile won't feed anyone). Switch the mode to release what's here.</PSC_Mode_AcceptOnlyDesc>
+  <PSC_Mode_AcceptOnlyDesc>Items are hauled in normally but frozen once here: they can't leave or be used, so while it fills, cooks, doctors and bills won't draw from it (a fill-only food or ingredient pile won't feed anyone). Switch the mode to release what's here. Good for a pile that fills but never drains. Items the storage would not accept (a disallowed type, or amounts over a per-item maximum) are not frozen, so disallowed leftovers and any excess over the cap can still be hauled out.</PSC_Mode_AcceptOnlyDesc>
   <PSC_Mode_RetrieveOnly>Drain only</PSC_Mode_RetrieveOnly>
   <PSC_Mode_RetrieveOnlyDesc>No new items come in, but pawns can freely take and use what's already here. Good for emptying a storage area.</PSC_Mode_RetrieveOnlyDesc>
 

@@ -20,8 +20,12 @@ The maximum is enforced on **hauling**: pawns keep each item at or below its max
 it into storage (this also covers crafted products, which are hauled from the workbench). In a few
 uncommon cases an item can be placed *directly* into a stockpile without being hauled — most often a
 **workbench standing inside the stockpile** dropping its product on the spot, plus map-generation
-scatter and some other mods' direct spawns. Those drops can briefly exceed the maximum; normal
-hauling then drains the excess if a better spot exists. A future update may close this gap.
+scatter, a downed hauler dropping its load, and some other mods' direct spawns. Those drops can
+briefly exceed the maximum. When that happens, **normal hauling drains the excess back out** to any
+other storage that has room, stopping exactly at the maximum (this also applies when you *lower* a
+limit below what a stockpile already holds). The items aren't trapped: only the brief over-the-max
+*entry* is possible, not getting stuck above it. For a clean settle, give the stockpile a refill
+threshold as well as a maximum.
 
 ### About batch hauling
 
@@ -61,7 +65,7 @@ Every stockpile and shelf gets a **mode** button (next to the route controls) wi
 - **Fill only** — pawns haul items in as normal, but items here are locked (won't be hauled out or used). A collection pile that fills but never drains.
 - **Drain only** — no new items hauled in, but pawns may freely haul out and use what's here. For draining a storage area you're emptying.
 
-The freeze is handled the gentle way: PSC never actually flips an item's forbidden flag — it just answers "not usable right now" when the game asks. So it never overrides your manual forbid/allow toggles, nothing is left secretly forbidden if you delete the storage or remove the mod, and a linked storage group shares one mode. Two things to know: manually *unforbidding* a single item inside a frozen pile has no effect (switch the pile's mode to release it), and a pawn in a mental break ignores the freeze. This makes Flickable Storage redundant if you run PSC — but the two are still compatible.
+The freeze is handled the gentle way: PSC never actually flips an item's forbidden flag — it just answers "not usable right now" when the game asks. So it never overrides your manual forbid/allow toggles, nothing is left secretly forbidden if you delete the storage or remove the mod, and a linked storage group shares one mode. The freeze also only holds what the storage would accept: an item it does not accept (a disallowed type, or amounts over a per-item maximum) stays haulable, so over-cap or unwanted items still drain out through normal hauling instead of being trapped. Two things to know: manually *unforbidding* a single item inside a frozen pile has no effect (switch the pile's mode to release it), and a pawn in a mental break ignores the freeze. This makes Flickable Storage redundant if you run PSC — but the two are still compatible.
 
 ### About stockpile alarms
 
