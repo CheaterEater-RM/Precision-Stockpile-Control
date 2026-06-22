@@ -16,11 +16,10 @@ namespace PrecisionStockpileControl
     {
         public static bool Active;
 
-        // Dedicated path so a proper icon can drop in later; SelectAllLinked is a stopgap until the
-        // art lands (05_WISHLIST.md), BadTex the last resort.
+        // PSC art (exists on disk); BadTex on a missing file is a visible "art problem" signal rather
+        // than a silent vanilla stand-in.
         public static readonly Texture2D ButtonTex =
             ContentFinder<Texture2D>.Get("UI/Overlay/StorageOverlay", reportFailure: false)
-            ?? ContentFinder<Texture2D>.Get("UI/Commands/SelectAllLinked", reportFailure: false)
             ?? BaseContent.BadTex;
 
         private static readonly Color LowColor       = new Color(0.62f, 0.62f, 0.62f);

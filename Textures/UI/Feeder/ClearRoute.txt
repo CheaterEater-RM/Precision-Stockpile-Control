@@ -1,0 +1,8 @@
+PLACEHOLDER — drop ClearRoute.png here, then delete this .txt.
+
+Icon: feeder "Clear route" gizmo (paint/erase tool; right-click bulk-clears).
+Represents: removing feeder routes from storage the cursor paints over.
+Suggested glyph: a broken/severed route or an eraser/X over a flow line.
+
+Loader (already wired, no fallback): PscFeederGizmos.BreakTex -> "UI/Feeder/ClearRoute".
+Until the png exists this gizmo shows magenta BadTex on purpose.

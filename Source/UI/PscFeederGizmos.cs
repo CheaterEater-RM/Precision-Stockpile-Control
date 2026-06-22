@@ -9,15 +9,16 @@ namespace PrecisionStockpileControl
     // Set source, Set destination, Clear route (paint tool; right-click for bulk clears),
     // Pull-only (toggle), Push-only (toggle).
     //
-    // Icons currently reuse vanilla command textures (custom art is tracked in 05_WISHLIST.md).
+    // Paint-tool icons load PSC art from UI/Feeder/ (SetSource / SetDestination / ClearRoute); a
+    // missing file shows BadTex on purpose, as a visible "art not drawn yet" signal rather than a
+    // vanilla stand-in. The Only-from / Only-to toggles reuse the existing UI/Toggles art via
+    // PscStatusIcons (single source of truth). 05_WISHLIST.md tracks the not-yet-drawn glyphs.
     [StaticConstructorOnStartup]
     public static class PscFeederGizmos
     {
-        private static readonly Texture2D ConnectSourceTex = Load("UI/Commands/LinkStorageSettings");
-        private static readonly Texture2D ConnectDestTex = Load("UI/Commands/SelectAllLinked");
-        private static readonly Texture2D OnlyFromTex = Load("UI/Commands/LinkStorageSettings");
-        private static readonly Texture2D OnlyToTex = Load("UI/Commands/SelectAllLinked");
-        private static readonly Texture2D BreakTex = Load("UI/Designators/Cancel");
+        private static readonly Texture2D ConnectSourceTex = Load("UI/Feeder/SetSource");
+        private static readonly Texture2D ConnectDestTex = Load("UI/Feeder/SetDestination");
+        private static readonly Texture2D BreakTex = Load("UI/Feeder/ClearRoute");
 
         private static Texture2D Load(string path) => ContentFinder<Texture2D>.Get(path, reportFailure: false) ?? BaseContent.BadTex;
 
@@ -39,7 +40,7 @@ namespace PrecisionStockpileControl
             {
                 defaultLabel = "PSC_OnlyFromSource".Translate(),
                 defaultDesc = "PSC_OnlyFromSourceDesc".Translate(),
-                icon = OnlyFromTex,
+                icon = PscStatusIcons.OnlyFromTex,
                 isActive = () => PscStorageDataStore.TryGet(settings)?.onlyFromSource ?? false,
                 toggleAction = () => ToggleFlag(settings, fromSource: true)
             };
@@ -50,7 +51,7 @@ namespace PrecisionStockpileControl
             {
                 defaultLabel = "PSC_OnlyToDestinations".Translate(),
                 defaultDesc = "PSC_OnlyToDestinationsDesc".Translate(),
-                icon = OnlyToTex,
+                icon = PscStatusIcons.OnlyToTex,
                 isActive = () => PscStorageDataStore.TryGet(settings)?.onlyToDestinations ?? false,
                 toggleAction = () => ToggleFlag(settings, fromSource: false)
             };
