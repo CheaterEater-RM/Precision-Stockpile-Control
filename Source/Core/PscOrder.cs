@@ -121,6 +121,26 @@ namespace PrecisionStockpileControl
             PscMapComponent.NotifyOrderChanged(settings);
         }
 
+        // ---- Sequential subpriority painter helpers ----
+        // The painter (Designator_PscSubpriorityPaint) seeds from one unit's order and walks letters
+        // downward onto each painted unit. These thin wrappers share the EXACT stepping/write the
+        // auto-priority path uses (StepLetterDown / ApplyOrder), so the painter stays a single source
+        // of truth with PlaceSourceBelowDest rather than re-deriving the a-z math.
+
+        // Next lower letter (none->a->...->z). `clamped` is true only when the INPUT was already z.
+        public static string StepPaintLetter(string letter, out bool clamped)
+            => StepLetterDown(letter, out clamped);
+
+        // True when `letter` is already the bottom of the sequence (z) — the painter refuses to step
+        // past it.
+        public static bool LetterIsZ(string letter)
+            => !string.IsNullOrEmpty(letter) && char.ToLowerInvariant(letter[0]) == 'z';
+
+        // Write a unit's full fine-order key (band + sub-tier + letter) and notify, identical to the
+        // auto-priority path (the painter adopts the seed's band/sub-tier on every painted unit).
+        public static void ApplyPaintStep(StorageSettings settings, StoragePriority band, byte subTier, string letter)
+            => ApplyOrder(settings, band, subTier, letter);
+
         // Place `source` one fine-order letter-step BELOW `dest` (adopting the dest's band + sub-tier).
         // No-op when the dest already strictly outranks the source (Skipped); makes no change and
         // reports Clamped when the dest is already at the bottom letter z (no strictly-lower slot).

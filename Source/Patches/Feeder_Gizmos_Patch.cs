@@ -24,6 +24,7 @@ namespace PrecisionStockpileControl
             foreach (var g in PscModeGizmo.GizmosFor(settings, unit)) yield return g;
             foreach (var g in PscAlarmGizmo.GizmosFor(settings, unit)) yield return g;
             foreach (var g in PscFeederGizmos.GizmosFor(settings, unit)) yield return g;
+            foreach (var g in PscSubpriorityPaintGizmo.GizmosFor(settings, unit)) yield return g;
         }
     }
 
@@ -42,6 +43,7 @@ namespace PrecisionStockpileControl
             foreach (var g in PscModeGizmo.GizmosFor(settings, unit)) yield return g;
             foreach (var g in PscAlarmGizmo.GizmosFor(settings, unit)) yield return g;
             foreach (var g in PscFeederGizmos.GizmosFor(settings, unit)) yield return g;
+            foreach (var g in PscSubpriorityPaintGizmo.GizmosFor(settings, unit)) yield return g;
         }
     }
 }
