@@ -12,7 +12,12 @@ namespace PrecisionStockpileControl
     // PscStorageDataStore.IsEmpty before this, so vanilla pays ~nothing when no PSC data exists.
     internal static class PscCap
     {
-        public static bool TryGetRoom(IntVec3 cell, Map map, ThingDef def, out int room)
+        // includeReserved: SOFT-planning callers (PUAH / Hauler's Dream capacity probes) pass true so the
+        // returned room reflects in-flight hauls (effective = physical + reserved-inbound) and those mods
+        // don't over-allocate into a unit other haulers are already filling. The HARD carry-drop caller
+        // leaves it false (physical only) — a stale reservation must never make the drop seam strand a
+        // carried item.
+        public static bool TryGetRoom(IntVec3 cell, Map map, ThingDef def, out int room, bool includeReserved = false)
         {
             room = int.MaxValue;
             if (def == null || map == null) return false;
@@ -22,7 +27,10 @@ namespace PrecisionStockpileControl
             if (data == null || !data.HasLimit(def)) return false;
             var lim = data.GetLimit(def);
             if (!lim.Upper.HasValue) return false;
-            room = Math.Max(0, lim.Upper.Value - data.GetCount(def, unit));
+            int used = (includeReserved && PscMod.Settings.reservedFillCounting)
+                ? data.GetEffectiveCount(def, unit)
+                : data.GetCount(def, unit);
+            room = Math.Max(0, lim.Upper.Value - used);
             return true;
         }
     }

@@ -89,6 +89,13 @@ namespace PrecisionStockpileControl
         private readonly HashSet<ThingDef> dirtyDefs = new HashSet<ThingDef>();
         private bool allDirty = true;
 
+        // Reservation-aware fill counting (opt-in, on by default). Per-def items committed to haul IN
+        // but not yet delivered. NEVER scribed; this is the "fast delta" half of the split counter —
+        // physical `counts` stays the source of truth, and PscMapComponent's periodic rebuild-from-
+        // active-jobs corrects any drift. Only the soft planning gates read counts+reservedInbound
+        // (GetEffectiveCount); the hard drop cap, over-cap drain, and freeze reads stay on physical.
+        private readonly Dictionary<ThingDef, int> reservedInbound = new Dictionary<ThingDef, int>();
+
         public bool HasPersistentPolicy =>
             limits.Count > 0
             || batch > 0 || batchEmpty > 0 || onlyFromSource || onlyToDestinations
@@ -121,6 +128,19 @@ namespace PrecisionStockpileControl
             }
         }
 
+        // True when any per-def limit has an UPPER cap (a maximum). Gates reservation-aware fill counting:
+        // reserved-inbound is only ever recorded for upper-capped defs, so a colony with only refill
+        // thresholds (lower, no upper) pays nothing.
+        public bool HasAnyUpperLimit
+        {
+            get
+            {
+                foreach (var kv in limits)
+                    if (kv.Value != null && !kv.Value.IsDefault && kv.Value.Upper.HasValue) return true;
+                return false;
+            }
+        }
+
         // ---- Dirty marking (cheap; called from drift-seam patches) ----
         public void MarkDirty(ThingDef def) { if (def != null) dirtyDefs.Add(def); }
         public void MarkAllDirty() { allDirty = true; }
@@ -134,6 +154,43 @@ namespace PrecisionStockpileControl
         }
 
         public bool IsRefilling(ThingDef def) => refilling.Contains(def);
+
+        // Effective count = physical + reserved-inbound, read ONLY by the soft planning gates (admission
+        // upper gate, batch-room gate, haul-job room clamp, PUAH/HD capacity probes). When the feature
+        // is off it is byte-identical to GetCount. Invariant: effective >= physical (reservedInbound is
+        // clamped >= 0), so admission only ever tightens relative to physical and never conflicts with
+        // the physical-only hard cap / over-cap drain.
+        public int GetEffectiveCount(ThingDef def, PscHaulUnit unit)
+        {
+            int n = GetCount(def, unit);
+            if (!PscMod.Settings.reservedFillCounting) return n;
+            return n + (reservedInbound.TryGetValue(def, out var r) ? r : 0);
+        }
+
+        public int GetReservedInbound(ThingDef def)
+            => reservedInbound.TryGetValue(def, out var r) ? r : 0;
+
+        // Cheap "is any reservation outstanding" probe — lets the periodic rebuild skip the pawn scan for a
+        // settled unit (drift can only exist where reserved > 0).
+        public bool HasAnyReserved() => reservedInbound.Count > 0;
+
+        // Add (or, with a negative amount, subtract) reserved-inbound for a def. The `<= 0 => Remove`
+        // branch is the >= 0 floor: an unreserved/relocate decrement can never drive reserved negative
+        // (which would make effective < physical and reopen the overshoot it prevents). Best-effort; the
+        // periodic rebuild trues it up.
+        public void AddReservedInbound(ThingDef def, int amount)
+        {
+            if (def == null || amount == 0) return;
+            reservedInbound.TryGetValue(def, out var cur);
+            int v = cur + amount;
+            if (v <= 0) reservedInbound.Remove(def);
+            else reservedInbound[def] = v;
+        }
+
+        public void ClearReservedInbound()
+        {
+            if (reservedInbound.Count > 0) reservedInbound.Clear();
+        }
 
         private void RecomputeAll(PscHaulUnit unit)
         {
@@ -237,6 +294,7 @@ namespace PrecisionStockpileControl
             mode = other.mode;
             alarm = (other.alarm != null && other.alarm.IsActive) ? other.alarm.Clone() : null;
             refilling.Clear();
+            reservedInbound.Clear();
             MarkAllDirty();
         }
 
@@ -275,6 +333,7 @@ namespace PrecisionStockpileControl
             }
 
             refilling.Clear();
+            reservedInbound.Clear();
             MarkAllDirty();
         }
 
@@ -323,6 +382,7 @@ namespace PrecisionStockpileControl
                 if (toRemove != null)
                     foreach (var k in toRemove) limits.Remove(k);
                 allDirty = true;
+                reservedInbound.Clear();   // runtime-only; rebuilt from active jobs after load
             }
         }
     }

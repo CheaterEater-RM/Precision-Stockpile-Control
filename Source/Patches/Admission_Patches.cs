@@ -6,6 +6,46 @@ using Verse.AI;
 
 namespace PrecisionStockpileControl
 {
+    // Reservation scope (Regression Fix 2). The admission gate's reservation-aware "effective" count
+    // (physical + reserved-inbound) must be read ONLY while planning a NEW haul — i.e. inside the
+    // StoreUtility.TryFindBestBetterStoreCellFor store-search. AllowedToAccept is also called by validity
+    // re-checks that have nothing to do with planning: JobDriver_HaulToCell's goto/place FailOn via
+    // StoreUtility.IsValidStorageFor, StoreUtility.IsInValidStorage / ListerHaulables, and the filter UI.
+    // If those read effective, an in-flight hauler's OWN reservation makes its destination read "full" and
+    // the hauler self-cancels before delivering (the pile never reaches its cap), and stored items can be
+    // flagged misplaced (churn). This flag marks the dynamic extent of the store-search so only the
+    // planning gate sees reserved-inbound; everything else reads physical. The hard cap at the carry-drop
+    // seam (physical) is the final backstop. ThreadStatic guards off-thread reachability scans; it is
+    // multiplayer-deterministic (set and cleared within a single sim-thread call).
+    internal static class PscAdmissionScope
+    {
+        [System.ThreadStatic] public static bool InStoreSearch;
+
+        // The soft-planning count read: effective while planning a new haul, physical for every other
+        // AllowedToAccept caller. No-op difference when reservedFillCounting is off (effective == physical).
+        public static int PlanningCount(PscStorageData data, ThingDef def, PscHaulUnit unit)
+            => InStoreSearch ? data.GetEffectiveCount(def, unit) : data.GetCount(def, unit);
+    }
+
+    // Mark the planning store-search so PscAdmissionScope.PlanningCount reads effective only here. A
+    // separate patch class from the fine-order transpiler on the same method (FineOrder_Patches.cs) —
+    // Harmony composes multiple patch classes on one target. The finalizer runs even if the search throws,
+    // and the __state save/restore keeps it re-entrancy-safe.
+    [HarmonyPatch(typeof(StoreUtility), nameof(StoreUtility.TryFindBestBetterStoreCellFor))]
+    public static class StoreUtility_PlanningScope_Patch
+    {
+        public static void Prefix(out bool __state)
+        {
+            __state = PscAdmissionScope.InStoreSearch;
+            PscAdmissionScope.InStoreSearch = true;
+        }
+
+        public static void Finalizer(bool __state)
+        {
+            PscAdmissionScope.InStoreSearch = __state;
+        }
+    }
+
     // Stockpile-wide admission gate (design §8). Postfix on the per-group AllowedToAccept(Thing)
     // — the overload TryFindBestBetterStoreCellForWorker calls once per candidate group, NOT the
     // ThingDef overload (which is the scan/UI path; leaving it untouched keeps defs visible in the
@@ -103,7 +143,12 @@ namespace PrecisionStockpileControl
             if (hasLimit)
             {
                 var lim = data.GetLimit(t.def);
-                int n = data.GetCount(t.def, unit);
+                // Soft planning gate: effective = physical + reserved-inbound, so concurrent haulers
+                // don't all admit against the same stale physical count and overshoot the cap. Scoped to
+                // the store-search (PscAdmissionScope) so a hauler's own in-flight FailOn re-check reads
+                // physical and never self-cancels; the hard drop cap (HardCap_Patches) stays on physical.
+                // No-op when the feature is off.
+                int n = PscAdmissionScope.PlanningCount(data, t.def, unit);
 
                 // Upper — the maximum (M2 makes this a hard cap at drop time via HardCap_Patches)
                 if (lim.Upper.HasValue && n >= lim.Upper.Value)
@@ -144,7 +189,9 @@ namespace PrecisionStockpileControl
                 if (hasLimit)
                 {
                     var lim = data.GetLimit(t.def);
-                    if (lim.Upper.HasValue && lim.Upper.Value - data.GetCount(t.def, unit) < data.batch)
+                    // Effective room (physical + reserved) so in-flight hauls count toward the batch-room
+                    // gate too, but only while planning (store-search scope) — a validity re-check reads physical.
+                    if (lim.Upper.HasValue && lim.Upper.Value - PscAdmissionScope.PlanningCount(data, t.def, unit) < data.batch)
                     {
                         LogReject(t, unit, "underBatchRoom",
                             $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (room < batch {data.batch})");
@@ -266,7 +313,10 @@ namespace PrecisionStockpileControl
                     var lim = data.GetLimit(t.def);
                     if (lim.Upper.HasValue)
                     {
-                        int room = Math.Max(0, lim.Upper.Value - data.GetCount(t.def, targetUnit));
+                        // Effective room (physical + reserved-inbound). The current job is NOT yet
+                        // registered (that happens after all clamps below), so this excludes its own
+                        // reservation -> automatic self-exclusion. No-op when the feature is off.
+                        int room = Math.Max(0, lim.Upper.Value - data.GetEffectiveCount(t.def, targetUnit));
                         if (room <= 0)
                         {
                             // No room (reservation-overshoot window between admission and job build):
@@ -335,6 +385,16 @@ namespace PrecisionStockpileControl
                 PscFeederHaulContext.Clear(t);
                 __result = null;
             }
+
+            // Reserved-inbound INCREMENT is deliberately NOT done here. This builder
+            // (HaulAIUtility.HaulToCellStorageJob) also runs during feasibility probes:
+            // WorkGiver_Scanner.HasJobOnThing == JobOnThing(...) != null builds and discards a full job,
+            // so reserving here charged a phantom +count on every scan with no matching delivery decrement
+            // (the job never starts). That pinned a capped pile's effective count at the cap (all hauling
+            // blocked) and desynced HasJobOnThing from the second JobOnThing (the "yielded no actual job"
+            // error). The increment now lives at the genuine commitment seam,
+            // JobDriver_HaulToCell.Notify_Starting (CountCache_Patches.cs), reached only when a job really
+            // starts executing. The effective-room READ above stays — it has no persistent side effect.
         }
     }
 }

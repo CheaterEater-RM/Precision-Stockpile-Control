@@ -17,6 +17,7 @@ namespace PrecisionStockpileControl
         public bool feederFocusDim = true;            // overlay: dim routes not touching the hovered/selected storage
         public bool feederFlowDots = true;            // overlay: animate flow dots on the hovered/selected pile's valid routes
         public float feederLineWidth = 0.04f;         // overlay: route line thickness (arrows/✕ scale with it)
+        public bool reservedFillCounting = true;      // count in-flight hauls toward a cap so concurrent haulers don't overshoot
         public bool debugLogging = false;             // dev-mode diagnostic logging (PscLog)
 
         public override void ExposeData()
@@ -32,6 +33,7 @@ namespace PrecisionStockpileControl
             Scribe_Values.Look(ref feederFocusDim, "feederFocusDim", true);
             Scribe_Values.Look(ref feederFlowDots, "feederFlowDots", true);
             Scribe_Values.Look(ref feederLineWidth, "feederLineWidth", 0.04f);
+            Scribe_Values.Look(ref reservedFillCounting, "reservedFillCounting", true);
             Scribe_Values.Look(ref debugLogging, "debugLogging", false);
         }
 
@@ -50,6 +52,7 @@ namespace PrecisionStockpileControl
             feederFocusDim = true;
             feederFlowDots = true;
             feederLineWidth = 0.04f;
+            reservedFillCounting = true;
             debugLogging = false;
         }
     }
@@ -242,6 +245,16 @@ namespace PrecisionStockpileControl
             listing.CheckboxLabeled("PSC_SettingsReverseOrder".Translate(), ref Settings.reverseOrder,
                 "PSC_SettingsReverseOrderTip".Translate());
 
+            listing.Gap(12f);
+            listing.Label("PSC_SettingsHaulingHeader".Translate());
+            listing.Gap(6f);
+            // Counting in-flight hauls toward a cap changes which units are "effectively full", so refresh
+            // every map's anyReservedActive gate (and clear stale reserved when turning it off).
+            bool prevReserved = Settings.reservedFillCounting;
+            listing.CheckboxLabeled("PSC_SettingsReservedFill".Translate(), ref Settings.reservedFillCounting,
+                "PSC_SettingsReservedFillTip".Translate());
+            if (Settings.reservedFillCounting != prevReserved) RecomputeReservedActiveAllMaps();
+
             // Developer-only diagnostic logging, pinned at the bottom of this page. Hidden outside dev
             // mode so it never clutters a normal player's settings; logs gate purely on the setting
             // (dev mode only controls visibility), so a player who turns it on can leave dev mode and
@@ -283,6 +296,16 @@ namespace PrecisionStockpileControl
                 PscMapComponent.For(map)?.RecomputeFineOrderActive();
                 map.haulDestinationManager?.Notify_HaulDestinationChangedPriority();
             }
+        }
+
+        // Reserved-fill-counting toggled: refresh every map's anyReservedActive gate, and when turning
+        // it OFF, drop all reserved-inbound so no stale effective read lingers past the toggle.
+        private static void RecomputeReservedActiveAllMaps()
+        {
+            var maps = Current.Game?.Maps;
+            if (maps == null) return;
+            foreach (var map in maps)
+                PscMapComponent.For(map)?.RefreshReservedActive();
         }
     }
 }

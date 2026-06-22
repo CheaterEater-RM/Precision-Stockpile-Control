@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using RimWorld;
 using Verse;
+using Verse.AI;
 
 namespace PrecisionStockpileControl
 {
@@ -32,6 +33,10 @@ namespace PrecisionStockpileControl
         // MapComponentTick so a colony using no alarm pays nothing.
         public bool anyAlarmActive;
 
+        // True when reservation-aware fill counting is ON and any tracked unit has an upper cap. Gates
+        // the reserved-inbound rebuild pass so a colony with no maximums (or the setting off) pays nothing.
+        public bool anyReservedActive;
+
         // Authoritative directed feeder-link graph for this map (design §4.2) + its mutation/query
         // surface. Scribed via feeder.ExposeData below.
         private readonly PscFeederManager feeder;
@@ -45,6 +50,17 @@ namespace PrecisionStockpileControl
         private readonly List<StorageSettings> resyncSnapshot = new List<StorageSettings>();
         private int resyncCursor;
         private const int ResyncInterval = 250;
+
+        // Reserved-inbound rebuild backstop: every ReservedRebuildInterval ticks, recompute every tracked
+        // unit's reserved-inbound from the active player haul jobs (the split-counter's recompute-from-
+        // truth). A single global pass — cheap (scans jobs, not contents), unlike the count resync above.
+        private readonly List<StorageSettings> reservedSnapshot = new List<StorageSettings>();
+        private const int ReservedRebuildInterval = 120;
+        // Forces the next rebuild to do a full pawn-job scan even with nothing currently reserved, so hauls
+        // already IN FLIGHT (with no Notify_Starting increment to re-arm them) are re-established after a
+        // load, a setting toggle, or the first cap appearing. Set on the anyReservedActive false->true edge;
+        // consumed by one rebuild. Otherwise a settled colony skips the scan entirely.
+        private bool forceReservedRescan;
 
         // Alarm check pass: every AlarmCheckInterval ticks, evaluate every tracked unit's alarm.
         // Fullness changes slowly, so a coarse interval is plenty. The snapshot list avoids mutating
@@ -107,6 +123,7 @@ namespace PrecisionStockpileControl
             RecomputeFineOrderActive();
             RecomputeFreezeModeActive();
             RecomputeAlarmActive();
+            RecomputeReservedActive();
         }
 
         private void RecomputeFeederActive()
@@ -124,6 +141,44 @@ namespace PrecisionStockpileControl
         private void RecomputeAlarmActive()
             => RecomputeGate(ref anyAlarmActive, "alarm: gate anyAlarmActive",
                 d => d.alarm != null && d.alarm.IsActive);
+
+        // anyReservedActive folds in the GLOBAL setting (not just a per-unit predicate), so it can't use
+        // RecomputeGate directly. ON only when the feature is enabled AND some tracked unit has a maximum.
+        public void RecomputeReservedActive()
+        {
+            bool any = false;
+            if (PscMod.Settings.reservedFillCounting)
+            {
+                foreach (var s in tracked)
+                {
+                    var d = PscStorageDataStore.TryGet(s);
+                    if (d != null && d.HasAnyUpperLimit) { any = true; break; }
+                }
+            }
+            if (PscLog.Enabled && any != anyReservedActive)
+                PscLog.Msg($"reserve: gate anyReservedActive {anyReservedActive} -> {any}");
+            // Newly active (load / toggle-on / first capped unit): force one full rebuild scan so hauls
+            // already in flight get reservations even though their Notify_Starting fired before we tracked.
+            if (any && !anyReservedActive) forceReservedRescan = true;
+            anyReservedActive = any;
+        }
+
+        // Called when the reservedFillCounting setting toggles (from PscMod). Refresh the gate and, when
+        // turning the feature OFF, drop all reserved-inbound so no stale effective read lingers.
+        public void RefreshReservedActive()
+        {
+            RecomputeReservedActive();
+            if (!PscMod.Settings.reservedFillCounting)
+                ClearAllReservedInbound();
+        }
+
+        private void ClearAllReservedInbound()
+        {
+            reservedSnapshot.Clear();
+            reservedSnapshot.AddRange(tracked);
+            for (int i = 0; i < reservedSnapshot.Count; i++)
+                PscStorageDataStore.TryGet(reservedSnapshot[i])?.ClearReservedInbound();
+        }
 
         // Recompute a per-map early-out gate: true when any tracked unit's data satisfies `predicate`.
         // The predicate is a static lambda (no capture), so this allocates nothing per call.
@@ -184,6 +239,7 @@ namespace PrecisionStockpileControl
             RecomputeFineOrderActive();
             RecomputeFreezeModeActive();
             RecomputeAlarmActive();
+            RecomputeReservedActive();
         }
 
         // Called after a fine-order edit (sub-tier / letter / band via the level box). Updates
@@ -243,12 +299,93 @@ namespace PrecisionStockpileControl
             if (anyAlarmActive && tick % AlarmCheckInterval == 0)
                 RunAlarmChecks(tick);
 
+            if (anyReservedActive && tick % ReservedRebuildInterval == 0)
+                RebuildReservedInbound();
+
             if (tick % ResyncInterval != 0) return;
             resyncSnapshot.Clear();
             resyncSnapshot.AddRange(tracked);
             if (resyncSnapshot.Count == 0) return;
             if (resyncCursor >= resyncSnapshot.Count) resyncCursor = 0;
             PscStorageDataStore.TryGet(resyncSnapshot[resyncCursor++])?.MarkAllDirty();
+        }
+
+        // Reserved-inbound rebuild backstop — the split-counter's recompute-from-truth (mirrors the count
+        // cache recomputing from HeldThings, but the truth lives in active haul JOBS, not in the unit).
+        // Clear-then-recompute (absolute, so double-registers / re-plans are wiped), then one global pass
+        // over active player haul jobs. Corrects the drift the fast path (inc-at-build / dec-at-drop)
+        // can't see: cancelled / interrupted / redirected hauls. O(spawned player pawns + queued jobs),
+        // gated by anyReservedActive.
+        private void RebuildReservedInbound()
+        {
+            // Clear every tracked unit's reserved and note whether ANY held a reservation coming in.
+            reservedSnapshot.Clear();
+            reservedSnapshot.AddRange(tracked);
+            bool hadReserved = false;
+            for (int i = 0; i < reservedSnapshot.Count; i++)
+            {
+                var d = PscStorageDataStore.TryGet(reservedSnapshot[i]);
+                if (d == null || !d.HasAnyReserved()) continue;
+                hadReserved = true;
+                d.ClearReservedInbound();
+            }
+
+            // Settled colony: nothing reserved and no forced post-load/toggle pass => no drift to heal and
+            // no live haul to (re)establish, so skip the whole pawn scan AND the log. A fresh haul re-arms
+            // reserved via the Notify_Starting increment, which makes hadReserved true next interval.
+            if (!hadReserved && !forceReservedRescan) return;
+            forceReservedRescan = false;
+
+            var pawns = map.mapPawns.SpawnedPawnsInFaction(Faction.OfPlayer);
+            bool accrued = false;
+            for (int i = 0; i < pawns.Count; i++)
+            {
+                var jobs = pawns[i]?.jobs;
+                if (jobs == null) continue;
+                accrued |= AccrueHaulJob(pawns[i], jobs.curJob, isCurrent: true);
+                var queue = jobs.jobQueue;
+                if (queue != null)
+                    for (int q = 0; q < queue.Count; q++)
+                        accrued |= AccrueHaulJob(pawns[i], queue[q]?.job, isCurrent: false);
+            }
+            // Log only when the rebuild actually touched a reservation (incoming or re-accrued), so a steady
+            // state never prints. Throttled regardless.
+            if (PscLog.Enabled && (hadReserved || accrued))
+                PscLog.MsgThrottled("reserve:rebuild", "reserve: rebuilt reserved-inbound from active jobs");
+        }
+
+        // Add one HaulToCell job's in-flight contribution to its target unit's reserved-inbound. Returns
+        // true if it accrued anything (used to decide whether the rebuild had real work to log).
+        private bool AccrueHaulJob(Pawn pawn, Job job, bool isCurrent)
+        {
+            if (job == null || job.def != JobDefOf.HaulToCell) return false;
+            var unit = PscHaulUnit.ResolveCell(job.targetB.Cell, map);
+            if (!unit.IsValid || !tracked.Contains(unit.Settings)) return false;
+            var data = PscStorageDataStore.TryGet(unit.Settings);
+            if (data == null) return false;
+
+            ThingDef def;
+            int amount;
+            // Post-pickup, StartCarryThing(subtractNumTakenFromJobCount:true) zeroed job.count and
+            // retargeted TargetA to the carried thing, so for the CURRENT job count the CARRIED stack —
+            // the real in-flight amount, incl. opportunistic top-ups. Trusting job.count here would erase
+            // a live reservation while the hauler walks. Queued / pre-pickup jobs use the planned count.
+            var carried = isCurrent ? pawn.carryTracker?.CarriedThing : null;
+            if (carried != null && job.haulMode == HaulMode.ToCellStorage)
+            {
+                def = carried.def;
+                amount = carried.stackCount;
+            }
+            else
+            {
+                def = job.targetA.Thing?.def;
+                amount = job.count;
+            }
+            if (def == null || amount <= 0 || !data.HasLimit(def)) return false;
+            var lim = data.GetLimit(def);
+            if (lim == null || !lim.Upper.HasValue) return false;
+            data.AddReservedInbound(def, amount);
+            return true;
         }
 
         // Evaluate every tracked unit's alarm against current fullness. Snapshot first because

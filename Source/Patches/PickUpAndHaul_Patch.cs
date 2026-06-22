@@ -22,7 +22,10 @@ namespace PrecisionStockpileControl
         public static void Postfix(Thing thing, IntVec3 storeCell, Map map, ref int __result)
         {
             if (PscStorageDataStore.IsEmpty || __result <= 0 || thing == null) return;
-            if (PscCap.TryGetRoom(storeCell, map, thing.def, out int room) && room < __result)
+            // includeReserved: PUAH's capacity probe is a soft-planning read, so subtract in-flight hauls
+            // too (no-op when the feature is off). PUAH bulk jobs don't register reserved themselves, so
+            // this is best-effort, backstopped by the carry-drop hard cap.
+            if (PscCap.TryGetRoom(storeCell, map, thing.def, out int room, includeReserved: true) && room < __result)
                 __result = room;
         }
     }

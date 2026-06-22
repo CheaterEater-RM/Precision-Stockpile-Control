@@ -27,6 +27,11 @@ limit below what a stockpile already holds). The items aren't trapped: only the 
 *entry* is possible, not getting stuck above it. For a clean settle, give the stockpile a refill
 threshold as well as a maximum.
 
+PSC also counts items that are already on their way in toward the maximum, so when several pawns haul
+to the same near-full storage at once they stop at the limit between them instead of overshooting it.
+This is a mod setting (Hauling: "Reserve space for in-flight hauls"), on by default, and has no effect
+on storages without a maximum. Pick Up And Haul and Hauler's Dream respect it too.
+
 ### About batch hauling
 
 Each stockpile has a **batch fill** and a **batch empty** value (0 = off). Batch fill makes pawns wait

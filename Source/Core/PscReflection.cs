@@ -24,6 +24,7 @@ namespace PrecisionStockpileControl
     //   Widgets.Checkbox(float,float,bool&,float,bool,bool,Texture2D,Texture2D)  (overload)
     //   Widgets.CheckboxMulti(Rect,MultiCheckboxState,bool)                       (overload)
     //   PickUpAndHaul.WorkGiver_HaulToInventory:CapacityAt(Thing,IntVec3,Map)     (soft dependency)
+    //   HaulersDream.BulkHaul:StorageSpaceForDef(Pawn,Thing,IntVec3,Map)          (soft dep, private)
     internal static class PscReflection
     {
         // ---- Listing.curY -------------------------------------------------------------------------
@@ -129,6 +130,17 @@ namespace PrecisionStockpileControl
         // Resolved via member-id string; returns null when PUAH is absent (gates the patch via Prepare).
         public static MethodBase PuahCapacityAt()
             => AccessTools.Method(PuahCapacityAtId, new[] { typeof(Thing), typeof(IntVec3), typeof(Map) });
+
+        // ---- Hauler's Dream (soft dependency — no compile/load-time reference) ----------------------
+        // BulkHaul.StorageSpaceForDef is HD's per-destination capacity probe (the analogue of PUAH's
+        // CapacityAt). It is PRIVATE STATIC and HD-internal, so it is the most version-fragile seam here;
+        // AccessTools resolves non-public members, and a future HD rename makes Prepare() return null so
+        // the patch silently degrades to admission + carry-drop-cap coverage (HD's destination selection
+        // already routes through AllowedToAccept).
+        public const string HaulersDreamStorageSpaceForDefId = "HaulersDream.BulkHaul:StorageSpaceForDef";
+
+        public static MethodBase HaulersDreamStorageSpaceForDef()
+            => AccessTools.Method(HaulersDreamStorageSpaceForDefId, new[] { typeof(Pawn), typeof(Thing), typeof(IntVec3), typeof(Map) });
 
         // ---- resolution helpers (resolve once, log once, degrade) ---------------------------------
         private static AccessTools.FieldRef<Listing, float> ResolveCurY()
