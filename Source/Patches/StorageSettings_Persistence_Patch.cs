@@ -63,7 +63,13 @@ namespace PrecisionStockpileControl
                 // all route through CopyFrom), or a between-thresholds pile would be left stuck
                 // not-refilling. No-op for clipboard / def-init targets whose owner doesn't resolve.
                 var unit = PscHaulUnit.ResolveSettings(__instance);
-                if (unit.IsValid) data.Notify_LimitsSeeded(unit);
+                if (unit.IsValid)
+                {
+                    // Tighten any limit copied from a larger source down to what THIS unit can hold,
+                    // then re-derive hysteresis against the clamped upper (clamp must precede seed).
+                    data.ClampLimitsToCapacity(unit);
+                    data.Notify_LimitsSeeded(unit);
+                }
             }
             PscMapComponent.NotifyPolicyChanged(__instance);
         }

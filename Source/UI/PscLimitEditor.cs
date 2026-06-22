@@ -234,37 +234,10 @@ namespace PrecisionStockpileControl
             return GenericItemMax;
         }
 
+        // Shares PscHaulUnit.TryGetStackSlots with the paste-time capacity clamp so the slider cap
+        // and the clamp use the identical capacity basis. Falls back to 1 for a unit with no cells.
         private static int StackSlots(PscHaulUnit unit)
-        {
-            int slots = 0;
-            try
-            {
-                var map = unit.Map;
-                var cells = unit.IsValid ? unit.group.CellsList : null;
-                if (cells != null)
-                {
-                    foreach (var c in cells)
-                    {
-                        slots += map != null ? c.GetMaxItemsAllowedInCell(map) : 1;
-                    }
-                }
-                var held = unit.HeldThings;
-                if (held != null)
-                {
-                    int heldStacks = 0;
-                    foreach (var t in held)
-                    {
-                        if (t != null) heldStacks++;
-                    }
-                    if (heldStacks > slots) slots = heldStacks;
-                }
-            }
-            catch (System.Exception ex)
-            {
-                Log.ErrorOnce("[PSC] StackSlots failed: " + ex, 0x1C5A0005);
-            }
-            return Mathf.Max(1, slots);
-        }
+            => unit.TryGetStackSlots(out int slots) ? slots : 1;
 
         private string SliderHint(PscLimitEditorTarget target)
         {

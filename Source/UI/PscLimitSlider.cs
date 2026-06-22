@@ -70,11 +70,7 @@ namespace PrecisionStockpileControl
         // Clamps the pair into range and enforces lower <= upper. Shared with the editor's field/init
         // paths so the invariant lives in one place.
         public static void Clamp(ref int? lowerVal, ref int? upperVal, int max)
-        {
-            if (lowerVal.HasValue) lowerVal = Mathf.Clamp(lowerVal.Value, 0, max);
-            if (upperVal.HasValue) upperVal = Mathf.Clamp(upperVal.Value, 1, max);
-            if (lowerVal.HasValue && upperVal.HasValue && lowerVal.Value > upperVal.Value) lowerVal = upperVal;
-        }
+            => PscDefLimit.ClampPair(ref lowerVal, ref upperVal, max);
 
         // Stable per-rect id so an in-progress drag survives across immediate-mode layout passes.
         private static int StableId(Rect rect)

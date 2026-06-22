@@ -86,6 +86,43 @@ namespace PrecisionStockpileControl
             return true;
         }
 
+        // Physical stack-slot capacity, floored by the current held-stack count so a caller never
+        // treats the unit as smaller than what it already physically holds (deep-storage aware via
+        // GetMaxItemsAllowedInCell). This is the same basis the limit editor's slider uses, so a
+        // pasted limit clamped against it matches what the editor would have allowed. Returns false
+        // (slots = 0) for a unit with no cells or on error, so callers can skip rather than clamp to
+        // a bogus capacity. CellsList is a static temp: consumed immediately, never retained.
+        public bool TryGetStackSlots(out int slots)
+        {
+            slots = 0;
+            try
+            {
+                var cells = group?.CellsList;
+                if (cells == null || cells.Count == 0) return false;
+                var map = Map;
+                int total = 0;
+                for (int i = 0; i < cells.Count; i++)
+                    total += map != null ? cells[i].GetMaxItemsAllowedInCell(map) : 1;
+
+                var held = HeldThings;
+                if (held != null)
+                {
+                    int heldStacks = 0;
+                    foreach (var t in held)
+                        if (t != null) heldStacks++;
+                    if (heldStacks > total) total = heldStacks;
+                }
+                slots = Mathf.Max(1, total);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.ErrorOnce("[PSC] TryGetStackSlots failed: " + ex, 0x1C5A0005);
+                slots = 0;
+                return false;
+            }
+        }
+
         private static ISlotGroup Canonicalize(ISlotGroup slot)
         {
             if (slot == null) return null;

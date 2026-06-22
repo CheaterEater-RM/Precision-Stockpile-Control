@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEngine;
 using Verse;
 
 namespace PrecisionStockpileControl
@@ -26,6 +27,16 @@ namespace PrecisionStockpileControl
         public bool IsDefault => lowerRaw < 0 && upperRaw < 0;
 
         public PscDefLimit Clone() => new PscDefLimit { lowerRaw = lowerRaw, upperRaw = upperRaw };
+
+        // The lower/upper clamp invariant, shared by the limit editor (slider + text fields) and the
+        // paste-time capacity clamp so it lives in exactly one place: lower in [0,max], upper in
+        // [1,max], and lower never above upper.
+        public static void ClampPair(ref int? lower, ref int? upper, int max)
+        {
+            if (lower.HasValue) lower = Mathf.Clamp(lower.Value, 0, max);
+            if (upper.HasValue) upper = Mathf.Clamp(upper.Value, 1, max);
+            if (lower.HasValue && upper.HasValue && lower.Value > upper.Value) lower = upper;
+        }
 
         public void ExposeData()
         {
@@ -274,6 +285,29 @@ namespace PrecisionStockpileControl
                 if (!(lim.Upper.HasValue && c >= lim.Upper.Value)) refilling.Add(kv.Key);
                 else refilling.Remove(kv.Key);
             }
+        }
+
+        // Tightens every per-def limit to what this unit can physically hold, matching the limit
+        // editor's slider cap (slots * stackLimit). Called on paste so a policy copied from a larger
+        // unit cannot leave an over-capacity number on a smaller one. slots is floored by the current
+        // held-stack count (TryGetStackSlots), so this never clamps below already-stored contents and
+        // so never trips the over-cap drain on valid contents. Per-def: each def caps at its own
+        // stackLimit. No-op when the unit has no cells or does not resolve. Call BEFORE
+        // Notify_LimitsSeeded so hysteresis is re-derived against the realistic (clamped) upper.
+        public void ClampLimitsToCapacity(PscHaulUnit unit)
+        {
+            if (!unit.IsValid || !unit.TryGetStackSlots(out int slots)) return;
+            foreach (var kv in limits)
+            {
+                var lim = kv.Value;
+                if (kv.Key == null || lim == null || lim.IsDefault) continue;
+                int max = slots * Mathf.Max(1, kv.Key.stackLimit);
+                int? lo = lim.Lower, up = lim.Upper;
+                PscDefLimit.ClampPair(ref lo, ref up, max);
+                lim.Lower = lo;
+                lim.Upper = up;
+            }
+            MarkAllDirty();
         }
 
         // Deep copy of policy only (never counts — those are unit-specific and recomputed).
