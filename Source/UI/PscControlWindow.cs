@@ -24,6 +24,8 @@ namespace PrecisionStockpileControl
         private string batchBuf = "0";
         private int batchEmptyVal;
         private string batchEmptyBuf = "0";
+        private int perTileVal;
+        private string perTileBuf = "0";
 
         public override Vector2 InitialSize => new Vector2(520f, 380f);
 
@@ -50,6 +52,8 @@ namespace PrecisionStockpileControl
             batchBuf = "0";
             batchEmptyVal = 0;
             batchEmptyBuf = "0";
+            perTileVal = 0;
+            perTileBuf = "0";
 
             var existing = PscStorageDataStore.TryGet(settings);
             if (existing != null)
@@ -58,6 +62,8 @@ namespace PrecisionStockpileControl
                 batchBuf = batchVal.ToString();
                 batchEmptyVal = existing.batchEmpty;
                 batchEmptyBuf = batchEmptyVal.ToString();
+                perTileVal = existing.perTileLimit;
+                perTileBuf = perTileVal.ToString();
             }
         }
 
@@ -101,6 +107,20 @@ namespace PrecisionStockpileControl
             Widgets.TextFieldNumericLabeled(emptyRect, "PSC_BatchEmpty".Translate(), ref batchEmptyVal, ref batchEmptyBuf, 0, 5000);
             TooltipHandler.TipRegion(emptyRect, "PSC_BatchEmptyTip".Translate());
             if (batchEmptyVal != prevBatchEmpty) ApplyBatchEmpty();
+
+            // Per-cell ("Max per cell") field: a single per-unit value, applied immediately on edit like
+            // batch. Shown only when the master setting is on AND this selection is a floor stockpile
+            // (the per-tile cap is floor-only; shelves and linked storage groups never show it).
+            if (PscMod.Settings.perTileLimits && IsFloorStockpile())
+            {
+                list.Gap(6f);
+                var perTileRow = list.GetRect(Text.LineHeight);
+                var perTileRect = new Rect(perTileRow.x, perTileRow.y, halfWidth, perTileRow.height);
+                int prevPerTile = perTileVal;
+                Widgets.TextFieldNumericLabeled(perTileRect, "PSC_PerTileLimit".Translate(), ref perTileVal, ref perTileBuf, 0, 5000);
+                TooltipHandler.TipRegion(perTileRect, "PSC_PerTileLimitTip".Translate());
+                if (perTileVal != prevPerTile) ApplyPerTile();
+            }
 
             list.Gap(8f);
             list.Label("PSC_Preview".Translate(editor.PreviewString(target)));
@@ -204,6 +224,32 @@ namespace PrecisionStockpileControl
         {
             PscStorageDataStore.GetOrCreate(settings).batchEmpty = batchEmptyVal;
             PscMapComponent.NotifyPolicyChanged(settings);
+        }
+
+        // Per-cell cap: a single per-unit value, applied immediately on edit. After updating policy,
+        // re-check the unit's cells in the haulables lister so existing over-cap piles start spreading at
+        // once (the relocation prefix flags them haulable) instead of waiting for the next cell-dirty
+        // event. CellsList is a static temporary, so copy it before handing it to RecalcAllInCells.
+        private void ApplyPerTile()
+        {
+            PscStorageDataStore.GetOrCreate(settings).perTileLimit = perTileVal;
+            PscMapComponent.NotifyPolicyChanged(settings);
+
+            var cells = unit.group?.CellsList;
+            var map = unit.Map;
+            if (cells != null && cells.Count > 0 && map?.listerHaulables != null)
+            {
+                var snapshot = new List<IntVec3>(cells);
+                map.listerHaulables.RecalcAllInCells(snapshot);
+            }
+        }
+
+        // True when the current selection is a FLOOR stockpile (Zone_Stockpile slot group). A linked
+        // StorageGroup unit, a shelf, or deep storage resolves to a non-SlotGroup or a non-stockpile
+        // parent, so the per-cell control stays hidden for them (per-tile is floor-only).
+        private bool IsFloorStockpile()
+        {
+            return unit.group is SlotGroup slot && slot.parent is Zone_Stockpile;
         }
 
         // True while *some* storage is selected (a single unit or one unified storage group). The

@@ -24,6 +24,7 @@ namespace PrecisionStockpileControl
         public bool feederDotsOnly = true;            // overlay: replace arrows with flowing dots on every valid route (sub-mode of feederFlowDots)
         public float feederLineWidth = 0.04f;         // overlay: route line thickness (arrows/✕ scale with it)
         public bool reservedFillCounting = true;      // count in-flight hauls toward a cap so concurrent haulers don't overshoot
+        public bool perTileLimits = false;            // master toggle for the floor-stockpile "Max per cell" control (niche; spreads items thin)
         public bool debugLogging = false;             // dev-mode diagnostic logging (PscLog)
 
         public override void ExposeData()
@@ -46,6 +47,7 @@ namespace PrecisionStockpileControl
             Scribe_Values.Look(ref feederDotsOnly, "feederDotsOnly", true);
             Scribe_Values.Look(ref feederLineWidth, "feederLineWidth", 0.04f);
             Scribe_Values.Look(ref reservedFillCounting, "reservedFillCounting", true);
+            Scribe_Values.Look(ref perTileLimits, "perTileLimits", false);
             Scribe_Values.Look(ref debugLogging, "debugLogging", false);
         }
 
@@ -71,6 +73,7 @@ namespace PrecisionStockpileControl
             feederDotsOnly = true;
             feederLineWidth = 0.04f;
             reservedFillCounting = true;
+            perTileLimits = false;
             debugLogging = false;
         }
     }
@@ -278,6 +281,14 @@ namespace PrecisionStockpileControl
                 "PSC_SettingsReservedFillTip".Translate());
             if (Settings.reservedFillCounting != prevReserved) RecomputeReservedActiveAllMaps();
 
+            // Master toggle for the per-cell floor-stockpile cap (niche: spread items thin). Off hides
+            // the "Max per cell" control and disables every per-tile patch; toggling refreshes the
+            // anyPerTileActive gate so a mid-game flip takes effect at once.
+            bool prevPerTile = Settings.perTileLimits;
+            listing.CheckboxLabeled("PSC_SettingsPerTileLimits".Translate(), ref Settings.perTileLimits,
+                "PSC_SettingsPerTileLimitsTip".Translate());
+            if (Settings.perTileLimits != prevPerTile) RecomputePerTileActiveAllMaps();
+
             // Developer-only diagnostic logging, pinned at the bottom of this page. Hidden outside dev
             // mode so it never clutters a normal player's settings; logs gate purely on the setting
             // (dev mode only controls visibility), so a player who turns it on can leave dev mode and
@@ -353,6 +364,16 @@ namespace PrecisionStockpileControl
             if (maps == null) return;
             foreach (var map in maps)
                 PscMapComponent.For(map)?.RefreshReservedActive();
+        }
+
+        // Per-tile master toggle flipped: refresh every map's anyPerTileActive gate so enforcement
+        // engages / disengages immediately (the value itself stays on each unit, dormant while off).
+        private static void RecomputePerTileActiveAllMaps()
+        {
+            var maps = Current.Game?.Maps;
+            if (maps == null) return;
+            foreach (var map in maps)
+                PscMapComponent.For(map)?.RecomputePerTileActive();
         }
     }
 }

@@ -37,6 +37,11 @@ namespace PrecisionStockpileControl
         // the reserved-inbound rebuild pass so a colony with no maximums (or the setting off) pays nothing.
         public bool anyReservedActive;
 
+        // True when the per-cell ("per-tile") master setting is ON and any tracked unit has a per-tile
+        // cap. Gates the per-tile patches (PscPerTile) so a colony with the feature off, or on but with
+        // no capped floor stockpile, pays only the cheap setting/IsEmpty checks before the cell lookup.
+        public bool anyPerTileActive;
+
         // Authoritative directed feeder-link graph for this map (design §4.2) + its mutation/query
         // surface. Scribed via feeder.ExposeData below.
         private readonly PscFeederManager feeder;
@@ -124,6 +129,7 @@ namespace PrecisionStockpileControl
             RecomputeFreezeModeActive();
             RecomputeAlarmActive();
             RecomputeReservedActive();
+            RecomputePerTileActive();
         }
 
         private void RecomputeFeederActive()
@@ -161,6 +167,25 @@ namespace PrecisionStockpileControl
             // already in flight get reservations even though their Notify_Starting fired before we tracked.
             if (any && !anyReservedActive) forceReservedRescan = true;
             anyReservedActive = any;
+        }
+
+        // anyPerTileActive folds in the GLOBAL per-tile master setting (like anyReservedActive). ON only
+        // when the feature is enabled AND some tracked unit has a per-tile cap. Called on every tracking
+        // update and on the master-toggle flip (PscMod.RecomputePerTileActiveAllMaps).
+        public void RecomputePerTileActive()
+        {
+            bool any = false;
+            if (PscMod.Settings != null && PscMod.Settings.perTileLimits)
+            {
+                foreach (var s in tracked)
+                {
+                    var d = PscStorageDataStore.TryGet(s);
+                    if (d != null && d.perTileLimit > 0) { any = true; break; }
+                }
+            }
+            if (PscLog.Enabled && any != anyPerTileActive)
+                PscLog.Msg($"perTile: gate anyPerTileActive {anyPerTileActive} -> {any}");
+            anyPerTileActive = any;
         }
 
         // Called when the reservedFillCounting setting toggles (from PscMod). Refresh the gate and, when
@@ -240,6 +265,7 @@ namespace PrecisionStockpileControl
             RecomputeFreezeModeActive();
             RecomputeAlarmActive();
             RecomputeReservedActive();
+            RecomputePerTileActive();
         }
 
         // Called after a fine-order edit (sub-tier / letter / band via the level box). Updates

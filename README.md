@@ -12,6 +12,7 @@ Precision Stockpile Control is a RimWorld 1.6 mod built around opt-in, low-overh
 - An on-map **storage overlay** — a bottom-right toggle floats each storage's limits / mode / alarm / routes at a glance
 - Fine-grained ordering within a priority band: a–z subpriority and an optional 1–10 priority mode
 - Pick Up And Haul and LWM Deep Storage / multi-stack aware
+- **Per-cell spread** (opt-in): cap how many items pile on a single floor-stockpile tile, so haulers spread them thin (handy for laying out wood or chemfuel so fire spreads)
 - **Imports your limits when you switch from another stockpile-limit mod** (one-way)
 
 ### About "maximum" (please read)
@@ -41,6 +42,17 @@ threshold simply stay where they are until more accumulates — that's the point
 stockpile that never reaches the threshold keeps those items. With inventory-haul mods (Pick Up And Haul,
 Hauler's Dream) the threshold is enforced per source stack as items are picked up; their bulk trips don't
 run PSC's final trip-size backstop, so enforcement there is per-stack rather than per-combined-trip.
+
+### About per-cell limits (spreading items thin)
+
+Off by default. Turn on **"Enable per-cell stockpile limits"** in the mod settings (General tab) to add a
+**Max per cell** field to the Stockpile Control panel of any **floor stockpile** (it does not apply to
+shelves or other storage buildings). Set it to, say, 10 and pawns will keep at most 10 of an item on each
+tile, spreading the rest across other tiles instead of packing one tile up to a full stack. Set it back to
+0 to switch it off. This is a niche tool: the main use is laying flammables like wood or chemfuel out thin
+so a fire spreads through them, but it also just fans goods out for looks. If a tile already holds more than
+the limit when you set it, pawns redistribute the excess over the normal haul cycle (it spreads fastest when
+the stockpile has room and idle haulers).
 
 ### About the search box
 

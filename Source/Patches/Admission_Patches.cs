@@ -293,7 +293,13 @@ namespace PrecisionStockpileControl
             var targetUnit = new PscHaulUnit(canon);
             var sourceUnit = PscHaulUnit.ResolveCurrent(t);
             if (t.Spawned && t.Position == storeCell) { __result = null; PscFeederHaulContext.Clear(t); return; }
-            if (sourceUnit.IsValid && sourceUnit.Equals(targetUnit)) { __result = null; PscFeederHaulContext.Clear(t); return; }
+
+            // Per-cell spread (floor-only, opt-in): an over-cap floor cell's excess may relocate to an
+            // emptier cell IN THE SAME stockpile, so the same-unit cancel below must NOT fire for that
+            // genuine intra-unit spread. perTileSrcCap is the cap on t's current cell; > cap means excess.
+            bool perTileSpread = PscPerTile.TryGetCellCap(t, out int perTileSrcCap) && t.stackCount > perTileSrcCap;
+
+            if (!perTileSpread && sourceUnit.IsValid && sourceUnit.Equals(targetUnit)) { __result = null; PscFeederHaulContext.Clear(t); return; }
 
             var psc = PscMapComponent.For(p.Map);
             if (psc != null && sourceUnit.IsValid && psc.FeederAllows(sourceUnit, targetUnit))
@@ -305,6 +311,24 @@ namespace PrecisionStockpileControl
             {
                 PscFeederHaulContext.Clear(t);
             }
+
+            // Per-cell ("per-tile") clamp (floor-only, opt-in). Dest: never deliver more than the
+            // destination cell's remaining room under its cap. Source: when the source cell is over its
+            // cap, move only the excess so it lands exactly on the cap (anti-oscillation, mirrors the
+            // per-def drain clamp). Composes by min with the per-def clamps below.
+            if (PscPerTile.TryGetCellRoom(storeCell, p.Map, t.def, out int cellRoom))
+            {
+                if (cellRoom <= 0) { PscFeederHaulContext.Clear(t); __result = null; return; }
+                if (__result.count > cellRoom) __result.count = cellRoom;
+            }
+            if (perTileSpread && __result.count > t.stackCount - perTileSrcCap)
+                __result.count = t.stackCount - perTileSrcCap;
+            if (__result.count <= 0) { PscFeederHaulContext.Clear(t); __result = null; return; }
+
+            // Intra-unit spread: the per-def target clamps below assume a cross-unit haul that changes the
+            // unit total. An over-cap pile spreading within its OWN stockpile doesn't, so the per-tile
+            // clamps above are the whole story for this trip.
+            if (sourceUnit.IsValid && sourceUnit.Equals(targetUnit)) return;
 
             var data = PscStorageDataStore.TryGet(canon.Settings);
             var sourceData = sourceUnit.IsValid ? PscStorageDataStore.TryGet(sourceUnit.Settings) : null;

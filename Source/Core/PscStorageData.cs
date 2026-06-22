@@ -88,6 +88,7 @@ namespace PrecisionStockpileControl
         public byte subTier;              // fine-order 1-10 sub-tier: 0 = unset
         public string letter;             // fine-order a-z subpriority: null/empty = none
         public PscStorageMode mode;       // hauling mode (Normal = vanilla)
+        public int perTileLimit;          // per-cell cap for FLOOR stockpiles (opt-in, PscSettings.perTileLimits): 0 = off, else max items on one floor cell
 
         // Stockpile alarm (opt-in): null when unused, so a unit with no alarm writes nothing and
         // costs nothing. Holds the high/low fullness thresholds, dwell, cadence, notify style, and
@@ -112,6 +113,7 @@ namespace PrecisionStockpileControl
             || batch > 0 || batchEmpty > 0 || onlyFromSource || onlyToDestinations
             || subTier != 0 || !string.IsNullOrEmpty(letter)
             || mode != PscStorageMode.Normal
+            || perTileLimit > 0
             || (alarm != null && alarm.IsActive);
 
         // Per-def limit accessors. The admission, hard-cap, and refill paths gate on HasLimit then
@@ -326,6 +328,7 @@ namespace PrecisionStockpileControl
             subTier = other.subTier;
             letter = other.letter;
             mode = other.mode;
+            perTileLimit = other.perTileLimit;
             alarm = (other.alarm != null && other.alarm.IsActive) ? other.alarm.Clone() : null;
             refilling.Clear();
             reservedInbound.Clear();
@@ -363,6 +366,7 @@ namespace PrecisionStockpileControl
                 batch = other?.batch ?? 0;
                 batchEmpty = other?.batchEmpty ?? 0;
                 mode = other?.mode ?? PscStorageMode.Normal;
+                perTileLimit = other?.perTileLimit ?? 0;
                 alarm = (other?.alarm != null && other.alarm.IsActive) ? other.alarm.Clone() : null;
             }
 
@@ -389,6 +393,7 @@ namespace PrecisionStockpileControl
             Scribe_Values.Look(ref subTier, "subTier", (byte)0);
             Scribe_Values.Look(ref letter, "letter");
             Scribe_Values.Look(ref mode, "mode", PscStorageMode.Normal);
+            Scribe_Values.Look(ref perTileLimit, "perTile", 0);
 
             // Alarm: write the <alarm> child only when armed (write-nothing-when-empty contract). On
             // load (LoadingVars) read it back; null stays the valid "no alarm" state (no PostLoadInit
@@ -415,6 +420,7 @@ namespace PrecisionStockpileControl
                 }
                 if (toRemove != null)
                     foreach (var k in toRemove) limits.Remove(k);
+                if (perTileLimit < 0) perTileLimit = 0;   // defensive: a stray negative degrades to off
                 allDirty = true;
                 reservedInbound.Clear();   // runtime-only; rebuilt from active jobs after load
             }
