@@ -1,8 +1,0 @@
-PLACEHOLDER — drop SetDestination.png here, then delete this .txt.
-
-Icon: feeder "Set destination" gizmo (paint tool on a selected stockpile/shelf).
-Represents: marking THIS storage as a DESTINATION that is fed by source storage.
-Suggested glyph: an arrow/flow ENTERING a box (in-flow), the "to" end of a route.
-
-Loader (already wired, no fallback): PscFeederGizmos.ConnectDestTex -> "UI/Feeder/SetDestination".
-Until the png exists this gizmo shows magenta BadTex on purpose.

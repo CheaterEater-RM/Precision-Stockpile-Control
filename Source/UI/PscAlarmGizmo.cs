@@ -14,7 +14,7 @@ namespace PrecisionStockpileControl
     [StaticConstructorOnStartup]
     public static class PscAlarmGizmo
     {
-        private static readonly Texture2D AlarmTex = Load("UI/Alarm/Alarm");
+        private static readonly Texture2D AlarmTex = Load("UI/Toggles/PSC_Alarm");
         private static readonly Color ArmedColor = new Color(1f, 0.82f, 0.16f);   // amber when armed
         private static readonly Color DisarmedColor = new Color(0.65f, 0.65f, 0.65f);
 

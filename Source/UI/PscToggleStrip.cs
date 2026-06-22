@@ -32,8 +32,8 @@ namespace PrecisionStockpileControl
         // Icon textures come from the shared catalog (PscStatusIcons) so each path lives in one place.
         private static readonly Texture2D BatchInTex = PscStatusIcons.BatchInTex;
         private static readonly Texture2D BatchOutTex = PscStatusIcons.BatchOutTex;
-        private static readonly Texture2D OnlyFromTex = PscStatusIcons.OnlyFromTex;
-        private static readonly Texture2D OnlyToTex = PscStatusIcons.OnlyToTex;
+        private static readonly Texture2D OnlyFromTex = PscStatusIcons.OnlyFromTinyTex;
+        private static readonly Texture2D OnlyToTex = PscStatusIcons.OnlyToTinyTex;
         private static readonly Texture2D AlarmTex = PscStatusIcons.AlarmTex;
 
         private static readonly Color OffIcon = new Color(0.62f, 0.62f, 0.62f, 0.55f);   // desaturated/dim

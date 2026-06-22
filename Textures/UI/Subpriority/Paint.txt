@@ -1,8 +1,0 @@
-PLACEHOLDER — drop Paint.png here, then delete this .txt.
-
-Icon: "Paint subpriority" gizmo (sequential subpriority painter, design §9).
-Represents: walking the a-z subpriority order downward across painted storage.
-Suggested glyph: a distinct "sequential paint / a-b-c" mark (NOT the rename pencil).
-
-Loader (already wired, no fallback): PscSubpriorityPaintGizmo.PaintTex -> "UI/Subpriority/Paint".
-Until the png exists this gizmo shows magenta BadTex on purpose.

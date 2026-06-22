@@ -10,13 +10,13 @@ namespace PrecisionStockpileControl
     // player click/drag other storage to walk the a-z subpriority downward across them. Only the letter
     // sequence is new; the gizmo is a thin launcher in the PscFeederGizmos mould.
     //
-    // Icon loads PSC art from UI/Subpriority/Paint; a missing file shows BadTex on purpose, as a
-    // visible "art not drawn yet" signal rather than a vanilla stand-in (05_WISHLIST.md).
+    // Icon loads PSC art from UI/Subpriority/PSC_Paint; a missing file shows BadTex on purpose, as a
+    // visible "art not drawn yet" signal rather than a vanilla stand-in.
     [StaticConstructorOnStartup]
     public static class PscSubpriorityPaintGizmo
     {
         private static readonly Texture2D PaintTex =
-            ContentFinder<Texture2D>.Get("UI/Subpriority/Paint", reportFailure: false)
+            ContentFinder<Texture2D>.Get("UI/Subpriority/PSC_Paint", reportFailure: false)
             ?? BaseContent.BadTex;
 
         public static IEnumerable<Gizmo> GizmosFor(StorageSettings settings, PscHaulUnit unit)

@@ -1,8 +1,0 @@
-PLACEHOLDER — drop SetSource.png here, then delete this .txt.
-
-Icon: feeder "Set source" gizmo (paint tool on a selected stockpile/shelf).
-Represents: marking THIS storage as a SOURCE that feeds other (destination) storage.
-Suggested glyph: an arrow/flow LEAVING a box (out-flow), the "from" end of a route.
-
-Loader (already wired, no fallback): PscFeederGizmos.ConnectSourceTex -> "UI/Feeder/SetSource".
-Until the png exists this gizmo shows magenta BadTex on purpose.

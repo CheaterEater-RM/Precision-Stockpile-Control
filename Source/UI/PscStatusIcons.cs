@@ -26,12 +26,18 @@ namespace PrecisionStockpileControl
         }
 
         // Toggle / policy icons (shared with PscToggleStrip).
-        public static readonly Texture2D BatchInTex  = Load("UI/Toggles/BatchIn");
-        public static readonly Texture2D BatchOutTex = Load("UI/Toggles/BatchOut");
-        public static readonly Texture2D OnlyFromTex = Load("UI/Toggles/OnlyFromSource");
-        public static readonly Texture2D OnlyToTex   = Load("UI/Toggles/OnlyToDestinations");
-        public static readonly Texture2D AlarmTex    = Load("UI/Toggles/Alarm");
+        public static readonly Texture2D BatchInTex  = Load("UI/Toggles/PSC_BatchIn");
+        public static readonly Texture2D BatchOutTex = Load("UI/Toggles/PSC_BatchOut");
+        public static readonly Texture2D OnlyFromTex = Load("UI/Toggles/PSC_Accept");
+        public static readonly Texture2D OnlyToTex   = Load("UI/Toggles/PSC_Distribute");
+        public static readonly Texture2D AlarmTex    = Load("UI/Toggles/PSC_Alarm");
         public static readonly Texture2D LimitsTex   = Load("UI/Widgets/PSC_LimitI");
+
+        // Compact route-toggle variants for the small icon surfaces (the storage-tab toggle strip and
+        // the on-map overlay), where the full-detail Accept/Distribute art is illegible when shrunk.
+        // The full-size art above stays on the inspector gizmos (PscFeederGizmos).
+        public static readonly Texture2D OnlyFromTinyTex = Load("UI/Toggles/PSC_AcceptTiny");
+        public static readonly Texture2D OnlyToTinyTex   = Load("UI/Toggles/PSC_DistributeTiny");
 
         // Mode icons (shared with PscModeGizmo).
         public static readonly Texture2D ModeOnTex       = Load("UI/Mode/On");
@@ -57,7 +63,9 @@ namespace PrecisionStockpileControl
             return f;
         }
 
-        // Texture for a single non-Mode flag. Mode is mode-value dependent — use ModeTex.
+        // Texture for a single non-Mode flag, sized for the small icon surfaces (overlay / toggle
+        // strip) — the route toggles use their compact Tiny variants here. Mode is mode-value
+        // dependent — use ModeTex.
         public static Texture2D TextureFor(Flag single)
         {
             switch (single)
@@ -65,8 +73,8 @@ namespace PrecisionStockpileControl
                 case Flag.Limits:     return LimitsTex;
                 case Flag.BatchFill:  return BatchInTex;
                 case Flag.BatchEmpty: return BatchOutTex;
-                case Flag.OnlyFrom:   return OnlyFromTex;
-                case Flag.OnlyTo:     return OnlyToTex;
+                case Flag.OnlyFrom:   return OnlyFromTinyTex;
+                case Flag.OnlyTo:     return OnlyToTinyTex;
                 case Flag.Alarm:      return AlarmTex;
                 default:              return BaseContent.BadTex;
             }

@@ -9,16 +9,16 @@ namespace PrecisionStockpileControl
     // Set source, Set destination, Clear route (paint tool; right-click for bulk clears),
     // Pull-only (toggle), Push-only (toggle).
     //
-    // Paint-tool icons load PSC art from UI/Feeder/ (SetSource / SetDestination / ClearRoute); a
-    // missing file shows BadTex on purpose, as a visible "art not drawn yet" signal rather than a
-    // vanilla stand-in. The Only-from / Only-to toggles reuse the existing UI/Toggles art via
-    // PscStatusIcons (single source of truth). 05_WISHLIST.md tracks the not-yet-drawn glyphs.
+    // Paint-tool icons load PSC art from UI/Feeder/ (PSC_SetSource / PSC_SetDestination /
+    // PSC_ClearRoute); a missing file shows BadTex on purpose, as a visible "art not drawn yet" signal
+    // rather than a vanilla stand-in. The Only-from / Only-to toggles reuse the existing UI/Toggles art
+    // via PscStatusIcons (single source of truth).
     [StaticConstructorOnStartup]
     public static class PscFeederGizmos
     {
-        private static readonly Texture2D ConnectSourceTex = Load("UI/Feeder/SetSource");
-        private static readonly Texture2D ConnectDestTex = Load("UI/Feeder/SetDestination");
-        private static readonly Texture2D BreakTex = Load("UI/Feeder/ClearRoute");
+        private static readonly Texture2D ConnectSourceTex = Load("UI/Feeder/PSC_SetSource");
+        private static readonly Texture2D ConnectDestTex = Load("UI/Feeder/PSC_SetDestination");
+        private static readonly Texture2D BreakTex = Load("UI/Feeder/PSC_ClearRoute");
 
         private static Texture2D Load(string path) => ContentFinder<Texture2D>.Get(path, reportFailure: false) ?? BaseContent.BadTex;
 
