@@ -80,9 +80,12 @@ namespace PrecisionStockpileControl
             => Compare(higher, lower) < 0;
 
         // ---- Auto-priority on feeder links (D4) ----
-        // Outcome of an auto-priority attempt: nothing was needed, a letter step was applied, or the
-        // anchor was already at the extreme so no strict step is possible (nothing changed).
-        public enum AutoOrderResult { Skipped, Placed, Clamped }
+        // Outcome of an auto-priority attempt: nothing was needed (Skipped), a letter step was applied
+        // (Placed), the anchor was already at the letter extreme (Clamped), or the two units are in
+        // different priority BANDS so no within-band letter step can order them (CrossBand). Auto-priority
+        // never changes a unit's band on its own (that would silently demote/promote a band the player set
+        // — N2); CrossBand means "tell the player to set the band by hand", nothing was changed.
+        public enum AutoOrderResult { Skipped, Placed, Clamped, CrossBand }
 
         // Step toward lower priority: none -> a -> b -> ... -> z. Clamps at z (clamped=true when the
         // input is already z). Empty/junk-below-'a' is treated as no-letter, so the first step is 'a'.
@@ -148,6 +151,10 @@ namespace PrecisionStockpileControl
         {
             if (dest == null || source == null) return AutoOrderResult.Skipped;
             if (Outranks(dest, source)) return AutoOrderResult.Skipped;
+            // Past the Outranks check, dest does NOT outrank source. If they are in different bands that can
+            // only be because source's band is HIGHER; a within-band letter step can't fix it, and adopting
+            // dest's band would silently DEMOTE source (N2). Refuse and let the player set the band by hand.
+            if (dest.Priority != source.Priority) return AutoOrderResult.CrossBand;
             var destData = PscStorageDataStore.TryGet(dest);
             string newLetter = StepLetterDown(destData?.letter, out bool clamped);
             if (clamped) return AutoOrderResult.Clamped;
@@ -162,6 +169,9 @@ namespace PrecisionStockpileControl
         {
             if (source == null || dest == null) return AutoOrderResult.Skipped;
             if (Outranks(dest, source)) return AutoOrderResult.Skipped;
+            // Different bands here means dest's band is LOWER than source's; adopting source's band would
+            // silently PROMOTE dest (N2). Refuse so auto-priority never changes a band on its own.
+            if (source.Priority != dest.Priority) return AutoOrderResult.CrossBand;
             var srcData = PscStorageDataStore.TryGet(source);
             string newLetter = StepLetterUp(srcData?.letter, out bool clamped);
             if (clamped) return AutoOrderResult.Clamped;

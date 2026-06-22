@@ -99,15 +99,20 @@ namespace PrecisionStockpileControl
                 case PscFeederLinkMode.Source:                                            // picked unit feeds self
                     if (psc.AddFeederLink(other, self))
                     {
-                        AutoPriority(dest: self, source: other);
-                        WarnIfDeadRoute(psc, source: other, dest: self);
+                        // Auto-priority FIRST, then seed strictness only if the route is functional now, so a
+                        // nudge that fixes the order gets its flags but a still-dead route doesn't lock the
+                        // piles (F4). Skip the dead-route warning when auto-priority already explained why.
+                        bool messaged = AutoPriority(dest: self, source: other);
+                        psc.SeedFeederStrictnessIfFunctional(other, self);
+                        if (!messaged) WarnIfDeadRoute(psc, source: other, dest: self);
                     }
                     break;
                 case PscFeederLinkMode.Destination:                                       // self feeds picked unit
                     if (psc.AddFeederLink(self, other))
                     {
-                        AutoPriority(dest: other, source: self);
-                        WarnIfDeadRoute(psc, source: self, dest: other);
+                        bool messaged = AutoPriority(dest: other, source: self);
+                        psc.SeedFeederStrictnessIfFunctional(self, other);
+                        if (!messaged) WarnIfDeadRoute(psc, source: self, dest: other);
                     }
                     break;
                 case PscFeederLinkMode.Break: psc.BreakFeederLink(self, other); break;    // drop any link between them
@@ -132,26 +137,37 @@ namespace PrecisionStockpileControl
         // The two directions are independent opt-in settings: Connect-source paints the source (steps it
         // DOWN below the anchor dest, gated on autosetSourcePriority); Connect-destination paints the dest
         // (steps it UP above the anchor source, gated on autosetDestinationPriority). Both off by default.
-        // Clamps at the band's letter range and tells the player when it couldn't place.
-        private void AutoPriority(PscHaulUnit dest, PscHaulUnit source)
+        // Only nudges WITHIN a band (letter steps); it never changes a unit's band (CrossBand → message),
+        // and clamps at the band's letter range. Returns true when it surfaced a message (Clamped /
+        // CrossBand), so the caller can skip the redundant dead-route warning.
+        private bool AutoPriority(PscHaulUnit dest, PscHaulUnit source)
         {
-            if (PscMod.Settings == null) return;
+            if (PscMod.Settings == null) return false;
             PscOrder.AutoOrderResult result;
             string clampKey;
             if (mode == PscFeederLinkMode.Source)
             {
-                if (!PscMod.Settings.autosetSourcePriority) return;
+                if (!PscMod.Settings.autosetSourcePriority) return false;
                 result = PscOrder.PlaceSourceBelowDest(dest.Settings, source.Settings);   // painted = source, step down
                 clampKey = "PSC_AutoPriorityClampLow";
             }
             else
             {
-                if (!PscMod.Settings.autosetDestinationPriority) return;
+                if (!PscMod.Settings.autosetDestinationPriority) return false;
                 result = PscOrder.PlaceDestAboveSource(source.Settings, dest.Settings);   // painted = dest, step up
                 clampKey = "PSC_AutoPriorityClampHigh";
             }
             if (result == PscOrder.AutoOrderResult.Clamped)
+            {
                 Messages.Message(clampKey.Translate(), MessageTypeDefOf.RejectInput, historical: false);
+                return true;
+            }
+            if (result == PscOrder.AutoOrderResult.CrossBand)
+            {
+                Messages.Message("PSC_AutoPriorityCrossBand".Translate(), MessageTypeDefOf.RejectInput, historical: false);
+                return true;
+            }
+            return false;
         }
 
         // Paint while the left button is held: link each new cell the cursor passes over. (AddFeederLink

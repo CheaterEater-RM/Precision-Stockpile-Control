@@ -123,6 +123,28 @@ namespace PrecisionStockpileControl
             }
         }
 
+        // Pawn-agnostic physical item space for `def` across the unit's cells, summed but capped at
+        // `capAt` (early-out once reached, so a unit with plenty of room is cheap; a near-full unit pays a
+        // full O(cells) scan). Deep-storage aware via vanilla GetItemStackSpaceLeftFor. Used by the batch
+        // destination-room gate for UNCAPPED batched units (the capped case uses cap-room arithmetic). It
+        // ignores IsGoodStoreCell's pawn reservation/reachability, so it OVER-estimates room vs a specific
+        // pawn — the safe direction for a reject gate (never a false reject). CellsList is a static temp,
+        // consumed immediately, never retained.
+        public int PhysicalRoomForDef(ThingDef def, int capAt)
+        {
+            if (def == null) return 0;
+            var cells = group?.CellsList;
+            var map = Map;
+            if (cells == null || map == null) return 0;
+            int room = 0;
+            for (int i = 0; i < cells.Count; i++)
+            {
+                room += cells[i].GetItemStackSpaceLeftFor(map, def);
+                if (room >= capAt) return room;
+            }
+            return room;
+        }
+
         private static ISlotGroup Canonicalize(ISlotGroup slot)
         {
             if (slot == null) return null;

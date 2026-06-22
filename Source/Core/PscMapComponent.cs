@@ -107,6 +107,14 @@ namespace PrecisionStockpileControl
             var unit = PscHaulUnit.ResolveSettings(settings);
             if (!unit.IsValid) return;
             For(unit.Map)?.UpdateTracking(settings);
+            // Wake vanilla's haulables lister for this unit's cells. A PSC-only policy edit (cap lowered,
+            // freeze mode, feeder flags, batch) changes whether already-stored items are valid, but vanilla
+            // only recalcs a slot group on its OWN filter/priority change — so without this poke the change
+            // wouldn't take effect until ListerHaulablesTick's slow round-robin happens to revisit the cells.
+            // settings.owner is non-null here (ResolveSettings required it). This is the exact seam vanilla
+            // uses for filter edits (StorageSettings.TryNotifyChanged -> owner.Notify_SettingsChanged ->
+            // listerHaulables.Notify_SlotGroupChanged); it does not call back into PSC, so no re-entrancy.
+            settings.owner?.Notify_SettingsChanged();
         }
 
         private void UpdateTracking(StorageSettings settings)
@@ -166,6 +174,10 @@ namespace PrecisionStockpileControl
             // Newly active (load / toggle-on / first capped unit): force one full rebuild scan so hauls
             // already in flight get reservations even though their Notify_Starting fired before we tracked.
             if (any && !anyReservedActive) forceReservedRescan = true;
+            // Newly INactive (last upper cap removed at runtime): the periodic rebuild is now gated off, so
+            // clear any lingering reserved-inbound here or it would sit stale on the data object (N3). Benign
+            // today — all readers gate on HasLimit+Upper — but defense-in-depth against a future read path.
+            else if (!any && anyReservedActive) ClearAllReservedInbound();
             anyReservedActive = any;
         }
 
@@ -250,12 +262,13 @@ namespace PrecisionStockpileControl
                     if (unit.IsValid && unit.Map == map)
                     {
                         tracked.Add(kv.Key);
-                        // markDirty == true only at load (FinalizeInit). The runtime `refilling`
-                        // (hysteresis) set is never scribed, so a freshly loaded unit has it empty;
-                        // re-derive it from current contents (ON for any limited def below its upper)
-                        // rather than just MarkAllDirty, or a pile saved mid-refill (count between
-                        // lower and upper) would deserialize stuck not-refilling and never fill again.
-                        if (markDirty) kv.Value.Notify_LimitsSeeded(unit);
+                        // markDirty == true only at load (FinalizeInit). Hysteresis state (lim.refill) is now
+                        // PERSISTED on each limit, so the load path must NOT re-seed it from contents — that
+                        // would clobber a deliberately-drained pile's Satisfied state back to Refilling. Just
+                        // mark counts dirty; the first recompute's UpdateRefilling keeps the restored in-band
+                        // state and reconciles only the rails. (Migration/paste still seed via
+                        // Notify_LimitsSeeded — those are fresh policy, not a load-restore.)
+                        if (markDirty) kv.Value.MarkAllDirty();
                     }
                 }
             }
@@ -303,6 +316,7 @@ namespace PrecisionStockpileControl
         // ---- feeder facade: thin pass-throughs to PscFeederManager (logic lives there) ----
 
         public bool AddFeederLink(PscHaulUnit source, PscHaulUnit dest) => feeder.AddFeederLink(source, dest);
+        public void SeedFeederStrictnessIfFunctional(PscHaulUnit source, PscHaulUnit dest) => feeder.SeedFeederStrictnessIfFunctional(source, dest);
         public void BreakFeederLink(PscHaulUnit self, PscHaulUnit other) => feeder.BreakFeederLink(self, other);
         public void ClearAllFeederLinks() => feeder.ClearAllFeederLinks();
         public void ClearFeederLinksFor(PscHaulUnit unit) => feeder.ClearFeederLinksFor(unit);

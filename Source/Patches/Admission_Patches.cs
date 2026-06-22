@@ -178,25 +178,35 @@ namespace PrecisionStockpileControl
                     __result = false; return;
                 }
 
-                // Destination-room gate: a capped unit that can't fit a full batch (room < batch) is not
-                // a valid batch destination — reject here so vanilla stops treating it as one. Without
-                // this, a capped+batched pile sitting in its top <batch window (0 < upper-n < batch)
-                // passes admission every haul scan but has the resulting job cancelled by the
-                // HaulToCellStorageJob room<batch clamp, churning plan/cancel forever while loose stock
-                // exists. The last <batch items are intentionally never topped off ("no small trips");
-                // this only stops the wasted re-planning. (n < upper already holds — the over-cap gate
-                // above returned otherwise — so room >= 1 here.)
-                if (hasLimit)
+                // Destination-room gate: a unit that can't fit a full batch (room < batch) is not a valid
+                // batch destination — reject here so vanilla stops treating it as one. Without this, a
+                // batched pile sitting with 0 < room < batch passes admission every haul scan but has the
+                // resulting job cancelled by the HaulToCellStorageJob room<batch clamp, churning plan/cancel
+                // forever while loose stock exists. The last <batch items are intentionally never topped off
+                // ("no small trips"); this only stops the wasted re-planning.
+                var blim = hasLimit ? data.GetLimit(t.def) : null;
+                if (blim != null && blim.Upper.HasValue)
                 {
-                    var lim = data.GetLimit(t.def);
-                    // Effective room (physical + reserved) so in-flight hauls count toward the batch-room
-                    // gate too, but only while planning (store-search scope) — a validity re-check reads physical.
-                    if (lim.Upper.HasValue && lim.Upper.Value - PscAdmissionScope.PlanningCount(data, t.def, unit) < data.batch)
+                    // Capped: cap-room arithmetic. Effective room (physical + reserved) so in-flight hauls
+                    // count too, but only while planning (PlanningCount reads physical on a re-check, which
+                    // is stable until delivery, so this only bites at plan time).
+                    if (blim.Upper.Value - PscAdmissionScope.PlanningCount(data, t.def, unit) < data.batch)
                     {
                         LogReject(t, unit, "underBatchRoom",
-                            $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (room < batch {data.batch})");
+                            $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (cap room < batch {data.batch})");
                         __result = false; return;
                     }
+                }
+                else if (PscAdmissionScope.InStoreSearch
+                         && unit.PhysicalRoomForDef(t.def, data.batch) < data.batch)
+                {
+                    // Uncapped (or lower-only): no cap to subtract from, so gate on vanilla PHYSICAL stack
+                    // space — the same churn (N1) otherwise hits a batched unit with no upper. Scoped to the
+                    // store-search so an in-flight hauler's FailOn re-check never runs the cell scan or
+                    // self-cancels (physical room is unchanged until delivery anyway).
+                    LogReject(t, unit, "underBatchRoom",
+                        $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (physical room < batch {data.batch})");
+                    __result = false; return;
                 }
             }
         }
@@ -304,8 +314,13 @@ namespace PrecisionStockpileControl
             var psc = PscMapComponent.For(p.Map);
             if (psc != null && sourceUnit.IsValid && psc.FeederAllows(sourceUnit, targetUnit))
             {
+                // Disable opportunistic duplicates for a feeder haul (harmless on a discarded probe job).
+                // The route Register itself is NOT done here (F3): this builder also runs during discarded
+                // WorkGiver.HasJobOnThing feasibility probes, so registering here leaked stale routes that
+                // could transfer onto a carried stack (under PUAH/HD) and wrong-reject a later delivery.
+                // Registration now lives at the committed job-start seam (JobDriver_HaulToCell.Notify_Starting,
+                // Feeder_HaulContext_Patches), mirroring the reserved-inbound fix.
                 __result.haulOpportunisticDuplicates = false;
-                PscFeederHaulContext.Register(t, p.Map, sourceUnit.UniqueLoadID, targetUnit.UniqueLoadID);
             }
             else
             {

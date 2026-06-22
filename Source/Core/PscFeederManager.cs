@@ -36,10 +36,11 @@ namespace PrecisionStockpileControl
 
         // ---- feeder link mutation (called from gizmos / lifecycle patches) ----
 
-        // Create a directed link source -> dest. On a unit acquiring its FIRST source/destination
-        // (0->1), seed the matching strictness flag from the mod-setting default (D: default on).
-        // Returns true only when a NEW edge was created, so callers (the link designator) can run
-        // one-shot follow-ups like auto-priority without re-firing on a re-painted, already-linked unit.
+        // Create a directed link source -> dest. Returns true only when a NEW edge was created, so callers
+        // (the link designator) can run one-shot follow-ups (auto-priority, strictness seeding) without
+        // re-firing on a re-painted, already-linked unit. Strictness seeding is NOT done here — it is the
+        // designator's job AFTER auto-priority, via SeedFeederStrictnessIfFunctional, so a route that
+        // auto-priority makes functional gets seeded and a still-dead route does not (F4).
         //
         // A pair carries at most ONE direction: setting s -> d first drops any existing reverse d -> s,
         // so linking each of two piles to the other flips the direction instead of forming a
@@ -54,30 +55,37 @@ namespace PrecisionStockpileControl
             bool replacedReverse = links.RemoveEdge(d, s);
             if (replacedReverse) PscLog.Msg($"link: dropped reverse edge {d} -> {s} (replaced by {s} -> {d})");
 
-            bool destHadSource = links.HasAnySource(d);
-            bool sourceHadDest = links.HasAnyDestination(s);
             bool created = links.AddEdge(s, d);
-            if (created)
-            {
-                PscLog.Msg($"link: created {s} -> {d}");
-                if (!destHadSource && PscMod.Settings.defaultOnlyFromSource)
-                {
-                    SetFeederFlag(dest.Settings, fromSource: true);
-                    PscLog.Msg($"link: seeded onlyFromSource on {d}");
-                }
-                if (!sourceHadDest && PscMod.Settings.defaultOnlyToDestinations)
-                {
-                    SetFeederFlag(source.Settings, fromSource: false);
-                    PscLog.Msg($"link: seeded onlyToDestinations on {s}");
-                }
-            }
-            else
-            {
-                PscLog.Msg($"link: edge already exists {s} -> {d}");
-            }
+            PscLog.Msg(created ? $"link: created {s} -> {d}" : $"link: edge already exists {s} -> {d}");
 
             if (replacedReverse) PruneFeederLinksAndFlags();
             return created;
+        }
+
+        // Seed the default pull/push strictness flags for a freshly created route — but ONLY when the route
+        // is actually FUNCTIONAL (dest outranks source). Seeding strict flags onto a DEAD route (same- or
+        // reverse-priority, auto-priority off) would lock both piles: the source's onlyToDestinations stops
+        // it draining elsewhere and the dest's onlyFromSource stops it accepting elsewhere, while no item
+        // can legally flow the route (F4). The designator calls this AFTER auto-priority, so a nudge that
+        // makes the route functional still gets seeded. Each flag seeds only on the unit's FIRST
+        // source/destination (count == 1 post-add) so a later route never re-enables a flag the player
+        // turned off. Gizmo-only (clipboard/lifecycle paths add edges directly and never seed defaults).
+        public void SeedFeederStrictnessIfFunctional(PscHaulUnit source, PscHaulUnit dest)
+        {
+            if (PscMod.Settings == null) return;
+            if (!HasFunctionalFeederEdge(source, dest)) return;
+            string s = source.UniqueLoadID, d = dest.UniqueLoadID;
+            if (s == null || d == null) return;
+            if (PscMod.Settings.defaultOnlyFromSource && links.SourceCount(d) == 1)
+            {
+                SetFeederFlag(dest.Settings, fromSource: true);
+                PscLog.Msg($"link: seeded onlyFromSource on {d}");
+            }
+            if (PscMod.Settings.defaultOnlyToDestinations && links.DestinationCount(s) == 1)
+            {
+                SetFeederFlag(source.Settings, fromSource: false);
+                PscLog.Msg($"link: seeded onlyToDestinations on {s}");
+            }
         }
 
         private static void SetFeederFlag(StorageSettings settings, bool fromSource)

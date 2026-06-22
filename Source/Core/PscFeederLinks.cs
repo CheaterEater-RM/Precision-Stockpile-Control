@@ -100,6 +100,11 @@ namespace PrecisionStockpileControl
         public bool HasAnySource(string id) { if (string.IsNullOrEmpty(id)) return false; EnsureIndex(); return sourcesByDest.ContainsKey(id); }
         public bool HasAnyDestination(string id) { if (string.IsNullOrEmpty(id)) return false; EnsureIndex(); return destsBySource.ContainsKey(id); }
 
+        // Edge counts touching one endpoint. Used by the post-add strictness seeding to detect the unit's
+        // FIRST source/destination (count == 1) without needing pre-add state.
+        public int SourceCount(string id) { if (string.IsNullOrEmpty(id)) return 0; EnsureIndex(); return sourcesByDest.TryGetValue(id, out var l) ? l.Count : 0; }
+        public int DestinationCount(string id) { if (string.IsNullOrEmpty(id)) return 0; EnsureIndex(); return destsBySource.TryGetValue(id, out var l) ? l.Count : 0; }
+
         // True when destId is reachable from sourceId along OUTGOING edges (a multi-hop chain), for the
         // skip-hops feature. A direct edge is the 1-hop case. Structural only: callers pair this with a
         // live outrank check at the endpoints (PscFeederManager.HasFunctionalFeederPath).

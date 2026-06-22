@@ -12,6 +12,25 @@ namespace PrecisionStockpileControl
     // PscStorageDataStore.IsEmpty before this, so vanilla pays ~nothing when no PSC data exists.
     internal static class PscCap
     {
+        // The shared cell-keyed resolve+gate: cell -> covering PSC unit + its data + an UPPER-capped limit
+        // for `def`. Returns false (all outs null/default) unless the unit has a per-def maximum for def.
+        // The three cell-keyed cap sites — drop-room (TryGetRoom), reserve increment, reserve decrement —
+        // all funnel through here so the "resolve the unit, gate on an upper cap" contract lives in one
+        // place and can't drift between them.
+        public static bool TryGetUpperLimit(IntVec3 cell, Map map, ThingDef def,
+            out PscHaulUnit unit, out PscStorageData data, out PscDefLimit lim)
+        {
+            unit = default; data = null; lim = null;
+            if (def == null || map == null) return false;
+            unit = PscHaulUnit.ResolveCell(cell, map);
+            if (!unit.IsValid) return false;
+            data = PscStorageDataStore.TryGet(unit.Settings);
+            if (data == null || !data.HasLimit(def)) return false;
+            lim = data.GetLimit(def);
+            if (lim == null || !lim.Upper.HasValue) return false;
+            return true;
+        }
+
         // includeReserved: SOFT-planning callers (PUAH / Hauler's Dream capacity probes) pass true so the
         // returned room reflects in-flight hauls (effective = physical + reserved-inbound) and those mods
         // don't over-allocate into a unit other haulers are already filling. The HARD carry-drop caller
@@ -20,13 +39,7 @@ namespace PrecisionStockpileControl
         public static bool TryGetRoom(IntVec3 cell, Map map, ThingDef def, out int room, bool includeReserved = false)
         {
             room = int.MaxValue;
-            if (def == null || map == null) return false;
-            var unit = PscHaulUnit.ResolveCell(cell, map);
-            if (!unit.IsValid) return false;
-            var data = PscStorageDataStore.TryGet(unit.Settings);
-            if (data == null || !data.HasLimit(def)) return false;
-            var lim = data.GetLimit(def);
-            if (!lim.Upper.HasValue) return false;
+            if (!TryGetUpperLimit(cell, map, def, out var unit, out var data, out var lim)) return false;
             int used = (includeReserved && PscMod.Settings.reservedFillCounting)
                 ? data.GetEffectiveCount(def, unit)
                 : data.GetCount(def, unit);
@@ -48,8 +61,11 @@ namespace PrecisionStockpileControl
     //
     // Chosen over the design's PlaceHauledThingInCell-lambda transpiler (Stockpile Limit precedent):
     // a tightly-gated prefix on the public no-count overload is more robust (no compiler-lambda
-    // reflection) and also catches manual/drafted drops into a capped stockpile. Narrowly gated
-    // cancelling prefix (Hard Rule #6) — only acts on drops into a PSC-capped unit.
+    // reflection). It enforces only the storage-mode `Direct` drop seam (the normal haul path); it does
+    // NOT cap Near/Radius forced/cleanup/manual/drafted drops — those ignore the return value and have no
+    // relocate fallback, so capping them would strand or destroy the carried item (see the mode gate
+    // below). No manual or drafted player drop reaches the Direct seam anyway (drafted drop uses Near).
+    // Narrowly gated cancelling prefix (Hard Rule #6) — only acts on Direct drops into a PSC-capped unit.
     [HarmonyPatch]
     public static class Pawn_CarryTracker_TryDropCarriedThing_Patch
     {

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using RimWorld;
 using UnityEngine;
@@ -226,22 +227,14 @@ namespace PrecisionStockpileControl
             PscMapComponent.NotifyPolicyChanged(settings);
         }
 
-        // Per-cell cap: a single per-unit value, applied immediately on edit. After updating policy,
-        // re-check the unit's cells in the haulables lister so existing over-cap piles start spreading at
-        // once (the relocation prefix flags them haulable) instead of waiting for the next cell-dirty
-        // event. CellsList is a static temporary, so copy it before handing it to RecalcAllInCells.
+        // Per-cell cap: a single per-unit value, applied immediately on edit. NotifyPolicyChanged now wakes
+        // the unit's cells in the haulables lister (via owner.Notify_SettingsChanged), so existing over-cap
+        // piles start spreading at once (the relocation prefix flags them haulable) without a bespoke
+        // RecalcAllInCells here.
         private void ApplyPerTile()
         {
             PscStorageDataStore.GetOrCreate(settings).perTileLimit = perTileVal;
             PscMapComponent.NotifyPolicyChanged(settings);
-
-            var cells = unit.group?.CellsList;
-            var map = unit.Map;
-            if (cells != null && cells.Count > 0 && map?.listerHaulables != null)
-            {
-                var snapshot = new List<IntVec3>(cells);
-                map.listerHaulables.RecalcAllInCells(snapshot);
-            }
         }
 
         // True when the current selection is a FLOOR stockpile (Zone_Stockpile slot group). A linked
@@ -274,10 +267,18 @@ namespace PrecisionStockpileControl
                 }
 
                 var parent = StoreParentFromSelected(selected[0]);
-                return parent?.GetStoreSettings() != null;
+                if (parent == null || parent.GetStoreSettings() == null) return false;
+                // Excluded storage (grave / bookcase / gene bank / comp-backed special storage): the FillTab
+                // prefix hides PSC controls for these and won't retarget the window to them, so close rather
+                // than linger over a unit PSC can't edit (F5).
+                if (PscStorageButtonFilter.ShouldHide(parent)) return false;
+                return true;
             }
-            catch
+            catch (Exception ex)
             {
+                // Closing on an unexpected throw is the safe fallback, but log once so a genuine UI-state /
+                // version-drift break leaves a trail instead of a silently vanishing window (F7).
+                Log.WarningOnce("[PSC] PscControlWindow.StillSelected threw; closing the window. " + ex, 0x1C5A0011);
                 return false;
             }
         }

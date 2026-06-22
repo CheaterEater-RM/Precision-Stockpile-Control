@@ -4,6 +4,18 @@ using Verse;
 
 namespace PrecisionStockpileControl
 {
+    // Refill hysteresis edge state, PERSISTED on the limit it describes (D15). Meaningful only in the open
+    // band lower<count<upper; on the rails it is re-derived from the count. Stored by Scribe_Values, which
+    // writes the NAME — reorder-safe, but NEVER rename a value (save-compat surface). Default Unset writes
+    // nothing (write-nothing-when-empty), and means "never evaluated" → admission treats it as fill-up on
+    // first evaluation, so a brand-new or pre-field limit fills to upper before hysteresis takes over.
+    public enum PscRefillState : byte
+    {
+        Unset = 0,       // never evaluated (or no lower threshold) — default to filling
+        Refilling = 1,   // currently below the refill window — admission accepts intake
+        Satisfied = 2,   // reached upper — admission blocks intake until count drops to lower
+    }
+
     // Per-def limit policy. Limits are tracked in ITEMS, never stacks (stacks are a display-only
     // convenience). Stored as int sentinels (-1 = unset) rather than nullable ints to keep
     // Scribe_Values round-tripping boringly safe across versions.
@@ -11,6 +23,10 @@ namespace PrecisionStockpileControl
     {
         public int lowerRaw = -1;   // -1 = unset (D15: "always refill"); 0 = only when empty; N = refill at <= N
         public int upperRaw = -1;   // -1 = unset (unlimited); N = the maximum (hard cap at drop time)
+
+        // Hysteresis edge state, persisted (rides this limit's Deep round-trip, so it self-prunes with the
+        // entry and can never desync from lower/upper). Runtime-derived; NOT part of IsDefault.
+        public PscRefillState refill = PscRefillState.Unset;
 
         public int? Lower
         {
@@ -26,6 +42,8 @@ namespace PrecisionStockpileControl
 
         public bool IsDefault => lowerRaw < 0 && upperRaw < 0;
 
+        // Clone resets refill to Unset: a copy/paste is a FRESH policy decision, not a restore, so it must
+        // not inherit the source pile's band state (the paste path re-seeds it via Notify_LimitsSeeded).
         public PscDefLimit Clone() => new PscDefLimit { lowerRaw = lowerRaw, upperRaw = upperRaw };
 
         // The lower/upper clamp invariant, shared by the limit editor (slider + text fields) and the
@@ -42,6 +60,7 @@ namespace PrecisionStockpileControl
         {
             Scribe_Values.Look(ref lowerRaw, "lower", -1);
             Scribe_Values.Look(ref upperRaw, "upper", -1);
+            Scribe_Values.Look(ref refill, "refill", PscRefillState.Unset);
         }
     }
 
@@ -96,8 +115,8 @@ namespace PrecisionStockpileControl
         public PscAlarmConfig alarm;
 
         // ---- Runtime cache (never scribed; rebuilt from HeldThings) ----
+        // Hysteresis state is NOT here anymore — it is persisted on each PscDefLimit (lim.refill).
         private readonly Dictionary<ThingDef, int> counts = new Dictionary<ThingDef, int>();
-        private readonly HashSet<ThingDef> refilling = new HashSet<ThingDef>();   // hysteresis: present = currently refilling
         private readonly HashSet<ThingDef> dirtyDefs = new HashSet<ThingDef>();
         private bool allDirty = true;
 
@@ -166,7 +185,11 @@ namespace PrecisionStockpileControl
             return counts.TryGetValue(def, out var c) ? c : 0;
         }
 
-        public bool IsRefilling(ThingDef def) => refilling.Contains(def);
+        public bool IsRefilling(ThingDef def)
+        {
+            var lim = GetLimit(def);
+            return lim != null && lim.refill == PscRefillState.Refilling;
+        }
 
         // Effective count = physical + reserved-inbound, read ONLY by the soft planning gates (admission
         // upper gate, batch-room gate, haul-job room clamp, PUAH/HD capacity probes). When the feature
@@ -249,14 +272,19 @@ namespace PrecisionStockpileControl
             UpdateRefilling(def, sum, GetLimit(def));
         }
 
-        // Hysteresis edge logic (D15): refill turns ON at count <= lower, OFF at count >= upper.
-        // lower unset => "always refill" => refilling set unused (admission ignores it).
+        // Hysteresis edge logic (D15), writing the PERSISTED lim.refill: ON (Refilling) at count <= lower,
+        // OFF (Satisfied) at count >= upper. Fed PHYSICAL count only (reserved-inbound is a planning overlay;
+        // hysteresis on effective would flip OFF on merely-reserved hauls). lower unset => not refill-relevant
+        // => Unset (admission ignores it). In the open band a KNOWN state is kept (the whole point of
+        // hysteresis, now persistent); a still-Unset def there is treated as "never evaluated" and defaults
+        // to filling, so a brand-new/pre-field limit fills to upper before the OFF edge can ever fire.
         private void UpdateRefilling(ThingDef def, int count, PscDefLimit lim)
         {
-            if (lim == null || !lim.Lower.HasValue) { refilling.Remove(def); return; }
-            if (lim.Upper.HasValue && count >= lim.Upper.Value) refilling.Remove(def);
-            else if (count <= lim.Lower.Value) refilling.Add(def);
-            // else: between thresholds — keep current state (hysteresis)
+            if (lim == null || !lim.Lower.HasValue) { if (lim != null) lim.refill = PscRefillState.Unset; return; }
+            if (lim.Upper.HasValue && count >= lim.Upper.Value) lim.refill = PscRefillState.Satisfied;
+            else if (count <= lim.Lower.Value) lim.refill = PscRefillState.Refilling;
+            else if (lim.refill == PscRefillState.Unset) lim.refill = PscRefillState.Refilling; // never-evaluated -> default to filling
+            // else: between thresholds with a known state — keep (persisted hysteresis)
         }
 
         // Called when a limit is created/changed via the UI. Seeds refill state ON (so a freshly
@@ -268,8 +296,8 @@ namespace PrecisionStockpileControl
             if (lim != null && lim.Lower.HasValue)
             {
                 int c = GetCount(def, unit);
-                if (!(lim.Upper.HasValue && c >= lim.Upper.Value)) refilling.Add(def);
-                else refilling.Remove(def);
+                lim.refill = (lim.Upper.HasValue && c >= lim.Upper.Value)
+                    ? PscRefillState.Satisfied : PscRefillState.Refilling;
             }
         }
 
@@ -284,8 +312,8 @@ namespace PrecisionStockpileControl
                 var lim = kv.Value;
                 if (lim == null || lim.IsDefault || !lim.Lower.HasValue) continue;
                 int c = GetCount(kv.Key, unit);
-                if (!(lim.Upper.HasValue && c >= lim.Upper.Value)) refilling.Add(kv.Key);
-                else refilling.Remove(kv.Key);
+                lim.refill = (lim.Upper.HasValue && c >= lim.Upper.Value)
+                    ? PscRefillState.Satisfied : PscRefillState.Refilling;
             }
         }
 
@@ -330,7 +358,8 @@ namespace PrecisionStockpileControl
             mode = other.mode;
             perTileLimit = other.perTileLimit;
             alarm = (other.alarm != null && other.alarm.IsActive) ? other.alarm.Clone() : null;
-            refilling.Clear();
+            // refill state rides each cloned PscDefLimit and is reset to Unset by Clone (fresh policy, not a
+            // restore); the caller re-seeds it via Notify_LimitsSeeded.
             reservedInbound.Clear();
             MarkAllDirty();
         }
@@ -370,7 +399,7 @@ namespace PrecisionStockpileControl
                 alarm = (other?.alarm != null && other.alarm.IsActive) ? other.alarm.Clone() : null;
             }
 
-            refilling.Clear();
+            // refill state rides each cloned PscDefLimit (Clone resets it); re-seeded by the caller.
             reservedInbound.Clear();
             MarkAllDirty();
         }

@@ -109,6 +109,23 @@ namespace PrecisionStockpileControl
         }
     }
 
+    // Dissolution shrinks a stored stack's stackCount directly (and may Destroy it) with NO SplitOff /
+    // TryAbsorbStack / slot-group Notify — an uncovered in-place decrement seam (N4). Mark dirty in a
+    // PREFIX while the thing is still spawned/resolvable; the recompute is lazy (next read), by which time
+    // the count has already dropped, so the cache trues up. Without this the unit reads stale-HIGH until
+    // the staggered resync's round-robin (250 * trackedCount ticks) reaches it — benign (over-conservative:
+    // a delayed refill, never a cap overshoot), but cheap to close.
+    [HarmonyPatch(typeof(CompDissolution), nameof(CompDissolution.TriggerDissolutionEvent))]
+    public static class CompDissolution_TriggerDissolutionEvent_Patch
+    {
+        public static void Prefix(CompDissolution __instance)
+        {
+            if (PscStorageDataStore.IsEmpty) return;
+            var parent = __instance.parent;
+            if (parent != null && parent.Spawned) PscCount.MarkDirtyForThing(parent);
+        }
+    }
+
     // --- Zone cells gain/lose contents wholesale ---
     [HarmonyPatch(typeof(Zone_Stockpile), nameof(Zone_Stockpile.AddCell))]
     public static class Zone_Stockpile_AddCell_Patch
@@ -180,12 +197,7 @@ namespace PrecisionStockpileControl
             if (job.targetB.Cell != dropLoc) return;                            // only the job's own target cell
             var map = pawn.MapHeld;
             if (map == null) return;
-            var unit = PscHaulUnit.ResolveCell(dropLoc, map);
-            if (!unit.IsValid) return;
-            var data = PscStorageDataStore.TryGet(unit.Settings);
-            if (data == null || !data.HasLimit(carried.def)) return;
-            var lim = data.GetLimit(carried.def);
-            if (lim == null || !lim.Upper.HasValue) return;
+            if (!PscCap.TryGetUpperLimit(dropLoc, map, carried.def, out var unit, out _, out _)) return;
             __state = new DropState { settings = unit.Settings, def = carried.def, before = carried.stackCount };
         }
 
@@ -232,12 +244,7 @@ namespace PrecisionStockpileControl
             if (count <= 0) return;
             var map = __instance.pawn?.Map;
             if (map == null) return;
-            var unit = PscHaulUnit.ResolveCell(job.targetB.Cell, map);
-            if (!unit.IsValid) return;
-            var data = PscStorageDataStore.TryGet(unit.Settings);
-            if (data == null || !data.HasLimit(t.def)) return;
-            var lim = data.GetLimit(t.def);
-            if (lim == null || !lim.Upper.HasValue) return;
+            if (!PscCap.TryGetUpperLimit(job.targetB.Cell, map, t.def, out var unit, out var data, out _)) return;
             data.AddReservedInbound(t.def, count);
             if (PscLog.Enabled) PscLog.Msg(
                 $"reserve: +{count} {t.def.defName} -> {unit.UniqueLoadID} (now reserved {data.GetReservedInbound(t.def)})");

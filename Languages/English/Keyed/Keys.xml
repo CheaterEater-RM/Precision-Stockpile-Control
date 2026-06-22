@@ -76,6 +76,7 @@
   <!-- Auto-priority on new route (clamp notices) -->
   <PSC_AutoPriorityClampLow>Couldn't auto-lower the source below the destination — it's already at the lowest letter ("z"). Set the priority by hand.</PSC_AutoPriorityClampLow>
   <PSC_AutoPriorityClampHigh>Couldn't auto-raise the destination above the source — it's already at the top (no letter). Set the priority by hand.</PSC_AutoPriorityClampHigh>
+  <PSC_AutoPriorityCrossBand>Auto-priority only nudges within a priority band, so it won't change a storage's band. These two are in different bands: set their priority by hand to make the route work.</PSC_AutoPriorityCrossBand>
 
   <!-- Warning when a route is created that can't carry items (destination doesn't outrank source) -->
   <PSC_RouteNotFunctional>Route created, but it won't carry items yet: a destination must outrank its source. Raise the destination's priority, lower the source's, or turn on auto-priority in settings.</PSC_RouteNotFunctional>
