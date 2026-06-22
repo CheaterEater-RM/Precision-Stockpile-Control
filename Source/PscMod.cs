@@ -14,8 +14,12 @@ namespace PrecisionStockpileControl
         public bool priorityNumbering = false;        // M4 — show 1-10 levels (two sub-tiers per band)
         public bool reverseOrder = false;             // M4 — 1-10 label flip only (ordering unchanged)
         public bool feederPortSpreading = false;      // overlay: fan route endpoints along the storage perimeter (declutter)
-        public bool feederFocusDim = true;            // overlay: dim routes not touching the hovered/selected storage
-        public bool feederFlowDots = true;            // overlay: animate flow dots on the hovered/selected pile's valid routes
+        public bool feederFocusDim = true;            // overlay: dim routes not touching the focused (selected/hovered) chain
+        public bool feederFlowDots = true;            // overlay: animate flow dots on the focused pile's valid routes
+        public bool feederDirectionColor = true;      // overlay: colour outgoing routes amber, incoming green (red = invalid)
+        public bool feederChainHighlight = true;      // overlay: light up the whole up/downstream chain from the focus, fading per hop
+        public bool feederHashShading = true;         // overlay: nudge each line's lightness so dense bundles separate
+        public bool feederDotsOnly = true;            // overlay: replace arrows with flowing dots on every valid route (sub-mode of feederFlowDots)
         public float feederLineWidth = 0.04f;         // overlay: route line thickness (arrows/✕ scale with it)
         public bool reservedFillCounting = true;      // count in-flight hauls toward a cap so concurrent haulers don't overshoot
         public bool debugLogging = false;             // dev-mode diagnostic logging (PscLog)
@@ -32,6 +36,10 @@ namespace PrecisionStockpileControl
             Scribe_Values.Look(ref feederPortSpreading, "feederPortSpreading", false);
             Scribe_Values.Look(ref feederFocusDim, "feederFocusDim", true);
             Scribe_Values.Look(ref feederFlowDots, "feederFlowDots", true);
+            Scribe_Values.Look(ref feederDirectionColor, "feederDirectionColor", true);
+            Scribe_Values.Look(ref feederChainHighlight, "feederChainHighlight", true);
+            Scribe_Values.Look(ref feederHashShading, "feederHashShading", true);
+            Scribe_Values.Look(ref feederDotsOnly, "feederDotsOnly", true);
             Scribe_Values.Look(ref feederLineWidth, "feederLineWidth", 0.04f);
             Scribe_Values.Look(ref reservedFillCounting, "reservedFillCounting", true);
             Scribe_Values.Look(ref debugLogging, "debugLogging", false);
@@ -51,6 +59,10 @@ namespace PrecisionStockpileControl
             feederPortSpreading = false;
             feederFocusDim = true;
             feederFlowDots = true;
+            feederDirectionColor = true;
+            feederChainHighlight = true;
+            feederHashShading = true;
+            feederDotsOnly = true;
             feederLineWidth = 0.04f;
             reservedFillCounting = true;
             debugLogging = false;
@@ -281,8 +293,32 @@ namespace PrecisionStockpileControl
                 "PSC_SettingsFocusDimTip".Translate());
             listing.CheckboxLabeled("PSC_SettingsFlowDots".Translate(), ref Settings.feederFlowDots,
                 "PSC_SettingsFlowDotsTip".Translate());
+            // "No arrows" is a sub-mode of flow dots: greyed out (and forced off) unless flow dots are on.
+            SubCheckboxLabeled(listing, "PSC_SettingsDotsOnly".Translate(), "PSC_SettingsDotsOnlyTip".Translate(),
+                ref Settings.feederDotsOnly, disabled: !Settings.feederFlowDots);
+            listing.CheckboxLabeled("PSC_SettingsChainHighlight".Translate(), ref Settings.feederChainHighlight,
+                "PSC_SettingsChainHighlightTip".Translate());
+            listing.CheckboxLabeled("PSC_SettingsDirectionColor".Translate(), ref Settings.feederDirectionColor,
+                "PSC_SettingsDirectionColorTip".Translate());
+            listing.CheckboxLabeled("PSC_SettingsHashShading".Translate(), ref Settings.feederHashShading,
+                "PSC_SettingsHashShadingTip".Translate());
             listing.Label("PSC_SettingsLineWidth".Translate(Settings.feederLineWidth.ToString("0.000")));
             Settings.feederLineWidth = listing.Slider(Settings.feederLineWidth, 0.02f, 0.16f);
+        }
+
+        // An indented sub-option checkbox (with tooltip): greys out and can't be toggled while disabled,
+        // and is forced off when disabled so a dependent flag can't linger on without its parent.
+        private const float SubIndent = 18f;
+        private static void SubCheckboxLabeled(Listing_Standard listing, string label, string tip, ref bool value, bool disabled)
+        {
+            if (disabled) value = false;
+            float h = Text.CalcHeight(label, listing.ColumnWidth - SubIndent);
+            Rect rect = listing.GetRect(h);
+            rect.xMin += SubIndent;
+            if (Mouse.IsOver(rect)) Widgets.DrawHighlight(rect);
+            if (!tip.NullOrEmpty()) TooltipHandler.TipRegion(rect, tip);
+            Widgets.CheckboxLabeled(rect, label, ref value, disabled);
+            listing.Gap(listing.verticalSpacing);
         }
 
         private static void ResortAllMaps()

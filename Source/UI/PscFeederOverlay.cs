@@ -9,25 +9,54 @@ namespace PrecisionStockpileControl
     // Contagion developer overlay's drawing style: MetaOverlay-shader lines via GenDraw.DrawLineBetween,
     // chevron arrowheads near both ends, and small × marks along non-functional links.
     //
-    // Valid link (green): destination outranks source (D5) — items will actually flow.
-    // Non-functional link (red + ×): destination priority <= source — vanilla won't haul it.
+    // Visual language (all toggle-gated, see PscSettings):
+    //   colour  — invalid = red (+ ×); valid incoming = green; valid outgoing = amber (directionColor).
+    //             Outgoing/incoming is relative to the FOCUS: a route leaving the focused chain is
+    //             "outgoing" (amber), one arriving is "incoming" (green).
+    //   focus   — the focus is a SET: every selected storage, plus the one under the cursor (added,
+    //             not replacing). Multi-select shows all their routes (item 1); hover never steals
+    //             focus from the selection (item 3).
+    //   chain   — from the focus we BFS the whole up/downstream chain (chainHighlight). Opacity fades
+    //             geometrically per hop and floors at the background level, so a deep chain settles
+    //             into the background instead of vanishing (item 4).
+    //   shading — hashShading nudges each line's value (lightness) by a smooth, quantized field of its
+    //             midpoint + angle, so a dense bundle separates while staying clearly in its colour band (item 6).
+    //   dots    — dotsOnly replaces arrows with flow dots on every valid route (item 2).
     public static class PscFeederOverlay
     {
-        private static readonly Color GoodColor = new Color(0.30f, 0.92f, 0.34f, 0.85f);
-        private static readonly Color BadColor = new Color(0.92f, 0.22f, 0.22f, 0.90f);
-        // Dimmed variants for routes not touching the focused (hovered/selected) unit: same hue,
-        // desaturated and low-alpha so they recede without vanishing.
-        private static readonly Color GoodColorDim = new Color(0.42f, 0.70f, 0.44f, 0.20f);
-        private static readonly Color BadColorDim = new Color(0.72f, 0.42f, 0.42f, 0.22f);
+        // Base hues (alpha is computed per link from the chain tier, then baked in via GetMat).
+        private static readonly Color GreenRGB = new Color(0.30f, 0.92f, 0.34f, 1f);  // valid incoming
+        private static readonly Color AmberRGB = new Color(0.98f, 0.74f, 0.20f, 1f);  // valid outgoing
+        private static readonly Color RedRGB   = new Color(0.92f, 0.22f, 0.22f, 1f);  // invalid (either way)
         private static readonly Dictionary<int, Material> MatCache = new Dictionary<int, Material>();
 
         // ---- line + flow-dot tuning ----
         private const float DefaultLineWidth = 0.04f;   // shipped line thickness; tunable via the dev slider
         private const float ArrowWidthFrac = 0.667f;    // arrowhead stroke as a fraction of the line width
         private const float CrossWidthFrac = 0.833f;    // ✕ stroke as a fraction of the line width
-        private const int DotCount = 3;                 // beads per animated route
-        private const float DotSpeed = 2f;              // bead travel speed (cells/sec, real time)
+        private const float DotSpeed = 2f;              // bead travel speed (cells/sec, real time) — uniform across routes
+        private const float DotSpacing = 3f;            // target gap between beads (cells); bead COUNT scales to hold this
+        private const int DotCountMax = 24;             // cap beads on very long routes (perf + clutter)
         private const float DotScale = 0.15f;           // bead diameter (cells)
+
+        // ---- opacity grading ----
+        private const float BrightAlpha = 0.88f;        // a tier-1 (focus-incident) route
+        private const float Falloff = 0.6f;             // per-hop opacity multiplier down/up the chain
+        private const float FloorAlpha = 0.13f;         // deep-chain floor; ≈ the background level it settles into
+        private const float NeutralAlpha = 0.45f;       // overlay-on, nothing focused (or focus-dim off)
+        private const float BackgroundAlpha = 0.12f;    // overlay-on, focus-dim on: routes off the focused chain
+        private const float AnchorAlphaFrac = 0.4f;     // faint static chevron drawn under flow dots
+
+        // ---- hash shading ----
+        // Two independent banded fields (value + hue) so routes separate as a 2-D shade space, not a
+        // 1-D gradient. The base hues are already near-max brightness, so the value shift runs mostly
+        // DOWNWARD (into the available headroom) for a visible spread; the hue shift is small and wraps,
+        // so the colour never leaves its red/green/amber band.
+        private const int HashValueBuckets = 6;         // lightness levels
+        private const float HashValueLo = -0.34f;       // darkest value offset (uses the headroom below the bright base)
+        private const float HashValueHi = 0.08f;        // lightest value offset
+        private const int HashHueBuckets = 5;           // hue levels
+        private const float HashHueAmp = 0.05f;         // max hue shift in HSV units (0..1) ≈ ±18°, stays in band
 
         // Round, double-sided dot mesh for the flow beads (built once, lazily). Round = direction-
         // agnostic (unlike the old square quad); double-sided so it shows regardless of cull mode.
@@ -39,10 +68,20 @@ namespace PrecisionStockpileControl
 
         // Per-frame snapshot of the render settings, read by the primitives without extra args.
         private static bool sFlowDots;
+        private static bool sDotsOnly;
         private static float sLineWidth = DefaultLineWidth;
 
         // Reused per-frame scratch so the draw path allocates nothing steady-state.
         private static readonly Dictionary<string, PscHaulUnit> idMap = new Dictionary<string, PscHaulUnit>();
+        private static readonly HashSet<string> focusSeeds = new HashSet<string>();
+        private static readonly Dictionary<string, int> downDist = new Dictionary<string, int>();
+        private static readonly Dictionary<string, int> upDist = new Dictionary<string, int>();
+        private static readonly Queue<string> bfsQueue = new Queue<string>();
+
+        // Chain-BFS memo: the distances depend only on the focus seeds and the graph generation, so
+        // recompute only when one of those changes (the result is reused across frames otherwise).
+        private static long lastChainSig = long.MinValue;
+        private static int lastChainGen = -1;
 
         // Per-frame draw-center memo: a unit's centroid is deterministic within a frame, so compute
         // it once even when the unit is an endpoint of many incident links (turns the draw loop's
@@ -61,35 +100,52 @@ namespace PrecisionStockpileControl
             var settings = PscMod.Settings;
             bool portSpreading = settings == null || settings.feederPortSpreading;
             bool focusDim = settings == null || settings.feederFocusDim;
+            bool chain = settings == null || settings.feederChainHighlight;
+            bool directionColor = settings == null || settings.feederDirectionColor;
+            bool hashShade = settings == null || settings.feederHashShading;
             sFlowDots = settings != null && settings.feederFlowDots;
+            sDotsOnly = sFlowDots && settings.feederDotsOnly;   // dots-only is a sub-mode of flow dots
             sLineWidth = Mathf.Clamp(settings?.feederLineWidth ?? DefaultLineWidth, 0.02f, 0.2f);
 
-            // Overlay on -> draw every route (no selection needed). Overlay off -> legacy behaviour:
-            // draw only routes incident to the selected storage (nothing if none is selected).
+            // Focus seeds: every selected storage (item 1), plus the one under the cursor — ADDED,
+            // never replacing the selection (item 3). Overlay off needs at least one SELECTED unit
+            // to show anything; overlay on highlights on hover alone.
             bool overlay = PscOverlayState.Active;
-            string selId = null;
-            if (!overlay)
+            focusSeeds.Clear();
+            GatherSelectedIds(map, focusSeeds);
+            if (!overlay && focusSeeds.Count == 0) return;
+            string hovered = ResolveHoveredId(map);
+            if (hovered != null) focusSeeds.Add(hovered);
+            bool hasFocus = focusSeeds.Count > 0;
+
+            // Chain distances from the focus (cached on seeds + graph generation).
+            int gen = links.Generation;
+            long sig = SeedSignature(focusSeeds);
+            if (sig != lastChainSig || gen != lastChainGen)
             {
-                if (!TryGetSelectedUnit(map, out PscHaulUnit selected)) return;
-                selId = selected.UniqueLoadID;
+                links.ComputeChainDistances(focusSeeds, downDist, upDist, bfsQueue);
+                lastChainSig = sig;
+                lastChainGen = gen;
             }
 
             BuildIdMap(map);
             centerCache.Clear();
             if (portSpreading) PscFeederLayout.EnsureBuilt(map, psc);
 
-            // Focus target for dimming (overlay-all mode only — overlay-off already shows just the
-            // selected unit's routes). The unit under the cursor, else the selected one; null => no
-            // dimming. One cursor->cell resolve per frame, no iteration.
-            string focusId = (overlay && focusDim) ? ResolveFocusId(map) : null;
+            // Off the chain, the background level depends on focus-dim — but only when there IS a
+            // focus to contrast against; with nothing focused, everything reads at the neutral level.
+            float backgroundAlpha = (hasFocus && focusDim) ? BackgroundAlpha : NeutralAlpha;
 
             var list = links.Links;
             for (int i = 0; i < list.Count; i++)
             {
                 var l = list[i];
-                if (!overlay && l.sourceId != selId && l.destId != selId) continue;
                 if (!idMap.TryGetValue(l.sourceId, out var su) || !idMap.TryGetValue(l.destId, out var du)) continue;
                 if (su.Settings == null || du.Settings == null) continue;
+
+                // Tier + direction from the chain BFS. tier == 0 means "not on the focused chain".
+                int tier = ClassifyLink(l, chain, out bool outgoing);
+                if (!overlay && tier == 0) continue;                // overlay off: only the focused chain draws
 
                 Vector3 a, b;
                 if (!portSpreading || !PscFeederLayout.TryGetPorts(i, out a, out b))
@@ -99,43 +155,87 @@ namespace PrecisionStockpileControl
                 }
 
                 bool valid = psc.HasFunctionalFeederEdge(su, du);
-                bool incident = focusId == null || l.sourceId == focusId || l.destId == focusId;
-                bool focused = focusId != null && (l.sourceId == focusId || l.destId == focusId);
-                DrawLink(a, b, valid, incident, focused);
+                float alpha = tier > 0 ? TierAlpha(tier) : backgroundAlpha;
+
+                Color baseRGB = !valid ? RedRGB : (outgoing && directionColor ? AmberRGB : GreenRGB);
+                if (hashShade) baseRGB = ApplyHashShade(baseRGB, a, b);
+                baseRGB.a = alpha;
+
+                // Animate this route? dotsOnly animates every valid route; otherwise flow dots are the
+                // focus-incident (tier-1) treatment only, kept from drowning deeper chain links in motion.
+                bool animate = valid && (sDotsOnly || (sFlowDots && tier == 1));
+                bool anchor = animate && !sDotsOnly;               // faint static chevron under the dots
+                bool arrows = !animate && !sDotsOnly;              // arrows everywhere except dotsOnly mode
+
+                DrawLink(a, b, baseRGB, valid, animate, anchor, arrows);
             }
         }
 
-        // The unit under the mouse, falling back to the selected unit. Used only for focus/dim.
-        private static string ResolveFocusId(Map map)
+        // Hop distance + direction of a link relative to the focus chain. Returns 0 when the link is
+        // not on the chain. tier 1 = a focus-incident route. With chainHighlight off, only the seeds
+        // themselves anchor (dist 0), so the highlight stays at the focus's own direct routes.
+        private static int ClassifyLink(PscFeederLink l, bool chain, out bool outgoing)
+        {
+            outgoing = false;
+            int tier = int.MaxValue;
+            // Downstream: a route leaving a chain-reached source continues the flow away from focus → amber.
+            if (downDist.TryGetValue(l.sourceId, out int ds) && (chain || ds == 0))
+            {
+                tier = ds + 1;
+                outgoing = true;
+            }
+            // Upstream: a route arriving at a chain-reached dest feeds toward focus → green. Tie → outgoing.
+            if (upDist.TryGetValue(l.destId, out int us) && (chain || us == 0))
+            {
+                int t = us + 1;
+                if (t < tier) { tier = t; outgoing = false; }
+            }
+            return tier == int.MaxValue ? 0 : tier;
+        }
+
+        private static float TierAlpha(int tier)
+        {
+            float a = BrightAlpha * Mathf.Pow(Falloff, tier - 1);
+            return a < FloorAlpha ? FloorAlpha : a;
+        }
+
+        // Order-independent signature of the focus-seed set, combined with the graph generation, so
+        // the chain BFS recomputes only when the focus or the link set actually changes.
+        private static long SeedSignature(HashSet<string> seeds)
+        {
+            int xor = 0, sum = 0;
+            foreach (var s in seeds)
+            {
+                int h = s.GetHashCode();
+                xor ^= h;
+                sum = unchecked(sum + h);
+            }
+            return unchecked(((long)xor << 32) ^ (uint)sum ^ ((long)seeds.Count * 2654435761L));
+        }
+
+        private static void GatherSelectedIds(Map map, HashSet<string> into)
+        {
+            var sel = Find.Selector.SelectedObjectsListForReading;
+            for (int i = 0; i < sel.Count; i++)
+            {
+                PscHaulUnit u = default;
+                if (sel[i] is Zone_Stockpile zs && zs.Map == map)
+                    u = PscHaulUnit.ResolveSettings(zs.GetStoreSettings());
+                else if (sel[i] is Building_Storage bs && bs.Map == map)
+                    u = PscHaulUnit.ResolveSettings(bs.GetStoreSettings());
+                if (!u.IsValid) continue;
+                var id = u.UniqueLoadID;
+                if (id != null) into.Add(id);
+            }
+        }
+
+        // The storage unit under the mouse, or null. Added to the focus set (never replaces it).
+        private static string ResolveHoveredId(Map map)
         {
             IntVec3 cell = UI.MouseCell();
-            if (cell.InBounds(map))
-            {
-                var hovered = PscHaulUnit.ResolveCell(cell, map);
-                if (hovered.IsValid)
-                {
-                    var id = hovered.UniqueLoadID;
-                    if (id != null) return id;
-                }
-            }
-            return TryGetSelectedUnit(map, out var sel) ? sel.UniqueLoadID : null;
-        }
-
-        private static bool TryGetSelectedUnit(Map map, out PscHaulUnit unit)
-        {
-            unit = default;
-            var sel = Find.Selector;
-            if (sel.SelectedZone is Zone_Stockpile zs && zs.Map == map)
-            {
-                unit = PscHaulUnit.ResolveSettings(zs.GetStoreSettings());
-                return unit.IsValid;
-            }
-            if (sel.SingleSelectedThing is Building_Storage bs && bs.Map == map)
-            {
-                unit = PscHaulUnit.ResolveSettings(bs.GetStoreSettings());
-                return unit.IsValid;
-            }
-            return false;
+            if (!cell.InBounds(map)) return null;
+            var hovered = PscHaulUnit.ResolveCell(cell, map);
+            return hovered.IsValid ? hovered.UniqueLoadID : null;
         }
 
         private static void BuildIdMap(Map map)
@@ -167,21 +267,22 @@ namespace PrecisionStockpileControl
 
         // ---- primitives (Contagion pattern) ----
 
-        private static void DrawLink(Vector3 a, Vector3 b, bool valid, bool incident, bool focused)
+        private static void DrawLink(Vector3 a, Vector3 b, Color color, bool valid, bool animate, bool anchor, bool arrows)
         {
             float y = AltitudeLayer.MetaOverlays.AltitudeFor() + 0.1f;
             a.y = y; b.y = y;
-            Color color = valid
-                ? (incident ? GoodColor : GoodColorDim)
-                : (incident ? BadColor : BadColorDim);
             Material mat = GetMat(color);
             GenDraw.DrawLineBetween(a, b, mat, sLineWidth);
 
-            // Flow dots AUGMENT the chevron (Council: never rely on motion alone): on a focused valid
-            // route, draw a dimmed chevron as a static direction anchor, then bright moving dots over it.
-            bool dots = sFlowDots && valid && focused;
-            DrawArrows(a, b, dots ? GetMat(GoodColorDim) : mat);
-            if (dots) DrawFlowDots(a, b);
+            // Flow dots AUGMENT a static anchor (Council: never rely on motion alone) when not in
+            // dots-only mode — a faint chevron carries direction, bright dots carry flow.
+            if (anchor)
+            {
+                Color faint = color; faint.a = color.a * AnchorAlphaFrac;
+                DrawArrows(a, b, GetMat(faint));
+            }
+            if (arrows) DrawArrows(a, b, mat);
+            if (animate) DrawFlowDots(a, b, mat);
             if (!valid) DrawCrosses(a, b, mat);
         }
 
@@ -225,25 +326,68 @@ namespace PrecisionStockpileControl
             }
         }
 
-        // Round beads flowing source→dest along the route. Real-time phase so they keep moving while the
-        // game is paused (the faint chevron under them carries direction regardless). DotSpeed is in
-        // cells/sec, so visual speed is roughly route-length-independent.
-        private static void DrawFlowDots(Vector3 a, Vector3 b)
+        // Round beads flowing source→dest along the route, in the route's own colour. The bead COUNT
+        // scales with length to hold ~DotSpacing cells between beads (a uniform conveyor across routes),
+        // but never drops below 1 — even stockpiles a single cell apart keep a bead riding the line.
+        // All n beads are always on the line (t wraps within [0, 1)), so there is no frame with zero
+        // beads: the player never waits to see one. Speed is DotSpeed cells/sec regardless of length, so
+        // only the count differs between routes, not the speed. Real-time phase → beads move while paused.
+        private static void DrawFlowDots(Vector3 a, Vector3 b, Material mat)
         {
             float y = a.y;
             float len = (new Vector3(b.x - a.x, 0f, b.z - a.z)).magnitude;
+            int n = Mathf.Clamp(Mathf.CeilToInt(len / DotSpacing), 1, DotCountMax);
             float cycle = Time.realtimeSinceStartup * DotSpeed / Mathf.Max(len, 0.5f);
-            Material mat = GetMat(GoodColor);
             Mesh mesh = DotMesh();
-            for (int k = 0; k < DotCount; k++)
+            for (int k = 0; k < n; k++)
             {
-                float t = cycle + k / (float)DotCount;
+                float t = cycle + k / (float)n;
                 t -= Mathf.Floor(t);
                 Vector3 p = Vector3.Lerp(a, b, t); p.y = y;
                 Graphics.DrawMesh(mesh,
                     Matrix4x4.TRS(p, Quaternion.identity, new Vector3(DotScale, 1f, DotScale)),
                     mat, 0);
             }
+        }
+
+        // Quantized perturbation of a route's shade so a dense bundle separates. Two independent smooth
+        // fields of the route's world midpoint + angle drive value (lightness) and hue separately, giving
+        // a 2-D space of shades that reads far more distinctly than a single gradient. Each field is
+        // banded (quantized) so the material cache stays bounded; both amounts are small and the hue wraps,
+        // so the colour stays clearly in its green/amber/red band. World-space → no flicker as the camera pans.
+        private static Color ApplyHashShade(Color c, Vector3 a, Vector3 b)
+        {
+            float cx = (a.x + b.x) * 0.5f;
+            float cz = (a.z + b.z) * 0.5f;
+            float ang = Mathf.Atan2(b.z - a.z, b.x - a.x);   // *2 below folds direction (period π)
+
+            // amplitudes sum to 1 → each field in [-1, 1]; different freqs/phases keep them independent.
+            float fieldV = Mathf.Sin(cx * 0.75f + cz * 0.42f) * 0.6f
+                         + Mathf.Sin(cz * 0.68f - cx * 0.28f + 2.1f) * 0.25f
+                         + Mathf.Cos(ang * 2f) * 0.15f;
+            float fieldH = Mathf.Sin(cx * 0.46f - cz * 0.63f + 1.0f) * 0.55f
+                         + Mathf.Sin(cz * 0.39f + cx * 0.26f + 4.0f) * 0.30f
+                         + Mathf.Sin(ang * 2f + 0.7f) * 0.15f;
+
+            float vLevel = QuantizeSigned(fieldV, HashValueBuckets) * 0.5f + 0.5f;   // 0..1
+            float vShift = Mathf.Lerp(HashValueLo, HashValueHi, vLevel);             // asymmetric → mostly darker
+            float hShift = QuantizeSigned(fieldH, HashHueBuckets) * HashHueAmp;
+
+            Color.RGBToHSV(c, out float h, out float s, out float v);
+            h = Mathf.Repeat(h + hShift, 1f);
+            v = Mathf.Clamp01(v + vShift);
+            Color outc = Color.HSVToRGB(h, s, v);
+            outc.a = c.a;
+            return outc;
+        }
+
+        // Map a smooth field value in [-1, 1] to one of `buckets` signed levels in [-1, 1], so distinct
+        // shades stay finite (bounded material cache) while neighbouring routes still band together.
+        private static float QuantizeSigned(float field, int buckets)
+        {
+            field = Mathf.Clamp(field, -1f, 1f);
+            int b = Mathf.Clamp(Mathf.RoundToInt((field * 0.5f + 0.5f) * (buckets - 1)), 0, buckets - 1);
+            return (b / (float)(buckets - 1) - 0.5f) * 2f;
         }
 
         // A unit-diameter filled circle (radius 0.5) as a triangle fan, doubled so both faces render

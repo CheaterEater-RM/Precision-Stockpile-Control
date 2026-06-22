@@ -38,6 +38,14 @@
   <PSC_SettingsFocusDimTip>When the overlay shows every route, fade out the ones that don't touch the storage under your cursor (or the selected one), so its routes stand out. On by default.</PSC_SettingsFocusDimTip>
   <PSC_SettingsFlowDots>Animated flow dots</PSC_SettingsFlowDots>
   <PSC_SettingsFlowDotsTip>While you hover or select a storage, show dots flowing along its working routes (over a faint direction arrow). Only its routes animate, and only ones that actually move items. On by default.</PSC_SettingsFlowDotsTip>
+  <PSC_SettingsDotsOnly>Flowing dots, no arrows</PSC_SettingsDotsOnly>
+  <PSC_SettingsDotsOnlyTip>Replace the direction arrows with dots flowing along every working route, all the time. Direction is shown by the dots' motion instead of arrowheads. Off by default; an experimental look.</PSC_SettingsDotsOnlyTip>
+  <PSC_SettingsChainHighlight>Highlight feeder chains</PSC_SettingsChainHighlight>
+  <PSC_SettingsChainHighlightTip>When you select or hover a storage, light up the whole chain it belongs to: the routes it feeds, the routes that feed it, and onward. Each step further away fades a little. On by default; turn off to show only the storage's own direct routes.</PSC_SettingsChainHighlightTip>
+  <PSC_SettingsDirectionColor>Colour outgoing routes amber</PSC_SettingsDirectionColor>
+  <PSC_SettingsDirectionColorTip>Tint routes leaving a focused storage amber and routes arriving at it green, so you can tell incoming from outgoing at a glance. Routes that won't move items stay red either way. On by default.</PSC_SettingsDirectionColorTip>
+  <PSC_SettingsHashShading>Separate crowded routes</PSC_SettingsHashShading>
+  <PSC_SettingsHashShadingTip>Vary each route's shade (brightness and a touch of hue) so a bundle of overlapping lines reads as separate routes instead of one blob. Stays clearly green, amber, or red. On by default.</PSC_SettingsHashShadingTip>
   <PSC_SettingsLineWidth>Route line width: {0}</PSC_SettingsLineWidth>
   <PSC_SettingsDebugHeader>Debugging</PSC_SettingsDebugHeader>
   <PSC_SettingsDebugLogging>Verbose debug logging</PSC_SettingsDebugLogging>

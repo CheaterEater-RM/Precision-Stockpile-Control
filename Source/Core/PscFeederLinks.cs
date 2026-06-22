@@ -98,6 +98,48 @@ namespace PrecisionStockpileControl
             if (destsBySource.TryGetValue(id, out var dsts)) destsOut.AddRange(dsts);
         }
 
+        // Hop distance (0 = a seed) from `seeds` along the feeder graph, for the overlay's chain
+        // highlight. downDist follows OUTGOING edges (destsBySource) — what the seeds feed into;
+        // upDist follows INCOMING edges (sourcesByDest) — what feeds the seeds. Unbounded; the
+        // overlay fades opacity per hop and floors it, so a deep chain is naturally bounded.
+        // Caller owns and clears nothing — we clear the three scratch collections ourselves and
+        // reuse them across frames, so this allocates nothing steady-state (Perf Rules).
+        public void ComputeChainDistances(HashSet<string> seeds,
+            Dictionary<string, int> downDist, Dictionary<string, int> upDist, Queue<string> scratchQueue)
+        {
+            downDist.Clear();
+            upDist.Clear();
+            if (seeds == null || seeds.Count == 0) return;
+            EnsureIndex();
+            Bfs(seeds, destsBySource, downDist, scratchQueue);
+            Bfs(seeds, sourcesByDest, upDist, scratchQueue);
+        }
+
+        private static void Bfs(HashSet<string> seeds, Dictionary<string, List<string>> adj,
+            Dictionary<string, int> dist, Queue<string> queue)
+        {
+            queue.Clear();
+            foreach (var s in seeds)
+            {
+                if (string.IsNullOrEmpty(s) || dist.ContainsKey(s)) continue;
+                dist[s] = 0;
+                queue.Enqueue(s);
+            }
+            while (queue.Count > 0)
+            {
+                string cur = queue.Dequeue();
+                int next = dist[cur] + 1;
+                if (!adj.TryGetValue(cur, out var neighbours)) continue;
+                for (int i = 0; i < neighbours.Count; i++)
+                {
+                    string n = neighbours[i];
+                    if (dist.ContainsKey(n)) continue;
+                    dist[n] = next;
+                    queue.Enqueue(n);
+                }
+            }
+        }
+
         // ---- mutations (all mark the index dirty) ----
         public bool AddEdge(string sourceId, string destId)
         {
