@@ -215,6 +215,67 @@ namespace PrecisionStockpileControl
             return HasFunctionalFeederEdge(source, dest);
         }
 
+        // Skip-hops variant: like HasFunctionalFeederEdge but accepts a multi-hop functional path, not
+        // just a direct edge. Each functional hop outranks its source, so dest outranks source by
+        // transitivity; the live Outranks check here keeps a later priority edit from leaving a stale
+        // allowance (the structural reachability cache is priority-agnostic).
+        public bool HasFunctionalFeederPath(PscHaulUnit source, PscHaulUnit dest)
+        {
+            if (!source.IsValid || !dest.IsValid) return false;
+            if (source.Map != map || dest.Map != map) return false;
+            var sourceSettings = source.Settings;
+            var destSettings = dest.Settings;
+            if (sourceSettings == null || destSettings == null) return false;
+            if (!PscOrder.Outranks(destSettings, sourceSettings)) return false;
+            return links.IsDownstreamReachable(source.UniqueLoadID, dest.UniqueLoadID);
+        }
+
+        public bool HasFunctionalFeederPath(string sourceId, string destId)
+        {
+            if (!TryResolveLiveUnit(sourceId, out var source)) return false;
+            if (!TryResolveLiveUnit(destId, out var dest)) return false;
+            return HasFunctionalFeederPath(source, dest);
+        }
+
+        // Unified admission predicate. A direct functional edge always carries; when the skip-hops
+        // setting is on, a multi-hop functional path does too. Direct edge stays first as the cheap
+        // fast path so the BFS only runs when skip is enabled and there is no direct edge.
+        public bool FeederAllows(PscHaulUnit source, PscHaulUnit dest)
+            => HasFunctionalFeederEdge(source, dest)
+               || (PscMod.Settings != null && PscMod.Settings.feederSkipHops && HasFunctionalFeederPath(source, dest));
+
+        public bool FeederAllows(string sourceId, string destId)
+            => HasFunctionalFeederEdge(sourceId, destId)
+               || (PscMod.Settings != null && PscMod.Settings.feederSkipHops && HasFunctionalFeederPath(sourceId, destId));
+
+        // Loose-item skip rule (feederSkipLooseItems). A ground item has no source, so it is normally
+        // barred from any onlyFromSource node. With this on, it may enter `dest` if the chain feeding
+        // dest has an OPEN MOUTH: some upstream node that accepts the item's def and is NOT itself
+        // "Pull only from sources". That node is where a ground item would naturally enter the chain;
+        // the best-priority store search then carries it straight down to dest. A closed chain (no such
+        // entry) still rejects ground items. Single O(groups) pass; only reached for loose items hitting
+        // a chain destination when both toggles are on.
+        public bool LooseItemMayEnterChainAt(PscHaulUnit dest, Thing t)
+        {
+            if (!dest.IsValid || t?.def == null) return false;
+            var ancestors = links.UpstreamReachableFrom(dest.UniqueLoadID);
+            if (ancestors.Count == 0) return false;   // no source path -> not a chain destination
+            var groups = map.haulDestinationManager.AllGroupsListForReading;
+            for (int i = 0; i < groups.Count; i++)
+            {
+                var u = PscHaulUnit.FromSlotGroup(groups[i]);
+                if (!u.IsValid) continue;
+                string id = u.UniqueLoadID;
+                if (id == null || !ancestors.Contains(id)) continue;
+                var settings = u.Settings;
+                if (settings == null) continue;
+                var adata = PscStorageDataStore.TryGet(settings);
+                if (adata != null && adata.onlyFromSource) continue;   // not an open mouth
+                if (settings.filter != null && settings.filter.Allows(t.def)) return true;
+            }
+            return false;
+        }
+
         public bool TryResolveLiveUnit(string id, out PscHaulUnit unit)
         {
             unit = default;

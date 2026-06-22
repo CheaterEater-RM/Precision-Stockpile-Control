@@ -83,7 +83,9 @@ namespace PrecisionStockpileControl
             foreach (var kv in routes)
             {
                 var route = kv.Value;
-                if (route.map == map && !psc.HasFunctionalFeederEdge(route.sourceId, route.destId))
+                // FeederAllows (not just HasFunctionalFeederEdge) so a valid multi-hop skip route
+                // (A -> C with no direct edge) is kept while the path exists; still dropped when it breaks.
+                if (route.map == map && !psc.FeederAllows(route.sourceId, route.destId))
                     (remove ??= new List<Thing>()).Add(kv.Key);
             }
             if (remove != null)

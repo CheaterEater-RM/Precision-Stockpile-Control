@@ -38,6 +38,15 @@ namespace PrecisionStockpileControl
         private readonly Dictionary<string, List<string>> sourcesByDest = new Dictionary<string, List<string>>();
         private bool dirty = true;
 
+        // Transitive-reachability caches for the skip-hops feature (downstream = descendants via
+        // outgoing edges; upstream = ancestors via incoming edges). Structural only (edges, never
+        // priority or strictness flags), so they ride the graph's dirty lifecycle: cleared whenever
+        // EnsureIndex rebuilds. Built lazily per seed and memoised, so a steady-state query is a
+        // HashSet lookup with no allocation. The returned sets are read-only — callers must not mutate.
+        private readonly Dictionary<string, HashSet<string>> downstreamCache = new Dictionary<string, HashSet<string>>();
+        private readonly Dictionary<string, HashSet<string>> upstreamCache = new Dictionary<string, HashSet<string>>();
+        private static readonly HashSet<string> EmptyIds = new HashSet<string>();
+
         // Bumped on every edge mutation. The overlay's port-layout cache (PscFeederLayout) reads this
         // so it can rebuild only when the route set actually changed, not every frame. Runtime-only,
         // never scribed. All mutations route through MarkDirty() so no site can forget to bump it.
@@ -62,6 +71,8 @@ namespace PrecisionStockpileControl
             edgeSet.Clear();
             destsBySource.Clear();
             sourcesByDest.Clear();
+            downstreamCache.Clear();   // structural reachability depends only on the edge set, rebuilt below
+            upstreamCache.Clear();
             foreach (var l in links)
             {
                 if (!IsValidEdge(l)) continue;
@@ -88,6 +99,48 @@ namespace PrecisionStockpileControl
 
         public bool HasAnySource(string id) { if (string.IsNullOrEmpty(id)) return false; EnsureIndex(); return sourcesByDest.ContainsKey(id); }
         public bool HasAnyDestination(string id) { if (string.IsNullOrEmpty(id)) return false; EnsureIndex(); return destsBySource.ContainsKey(id); }
+
+        // True when destId is reachable from sourceId along OUTGOING edges (a multi-hop chain), for the
+        // skip-hops feature. A direct edge is the 1-hop case. Structural only: callers pair this with a
+        // live outrank check at the endpoints (PscFeederManager.HasFunctionalFeederPath).
+        public bool IsDownstreamReachable(string sourceId, string destId)
+        {
+            if (string.IsNullOrEmpty(sourceId) || string.IsNullOrEmpty(destId) || sourceId == destId) return false;
+            return Reachable(sourceId, destsBySource, downstreamCache).Contains(destId);
+        }
+
+        // Every ancestor of destId along INCOMING edges (what ultimately feeds it). Used by the loose-item
+        // skip rule to find an open chain entry. Returned set is read-only — do not mutate.
+        public HashSet<string> UpstreamReachableFrom(string destId)
+        {
+            if (string.IsNullOrEmpty(destId)) return EmptyIds;
+            return Reachable(destId, sourcesByDest, upstreamCache);
+        }
+
+        // Lazily compute + memoise the set of nodes reachable from `seed` along `adj` (excluding the
+        // seed). EnsureIndex clears the cache on any edge mutation, so a hit is always current.
+        private HashSet<string> Reachable(string seed, Dictionary<string, List<string>> adj,
+            Dictionary<string, HashSet<string>> cache)
+        {
+            EnsureIndex();
+            if (cache.TryGetValue(seed, out var cached)) return cached;
+            var result = new HashSet<string>();
+            var queue = new Queue<string>();
+            queue.Enqueue(seed);
+            while (queue.Count > 0)
+            {
+                string cur = queue.Dequeue();
+                if (!adj.TryGetValue(cur, out var neighbours)) continue;
+                for (int i = 0; i < neighbours.Count; i++)
+                {
+                    string n = neighbours[i];
+                    if (n == seed) continue;          // a cycle back to the seed is not "reachable from" it
+                    if (result.Add(n)) queue.Enqueue(n);
+                }
+            }
+            cache[seed] = result;
+            return result;
+        }
 
         // Snapshot one unit's endpoint ids (for the copy/paste clipboard payload).
         public void CollectEndpoints(string id, List<string> sourcesOut, List<string> destsOut)

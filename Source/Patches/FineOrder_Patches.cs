@@ -126,5 +126,87 @@ namespace PrecisionStockpileControl
             return op == OpCodes.Ldloc_0 || op == OpCodes.Ldloc_1 || op == OpCodes.Ldloc_2
                 || op == OpCodes.Ldloc_3 || op == OpCodes.Ldloc_S || op == OpCodes.Ldloc;
         }
+
+        // PscOrder.RankWithinBand minimum: EffectiveSubTier (>= 1) * 100 + LetterRank (>= 0) -> 100.
+        // A unit already at this rank is the best possible within its band, so there is nothing to upgrade.
+        private const int BestPossibleRank = 100;
+
+        // Rank-primary selection (design §9). The transpiler above only lets the search *consider* a
+        // strictly-better same-band group; vanilla's worker still picks the CLOSEST good cell across the
+        // whole band (closestDistSquared), so fine-order rank affected iteration order but NOT the winner.
+        // An item therefore went to the nearest shelf and then relocated rank-by-rank (5c -> 5b -> 5a -> 5)
+        // as the hauler got near each. This postfix upgrades the chosen cell to the CLOSEST placeable cell
+        // at the BEST achievable rank within the same band, so full priority (band, then sub-tier, then
+        // letter) drives selection and distance only breaks ties among equal-rank groups -- mirroring how
+        // vanilla already treats bands, one level finer. Feeder skip-hops rides this: with the deeper chain
+        // node made admissible (FeederAllows), the best-rank admissible node (the chain end) wins directly.
+        public static void Postfix(Thing t, Pawn carrier, Map map, StoragePriority currentPriority,
+            Faction faction, bool needAccurateResult, ref IntVec3 foundCell, bool __result)
+        {
+            if (!__result) return;                            // vanilla found nothing to upgrade
+            if (PscStorageDataStore.IsEmpty) return;          // cheapest gate
+            if (t == null) return;
+            var psc = PscMapComponent.For(map);
+            if (psc == null || !psc.anyFineOrderActive) return;   // no fine-order in use -> vanilla behaviour
+
+            var chosen = PscHaulUnit.ResolveCell(foundCell, map);
+            var chosenSettings = chosen.Settings;
+            if (!chosen.IsValid || chosenSettings == null) return;
+            int chosenRank = PscOrder.RankWithinBand(chosenSettings);
+            if (chosenRank <= BestPossibleRank) return;       // already best rank in its band -> nothing better
+
+            // Same basis the vanilla worker uses for distance. Safe: vanilla already evaluated it for
+            // __result == true, so this never dereferences a null carrier on the unspawned path.
+            if (!t.SpawnedOrAnyParentSpawned && carrier == null) return;
+            IntVec3 itemPos = t.SpawnedOrAnyParentSpawned ? t.PositionHeld : carrier.PositionHeld;
+
+            StoragePriority band = chosenSettings.Priority;
+            var groups = map.haulDestinationManager.AllGroupsListInPriorityOrder;   // sorted best-first (PSC tiebreak incl.)
+            IntVec3 bestCell = IntVec3.Invalid;
+            int bestRank = int.MaxValue;
+            float bestDist = float.MaxValue;
+            for (int i = 0; i < groups.Count; i++)
+            {
+                var g = groups[i];
+                var gs = g.Settings;
+                if (gs == null) continue;
+                int dband = (int)gs.Priority - (int)band;
+                if (dband > 0) continue;                      // better band: vanilla already ruled it unplaceable
+                if (dband < 0) break;                         // worse band: nothing left to consider
+                int r = PscOrder.RankWithinBand(gs);
+                if (r >= chosenRank) break;                   // reached chosen's rank or worse (list is sorted)
+                if (bestCell.IsValid && r > bestRank) break;  // best-rank bucket already fully scanned
+
+                // Mirror vanilla's OUTER eligibility guard: TryFindBestBetterStoreCellForIn goes straight to
+                // the worker and does NOT check these, so a disabled or wrong-faction storage would otherwise
+                // be probed (and wrongly chosen).
+                var parent = g.parent;
+                if (parent == null || !parent.HaulDestinationEnabled) continue;
+                if (parent is Thing pt && pt.Faction != faction) continue;
+
+                var gu = PscHaulUnit.FromSlotGroup(g);
+                if (!gu.IsValid || gu.Equals(chosen)) continue;
+
+                if (StoreUtility.TryFindBestBetterStoreCellForIn(t, carrier, map, currentPriority, faction,
+                        g, out var cell, needAccurateResult) && cell.IsValid)
+                {
+                    float d = (itemPos - cell).LengthHorizontalSquared;
+                    if (!bestCell.IsValid || r < bestRank || (r == bestRank && d < bestDist))
+                    {
+                        bestCell = cell;
+                        bestRank = r;
+                        bestDist = d;
+                    }
+                }
+            }
+
+            if (bestCell.IsValid)
+            {
+                if (PscLog.Enabled)
+                    PscLog.MsgThrottled($"sel:{t.def?.defName}:{chosen.UniqueLoadID}",
+                        $"order: {t.def?.defName} selection upgraded rank {chosenRank} -> {bestRank} (best-rank cell)");
+                foundCell = bestCell;
+            }
+        }
     }
 }

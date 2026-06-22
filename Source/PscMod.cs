@@ -11,6 +11,8 @@ namespace PrecisionStockpileControl
         public bool autosetDestinationPriority = false; // D4 — Connect-destination: step the painted destination UP one letter (off by default)
         public bool defaultOnlyFromSource = true;     // M3 — seed strictness on first source link
         public bool defaultOnlyToDestinations = true; // M3 — seed strictness on first destination link
+        public bool feederSkipHops = false;           // carry an item straight to the furthest reachable chain node (skip relay drops)
+        public bool feederSkipLooseItems = false;     // sub-option of feederSkipHops: ground items may skip into the chain too
         public bool priorityNumbering = false;        // M4 — show 1-10 levels (two sub-tiers per band)
         public bool reverseOrder = false;             // M4 — 1-10 label flip only (ordering unchanged)
         public bool feederPortSpreading = false;      // overlay: fan route endpoints along the storage perimeter (declutter)
@@ -31,6 +33,8 @@ namespace PrecisionStockpileControl
             Scribe_Values.Look(ref autosetDestinationPriority, "autosetDestinationPriority", false);
             Scribe_Values.Look(ref defaultOnlyFromSource, "defaultOnlyFromSource", true);
             Scribe_Values.Look(ref defaultOnlyToDestinations, "defaultOnlyToDestinations", true);
+            Scribe_Values.Look(ref feederSkipHops, "feederSkipHops", false);
+            Scribe_Values.Look(ref feederSkipLooseItems, "feederSkipLooseItems", false);
             Scribe_Values.Look(ref priorityNumbering, "priorityNumbering", false);
             Scribe_Values.Look(ref reverseOrder, "reverseOrder", false);
             Scribe_Values.Look(ref feederPortSpreading, "feederPortSpreading", false);
@@ -54,6 +58,8 @@ namespace PrecisionStockpileControl
             autosetDestinationPriority = false;
             defaultOnlyFromSource = true;
             defaultOnlyToDestinations = true;
+            feederSkipHops = false;
+            feederSkipLooseItems = false;
             priorityNumbering = false;
             reverseOrder = false;
             feederPortSpreading = false;
@@ -237,6 +243,11 @@ namespace PrecisionStockpileControl
                 "PSC_SettingsAutoPrioritySourceTip".Translate());
             listing.CheckboxLabeled("PSC_SettingsAutoPriorityDestination".Translate(), ref Settings.autosetDestinationPriority,
                 "PSC_SettingsAutoPriorityDestinationTip".Translate());
+            listing.CheckboxLabeled("PSC_SettingsSkipHops".Translate(), ref Settings.feederSkipHops,
+                "PSC_SettingsSkipHopsTip".Translate());
+            // Sub-option: greyed out and forced off unless the parent skip toggle is on.
+            SubCheckboxLabeled(listing, "PSC_SettingsSkipLooseItems".Translate(), "PSC_SettingsSkipLooseItemsTip".Translate(),
+                ref Settings.feederSkipLooseItems, disabled: !Settings.feederSkipHops);
 
             listing.Gap(12f);
             listing.Label("PSC_SettingsFineOrderHeader".Translate());

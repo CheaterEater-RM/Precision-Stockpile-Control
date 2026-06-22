@@ -212,12 +212,23 @@ namespace PrecisionStockpileControl
             var psc = PscMapComponent.For(unit.Map);
             if (psc == null || !psc.anyFeederActive) return false;
 
-            bool hasFunctionalEdge = source.IsValid && psc.HasFunctionalFeederEdge(source, unit);
+            bool hasFunctionalEdge = source.IsValid && psc.FeederAllows(source, unit);
             if (!hasFunctionalEdge && !source.IsValid
                 && PscFeederHaulContext.TryGet(t, out var route)
                 && route.map == unit.Map
                 && route.destId == unit.UniqueLoadID
-                && psc.HasFunctionalFeederEdge(route.sourceId, route.destId))
+                && psc.FeederAllows(route.sourceId, route.destId))
+            {
+                hasFunctionalEdge = true;
+            }
+            // Loose-item skip (feederSkipLooseItems): a genuinely loose ground item (no source unit AND no
+            // active route) may enter a chain that has an open mouth and skip straight to this node. The
+            // no-route guard keeps an in-flight feeder haul pinned to its destination by the carriedRoute
+            // reject below instead of being diverted here.
+            if (!hasFunctionalEdge && !source.IsValid
+                && PscMod.Settings != null && PscMod.Settings.feederSkipHops && PscMod.Settings.feederSkipLooseItems
+                && !PscFeederHaulContext.TryGet(t, out _)
+                && psc.LooseItemMayEnterChainAt(unit, t))
             {
                 hasFunctionalEdge = true;
             }
@@ -285,7 +296,7 @@ namespace PrecisionStockpileControl
             if (sourceUnit.IsValid && sourceUnit.Equals(targetUnit)) { __result = null; PscFeederHaulContext.Clear(t); return; }
 
             var psc = PscMapComponent.For(p.Map);
-            if (psc != null && sourceUnit.IsValid && psc.HasFunctionalFeederEdge(sourceUnit, targetUnit))
+            if (psc != null && sourceUnit.IsValid && psc.FeederAllows(sourceUnit, targetUnit))
             {
                 __result.haulOpportunisticDuplicates = false;
                 PscFeederHaulContext.Register(t, p.Map, sourceUnit.UniqueLoadID, targetUnit.UniqueLoadID);

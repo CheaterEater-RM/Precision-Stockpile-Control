@@ -286,6 +286,9 @@ namespace PrecisionStockpileControl
         public void PruneFeederLinksAndFlags(bool markDirty = false) => feeder.PruneFeederLinksAndFlags(markDirty);
         public bool HasFunctionalFeederEdge(PscHaulUnit source, PscHaulUnit dest) => feeder.HasFunctionalFeederEdge(source, dest);
         public bool HasFunctionalFeederEdge(string sourceId, string destId) => feeder.HasFunctionalFeederEdge(sourceId, destId);
+        public bool FeederAllows(PscHaulUnit source, PscHaulUnit dest) => feeder.FeederAllows(source, dest);
+        public bool FeederAllows(string sourceId, string destId) => feeder.FeederAllows(sourceId, destId);
+        public bool LooseItemMayEnterChainAt(PscHaulUnit dest, Thing t) => feeder.LooseItemMayEnterChainAt(dest, t);
 
         // Staggered resync backstop: every ResyncInterval ticks, mark one tracked unit fully dirty
         // so its counts are recomputed from HeldThings on the next read. Self-heals any drift

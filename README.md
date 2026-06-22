@@ -61,6 +61,27 @@ you selected — a painted source drops one letter below it, a painted destinati
 it — so the route works immediately. It stops at the ends of the letter range and tells you when you
 need to set the priority by hand.
 
+Chains of routes (A → B → C) normally move an item one step at a time: it is hauled to B, dropped, then
+picked up again and hauled to C. Two optional settings (both off by default) skip that relay:
+
+- **Deliver straight to the end of a route chain** — a hauler carries an item directly to the furthest
+  storage in the chain that can accept it, instead of dropping and re-picking-up at each step. If the end
+  is full it falls back to the nearest step with room. Note: a middle storage used as a buffer (with its
+  own limit) gets flown past and won't fill while this is on.
+- **Let ground items skip into the chain** — available only when the above is on. An item lying on the
+  ground can be hauled straight to the end of the chain, as long as the chain has an open entry (an
+  upstream storage that accepts the item and is **not** set to "Pull only from sources"). For such chains
+  this lets ground items past "Pull only from sources".
+
+### About fine order
+
+Each storage gets an **a–z subpriority** letter (and an optional **1–10 priority** mode) for ordering
+within a vanilla priority band: no letter is highest, then `a`, `b`, `c`. These letters now sort items
+exactly like the base priority does: an item is hauled **straight to the best-ranked storage that can
+accept it**, with distance only breaking ties between equally-ranked storages. (Previously letters only
+affected ordering loosely, so an item went to the nearest shelf and then shuffled up letter by letter.)
+If the best-ranked storage is full, items go to the next-best with room and move up when it frees.
+
 ### About storage modes
 
 Every stockpile and shelf gets a **mode** button (next to the route controls) with four settings:
