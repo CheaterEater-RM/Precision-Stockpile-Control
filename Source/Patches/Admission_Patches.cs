@@ -43,9 +43,9 @@ namespace PrecisionStockpileControl
         public static void Finalizer(bool __state)
         {
             PscAdmissionScope.InStoreSearch = __state;
-            // Drop the fine-order per-search memo so the item's resolved unit/rank never carries across
-            // searches (the item can move between them) and the strong Thing/group refs are released.
-            PscOrder.ClearSearchMemo();
+            // Drop the per-search item context so the item's resolved source/rank/data never carries
+            // across searches (the item can move between them) and the strong refs are released.
+            PscSearchContext.Clear();
         }
     }
 
@@ -65,11 +65,26 @@ namespace PrecisionStockpileControl
             var unit = PscHaulUnit.ResolveSettings(__instance);
             if (!unit.IsValid) return;
 
-            // Resolve the item's current unit once (loose / unspawned / carried => invalid). An item
-            // already stored in THIS unit is validly stored — feeder and limit rules never apply to
-            // a unit's own contents (D16), or vanilla's IsInValidBestStorage/Accepts chain would flag
-            // a capped or restricted stockpile's own contents as haulable (churn / ejection).
-            var source = PscHaulUnit.ResolveCurrent(t);
+            // Resolve the item's current (source) unit once (loose / unspawned / carried => invalid). An
+            // item already stored in THIS unit is validly stored — feeder and limit rules never apply to
+            // a unit's own contents (D16), or vanilla's IsInValidBestStorage/Accepts chain would flag a
+            // capped or restricted stockpile's own contents as haulable (churn / ejection). Inside a store
+            // search the source + its policy are invariant across every candidate (the fine-order re-scan
+            // multiplies these calls for the same t), so read them from the shared per-search context —
+            // but ONLY there (the window the planning Finalizer brackets); every other caller (validity
+            // recheck, haul FailOn, UI) resolves fresh.
+            PscHaulUnit source;
+            PscStorageData sourceData;
+            if (PscAdmissionScope.InStoreSearch)
+            {
+                PscSearchContext.TrySource(t, out source);
+                sourceData = PscSearchContext.SourceData(t);
+            }
+            else
+            {
+                source = PscHaulUnit.ResolveCurrent(t);
+                sourceData = source.IsValid ? PscStorageDataStore.TryGet(source.Settings) : null;
+            }
             bool sourceIsTarget = source.IsValid && source.Equals(unit);
             PscStorageData data = PscStorageDataStore.TryGet(__instance);
 
@@ -87,7 +102,7 @@ namespace PrecisionStockpileControl
 
             // Feeder gates first (a source's onlyToDestinations blocks the haul even into a no-policy
             // target). targetData is reused by the limit gate when the feeder gate had to resolve it.
-            if (!sourceIsTarget && TryFeederReject(__instance, t, unit, source, ref data))
+            if (!sourceIsTarget && TryFeederReject(__instance, t, unit, source, sourceData, ref data))
             {
                 __result = false; return;
             }
@@ -99,14 +114,14 @@ namespace PrecisionStockpileControl
             // leaving the source; a unit's own contents are protected by sourceIsTarget above).
             if (!sourceIsTarget && source.IsValid)
             {
-                var srcData = PscStorageDataStore.TryGet(source.Settings);
+                // sourceData is the item's source-unit policy, resolved once above (per-search cached).
                 // Same exemption as onlyToDestinations above: never let "no small removals" trap an item
                 // the source no longer allows — a disallowed/misplaced item must stay evacuable.
-                if (srcData != null && srcData.batchEmpty > 0 && t.stackCount < srcData.batchEmpty
+                if (sourceData != null && sourceData.batchEmpty > 0 && t.stackCount < sourceData.batchEmpty
                     && source.Settings.AllowedToAccept(t))
                 {
                     if (PscLog.Enabled) LogReject(t, source, "underBatchEmpty",
-                        $"batchEmpty: rejected {t.def.defName} leaving {source.UniqueLoadID} (source stack {t.stackCount} < batchEmpty {srcData.batchEmpty})");
+                        $"batchEmpty: rejected {t.def.defName} leaving {source.UniqueLoadID} (source stack {t.stackCount} < batchEmpty {sourceData.batchEmpty})");
                     __result = false; return;
                 }
             }
@@ -220,12 +235,26 @@ namespace PrecisionStockpileControl
         // source edge, so onlyFromSource rejects them. Returns true when the haul must be rejected,
         // and sets targetData if it resolved the target's PSC data (reused by the limit gate).
         private static bool TryFeederReject(StorageSettings target, Thing t, PscHaulUnit unit,
-            PscHaulUnit source, ref PscStorageData targetData)
+            PscHaulUnit source, PscStorageData sourceData, ref PscStorageData targetData)
         {
             var psc = PscMapComponent.For(unit.Map);
             if (psc == null || !psc.anyFeederActive) return false;
 
-            bool hasFunctionalEdge = source.IsValid && psc.FeederAllows(source, unit);
+            // Opt B (feeder source short-circuit): a functional edge needs an OUTGOING edge from source;
+            // if the source has none, FeederAllows is false for every candidate (direct AND skip-hop), so
+            // skip the per-candidate lookup. We still fall through to the onlyToDestinations / carried-route
+            // / onlyFromSource rejections below. Cached per-search (source is invariant); fresh otherwise.
+            bool hasFunctionalEdge = false;
+            if (source.IsValid)
+            {
+                bool sourceHasDest;
+                if (!(PscAdmissionScope.InStoreSearch && PscSearchContext.TryGetSourceHasFeederDest(t, out sourceHasDest)))
+                {
+                    sourceHasDest = psc.Links.HasAnyDestination(source.UniqueLoadID);
+                    if (PscAdmissionScope.InStoreSearch) PscSearchContext.CacheSourceHasFeederDest(t, sourceHasDest);
+                }
+                if (sourceHasDest) hasFunctionalEdge = psc.FeederAllows(source, unit);
+            }
             if (!hasFunctionalEdge && !source.IsValid
                 && PscFeederHaulContext.TryGet(t, out var route)
                 && route.map == unit.Map
@@ -249,13 +278,13 @@ namespace PrecisionStockpileControl
 
             if (source.IsValid)
             {
-                var srcData = PscStorageDataStore.TryGet(source.Settings);
+                // sourceData is the source-unit policy resolved once by the postfix (per-search cached).
                 // A source no longer accepting this item (player disallowed its def, or it's a leftover)
                 // must stay evacuable to ANY storage — onlyToDestinations only holds the source's VALID
                 // contents. AllowedToAccept is vanilla's "validly stored here" test; the nested call is
                 // safe (the item's current unit == source, so that postfix early-outs on sourceIsTarget)
                 // and short-circuits last, so it only runs when this gate would otherwise reject.
-                if (srcData != null && srcData.onlyToDestinations && source.Settings.AllowedToAccept(t))
+                if (sourceData != null && sourceData.onlyToDestinations && source.Settings.AllowedToAccept(t))
                 {
                     if (PscLog.Enabled) LogReject(t, unit, "onlyToDestinations",
                         $"feeder: rejected {t.def.defName} -> {unit.UniqueLoadID} (source onlyToDestinations, no functional edge)");

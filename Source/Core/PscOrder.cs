@@ -194,27 +194,6 @@ namespace PrecisionStockpileControl
         //
         // Correctness depends on the sort postfix ordering same-band groups by fine-order, so the
         // strictly-better groups are visited before the break point is reached.
-        // Per-search memo (perf): within ONE TryFindBestBetterStoreCellFor, ShouldContinueSearch is
-        // called once per same-band candidate group with an INVARIANT item t, so resolving the item's
-        // current unit + rank on every call is wasted. Memoise them keyed by reference-identity on t.
-        // ThreadStatic matches PscAdmissionScope.InStoreSearch's threading/MP story; the memo is
-        // self-correcting if ever re-entered with a different t, and ClearSearchMemo() (from the
-        // planning-scope Finalizer) drops the strong refs between searches.
-        [System.ThreadStatic] private static Thing scsMemoThing;
-        [System.ThreadStatic] private static bool scsMemoValid;
-        [System.ThreadStatic] private static ISlotGroup scsMemoGroup;
-        [System.ThreadStatic] private static int scsMemoRank;
-
-        // Reset the per-search memo (all fields, so no stale state lingers and the strong Thing/group
-        // refs are dropped between searches). Called from StoreUtility_PlanningScope_Patch.Finalizer.
-        public static void ClearSearchMemo()
-        {
-            scsMemoThing = null;
-            scsMemoValid = false;
-            scsMemoGroup = null;
-            scsMemoRank = 0;
-        }
-
         public static bool ShouldContinueSearch(StoragePriority candidatePriority,
             StoragePriority currentPriority, SlotGroup candidate, Thing t, Map map)
         {
@@ -228,22 +207,15 @@ namespace PrecisionStockpileControl
             var candidateUnit = PscHaulUnit.FromSlotGroup(candidate);
             if (!candidateUnit.IsValid) return false;
 
-            // Resolve the item's current unit + rank ONCE per search (invariant across candidates).
-            if (!ReferenceEquals(t, scsMemoThing))
-            {
-                scsMemoThing = t;
-                var cur = PscHaulUnit.ResolveCurrent(t);
-                scsMemoValid = cur.IsValid;
-                scsMemoGroup = cur.group;
-                scsMemoRank = scsMemoValid ? RankWithinBand(cur.Settings) : 0;
-            }
-            if (!scsMemoValid) return false;
-            var currentUnit = new PscHaulUnit(scsMemoGroup);
+            // The item's current (source) unit + rank are invariant across all candidates in one search;
+            // PscSearchContext resolves them once (shared with the admission postfix) and the planning-
+            // scope Finalizer clears it. Loose / unspawned / carried => no current unit => nothing to upgrade.
+            if (!PscSearchContext.TrySource(t, out var currentUnit)) return false;
             // Never relocate within the same unit (or a linked sibling sharing one StorageGroup).
             if (candidateUnit.Equals(currentUnit)) return false;
 
             int candidateRank = RankWithinBand(candidateUnit.Settings);
-            int currentRank = scsMemoRank;
+            int currentRank = PscSearchContext.SourceRank(t);
             bool continueSearch = candidateRank < currentRank; // candidate strictly better
             if (continueSearch && PscLog.Enabled)
                 PscLog.MsgThrottled($"scs:{candidateUnit.UniqueLoadID}:{currentUnit.UniqueLoadID}",
