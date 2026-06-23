@@ -62,7 +62,13 @@ namespace PrecisionStockpileControl
             if (PscStorageDataStore.IsEmpty) return;     // cheapest early-out
             if (t == null) return;
 
-            var unit = PscHaulUnit.ResolveSettings(__instance);
+            // Target-side resolution: in-search, MRU-cache the candidate's StorageSettings -> unit
+            // (the fine-order re-scan probes the same target group per cell). Gated on InStoreSearch
+            // because canonical resolution can shift around link/unlink/despawn, so the cached entry
+            // must not outlive the bracketed search; every other caller resolves fresh.
+            var unit = PscAdmissionScope.InStoreSearch
+                ? PscSearchContext.TargetUnit(__instance)
+                : PscHaulUnit.ResolveSettings(__instance);
             if (!unit.IsValid) return;
 
             // Resolve the item's current (source) unit once (loose / unspawned / carried => invalid). An
@@ -253,7 +259,16 @@ namespace PrecisionStockpileControl
                     sourceHasDest = psc.Links.HasAnyDestination(source.UniqueLoadID);
                     if (PscAdmissionScope.InStoreSearch) PscSearchContext.CacheSourceHasFeederDest(t, sourceHasDest);
                 }
-                if (sourceHasDest) hasFunctionalEdge = psc.FeederAllows(source, unit);
+                // Opt B3: source is invariant within a search, so FeederAllows(source, unit) varies
+                // only by target -> memo it per-search keyed by the target unit (cached otherwise).
+                if (sourceHasDest)
+                {
+                    if (!(PscAdmissionScope.InStoreSearch && PscSearchContext.TryGetFeederAllows(t, unit, out hasFunctionalEdge)))
+                    {
+                        hasFunctionalEdge = psc.FeederAllows(source, unit);
+                        if (PscAdmissionScope.InStoreSearch) PscSearchContext.CacheFeederAllows(t, unit, hasFunctionalEdge);
+                    }
+                }
             }
             if (!hasFunctionalEdge && !source.IsValid
                 && PscFeederHaulContext.TryGet(t, out var route)
