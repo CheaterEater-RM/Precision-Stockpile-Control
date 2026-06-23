@@ -1,17 +1,87 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Dubs Performance Analyzer profiling tab for Precision Stockpile Control.
-  Dev-only file: kept in the GitHub repo, but exclude it from the Steam Workshop upload
-  (the empty profiling tab shouldn't appear for Workshop players).
 
-  Keep comments outside the <Analyzer> root. Dubs Performance Analyzer parses direct
-  children as dynamic type names and can crash on comments there.
+  WHY THE TAB WAS EMPTY: Dubs Performance Analyzer only renders entries it can resolve.
+  The previous file had the correct shape but empty <Types>/<Methods>/<NestedTypes>, so the
+  parser created zero profilers and nothing appeared in-game. The fix is to populate them.
+
+  SCHEMA (per github.com/Dubwise56/Dubs-Performance-Analyzer#using-the-analyzerxml):
+    <Analyzer> -> one child = the tab name -> <Types> / <Methods> / <NestedTypes>, each a list of <li>.
+    * Types       : fully-qualified type name. Profiles EVERY method declared in that type.
+    * Methods     : a single method as Namespace.Class:MethodName. The id carries NO signature,
+                    so it is only safe when the name has exactly ONE overload on the declaring type.
+    * NestedTypes : profiles methods of the nested types of the named type (for nested patch classes).
+
+  WHAT IS LISTED: the hot paths only. Everything that runs on the per-haul-scan, per-storage-event,
+  per-tick, or per-frame-overlay-draw surfaces (see docs/DESIGN.md Performance Rules). Each entry is a
+  PSC type that actually has methods. Profiling a patch class shows PSC's OWN added cost on a seam; the
+  two <Methods> below are the underlying vanilla methods PSC modifies, profiled to show TOTAL path cost.
+
+  DELIBERATELY OMITTED: warm types (save/load, migration, storage-group + feeder lifecycle, gizmo and
+  storage-tab construction) and cold UI (dialogs, menus, sliders, paint designators, clipboard, theme,
+  widget helpers). They don't run on hauling/tick hot paths, and profiling them adds overhead and noise.
+  Pure enums and method-less structs are omitted too (no methods for the profiler to wrap). To profile a
+  warm/cold type, just add its fully-qualified name to <Types>.
+
+  Dev-only file: kept in the GitHub repo, but exclude it from the Steam Workshop upload (the profiling
+  tab shouldn't appear for Workshop players).
+
+  Keep comments OUTSIDE the <Analyzer> root. Dubs Performance Analyzer iterates the root's descendant
+  nodes as type/method names and can crash on a comment node placed among them.
 -->
 <Analyzer>
     <PrecisionStockpileControl>
         <Types>
+            <li>PrecisionStockpileControl.PscStorageDataStore</li>
+            <li>PrecisionStockpileControl.PscStorageData</li>
+            <li>PrecisionStockpileControl.PscDefLimit</li>
+            <li>PrecisionStockpileControl.PscHaulUnit</li>
+            <li>PrecisionStockpileControl.PscMapComponent</li>
+            <li>PrecisionStockpileControl.PscPerTile</li>
+            <li>PrecisionStockpileControl.PscOrder</li>
+            <li>PrecisionStockpileControl.PscAdmissionScope</li>
+            <li>PrecisionStockpileControl.StoreUtility_PlanningScope_Patch</li>
+            <li>PrecisionStockpileControl.StorageSettings_AllowedToAccept_Patch</li>
+            <li>PrecisionStockpileControl.HaulAIUtility_HaulToCellStorageJob_Patch</li>
+            <li>PrecisionStockpileControl.PscCap</li>
+            <li>PrecisionStockpileControl.Pawn_CarryTracker_TryDropCarriedThing_Patch</li>
+            <li>PrecisionStockpileControl.PscCount</li>
+            <li>PrecisionStockpileControl.Building_Storage_Received_Patch</li>
+            <li>PrecisionStockpileControl.Building_Storage_Lost_Patch</li>
+            <li>PrecisionStockpileControl.Zone_Stockpile_Received_Patch</li>
+            <li>PrecisionStockpileControl.Zone_Stockpile_Lost_Patch</li>
+            <li>PrecisionStockpileControl.Thing_SplitOff_Patch</li>
+            <li>PrecisionStockpileControl.Thing_TryAbsorbStack_Patch</li>
+            <li>PrecisionStockpileControl.CompDissolution_TriggerDissolutionEvent_Patch</li>
+            <li>PrecisionStockpileControl.Pawn_CarryTracker_TryDropCarriedThing_ReservePatch</li>
+            <li>PrecisionStockpileControl.JobDriver_HaulToCell_NotifyStarting_ReservePatch</li>
+            <li>PrecisionStockpileControl.HaulDestinationManager_Compare_Patch</li>
+            <li>PrecisionStockpileControl.StoreUtility_FineOrder_Patch</li>
+            <li>PrecisionStockpileControl.StoreUtility_NoStorageBlockersIn_PerTile_Patch</li>
+            <li>PrecisionStockpileControl.StoreUtility_PerTileRelocate_Patch</li>
+            <li>PrecisionStockpileControl.ThingUtility_TryAbsorbStackNumToTake_PerTile_Patch</li>
+            <li>PrecisionStockpileControl.GenPlace_PlaceSpotQualityAt_PerTile_Patch</li>
+            <li>PrecisionStockpileControl.PickUpAndHaul_CapacityAt_Patch</li>
+            <li>PrecisionStockpileControl.HaulersDream_StorageSpaceForDef_Patch</li>
+            <li>PrecisionStockpileControl.ForbidUtility_IsForbidden_ModePatch</li>
+            <li>PrecisionStockpileControl.PscFeederManager</li>
+            <li>PrecisionStockpileControl.PscFeederLinks</li>
+            <li>PrecisionStockpileControl.PscFeederHaulContext</li>
+            <li>PrecisionStockpileControl.JobDriver_HaulToCell_NotifyStarting_FeederPatch</li>
+            <li>PrecisionStockpileControl.Pawn_CarryTracker_TryStartCarry_FeederContextPatch</li>
+            <li>PrecisionStockpileControl.Thing_SpawnSetup_FeederContextPatch</li>
+            <li>PrecisionStockpileControl.PscAlarmRunner</li>
+            <li>PrecisionStockpileControl.PscAlarmConfig</li>
+            <li>PrecisionStockpileControl.PscStorageOverlay</li>
+            <li>PrecisionStockpileControl.PscFeederOverlay</li>
+            <li>PrecisionStockpileControl.PscFeederLayout</li>
+            <li>PrecisionStockpileControl.PscOverlayState</li>
+            <li>PrecisionStockpileControl.PscStatusIcons</li>
         </Types>
         <Methods>
+            <li>RimWorld.StoreUtility:TryFindBestBetterStoreCellFor</li>
+            <li>Verse.AI.HaulAIUtility:HaulToCellStorageJob</li>
         </Methods>
         <NestedTypes>
         </NestedTypes>
