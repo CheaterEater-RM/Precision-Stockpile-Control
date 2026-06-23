@@ -31,6 +31,12 @@ namespace PrecisionStockpileControl
             var sa = a?.Settings;
             var sb = b?.Settings;
             if (sa == null || sb == null) return;
+            // Only a non-default fine-order key (sub-tier / letter) can break a same-band tie. With none
+            // active on this map, CompareWithinBand is always 0 (every same-band unit ranks equal), so
+            // skip the per-pair rank work entirely in limits/batch/alarm-only colonies. Mirrors the gate
+            // the re-scan Postfix below already uses. For() is memoised, so the gate itself is cheap.
+            var psc = PscMapComponent.For(a.parent?.Map);
+            if (psc == null || !psc.anyFineOrderActive) return;
             __result = PscOrder.CompareWithinBand(sa, sb);
             if (__result != 0 && PscLog.Enabled)
             {

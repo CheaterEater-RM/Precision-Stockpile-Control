@@ -236,8 +236,17 @@ namespace PrecisionStockpileControl
         {
             base.FinalizeInit();
             // Drop feeder edges whose endpoints are no longer live storage on this map (removed
-            // storage, removed mod, cross-map paste garbage) — self-heals each load.
+            // storage, removed mod, cross-map paste garbage) — self-heals each load. This also
+            // rebuilds tracking and the per-feature gates, including anyFineOrderActive.
             PruneFeederLinksAndFlags(markDirty: true);
+            // The fine-order sort tiebreak (HaulDestinationManager_Compare_Patch) gates on
+            // anyFineOrderActive, but the spawn-time haul-destination sorts already ran band-only (the
+            // flag is only established just above, after spawn). Re-sort now so the rank-primary
+            // selection's sorted-best-first list assumption holds immediately on load, not only after
+            // the first runtime storage change. Cheap (one InsertionSort) and only when fine-order is
+            // actually in use. Runtime flag flips (NotifyOrderChanged, settings apply) already re-sort.
+            if (anyFineOrderActive)
+                map?.haulDestinationManager?.Notify_HaulDestinationChangedPriority();
         }
 
         // On map removal, drop the static references that would otherwise pin this dead map's object
