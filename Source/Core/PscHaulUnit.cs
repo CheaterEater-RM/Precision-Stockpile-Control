@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using RimWorld;
@@ -34,16 +35,44 @@ namespace PrecisionStockpileControl
             }
         }
 
-        // Stable string handle for an endpoint. Groundwork for M3 feeder links (D7), which store
-        // endpoints by GetUniqueLoadID() and resolve them lazily on load.
+        // Build-once id cache. GetUniqueLoadID() allocates a fresh string on every call, and this getter
+        // is hit per feeder edge check (HasEdge) plus the live-id scans — so memoise by the canonical
+        // group's REFERENCE identity (the id is constant for an object's lifetime). ConcurrentDictionary
+        // with lock-free reads, NOT a plain Dictionary: AllowedToAccept — and thus this getter via the
+        // feeder gate — can run on off-main reachability threads (see PscAdmissionScope), so a plain map
+        // would race. Bounded against leaks by ClearIdCache() on new-game/load (PscGameComponent), every
+        // feeder prune (PscFeederManager.PruneFeederLinksAndFlags), and map removal.
+        private static readonly ConcurrentDictionary<object, string> idCache =
+            new ConcurrentDictionary<object, string>(ReferenceComparer.Instance);
+
+        // Stable string handle for an endpoint. Feeder links (D7) store endpoints by GetUniqueLoadID()
+        // and resolve them lazily on load.
         public string UniqueLoadID
         {
             get
             {
-                if (group is StorageGroup sg) return sg.GetUniqueLoadID();
-                if (group is SlotGroup slot && slot.parent is ILoadReferenceable lr) return lr.GetUniqueLoadID();
-                return null;
+                if (group == null) return null;
+                if (idCache.TryGetValue(group, out var cached)) return cached;
+                string id = null;
+                if (group is StorageGroup sg) id = sg.GetUniqueLoadID();
+                else if (group is SlotGroup slot && slot.parent is ILoadReferenceable lr) id = lr.GetUniqueLoadID();
+                if (id != null) idCache[group] = id;
+                return id;
             }
+        }
+
+        // Drop the id cache. Called from rebuildable-static lifecycle seams (new-game/load ctor, feeder
+        // prune, map removal) so a dead group object never lingers as a key.
+        public static void ClearIdCache() => idCache.Clear();
+
+        // Reference-identity comparer for idCache, matching this struct's reference-equality Equals
+        // (GetHashCode uses RuntimeHelpers.GetHashCode too). These vanilla group objects don't override
+        // equality, but keying on identity removes any doubt.
+        private sealed class ReferenceComparer : IEqualityComparer<object>
+        {
+            public static readonly ReferenceComparer Instance = new ReferenceComparer();
+            public new bool Equals(object x, object y) => ReferenceEquals(x, y);
+            public int GetHashCode(object obj) => RuntimeHelpers.GetHashCode(obj);
         }
 
         // User-facing name for alarm messages / dialog titles. A StorageGroup uses its renamable

@@ -43,6 +43,9 @@ namespace PrecisionStockpileControl
         public static void Finalizer(bool __state)
         {
             PscAdmissionScope.InStoreSearch = __state;
+            // Drop the fine-order per-search memo so the item's resolved unit/rank never carries across
+            // searches (the item can move between them) and the strong Thing/group refs are released.
+            PscOrder.ClearSearchMemo();
         }
     }
 
@@ -77,7 +80,7 @@ namespace PrecisionStockpileControl
             if (!sourceIsTarget && data != null &&
                 (data.mode == PscStorageMode.Off || data.mode == PscStorageMode.RetrieveOnly))
             {
-                LogReject(t, unit, "modeNoIntake",
+                if (PscLog.Enabled) LogReject(t, unit, "modeNoIntake",
                     $"mode: rejected {t.def.defName} -> {unit.UniqueLoadID} (mode {data.mode}, no intake)");
                 __result = false; return;
             }
@@ -102,7 +105,7 @@ namespace PrecisionStockpileControl
                 if (srcData != null && srcData.batchEmpty > 0 && t.stackCount < srcData.batchEmpty
                     && source.Settings.AllowedToAccept(t))
                 {
-                    LogReject(t, source, "underBatchEmpty",
+                    if (PscLog.Enabled) LogReject(t, source, "underBatchEmpty",
                         $"batchEmpty: rejected {t.def.defName} leaving {source.UniqueLoadID} (source stack {t.stackCount} < batchEmpty {srcData.batchEmpty})");
                     __result = false; return;
                 }
@@ -131,7 +134,7 @@ namespace PrecisionStockpileControl
                         int ownCount = data.GetCount(t.def, unit);
                         if (ownCount > ownLim.Upper.Value)
                         {
-                            LogReject(t, unit, "overCapDrain",
+                            if (PscLog.Enabled) LogReject(t, unit, "overCapDrain",
                                 $"limit: draining over-cap {t.def.defName} from {unit.UniqueLoadID} ({ownCount} > cap {ownLim.Upper.Value})");
                             __result = false; return;
                         }
@@ -153,7 +156,7 @@ namespace PrecisionStockpileControl
                 // Upper — the maximum (M2 makes this a hard cap at drop time via HardCap_Patches)
                 if (lim.Upper.HasValue && n >= lim.Upper.Value)
                 {
-                    LogReject(t, unit, "overCap",
+                    if (PscLog.Enabled) LogReject(t, unit, "overCap",
                         $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (at/over cap {n}/{lim.Upper.Value})");
                     __result = false; return;
                 }
@@ -161,7 +164,7 @@ namespace PrecisionStockpileControl
                 // Lower / hysteresis (D15): lower unset => always refill; otherwise require refill state
                 if (lim.Lower.HasValue && !data.IsRefilling(t.def))
                 {
-                    LogReject(t, unit, "hysteresis",
+                    if (PscLog.Enabled) LogReject(t, unit, "hysteresis",
                         $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (not refilling; above lower threshold {lim.Lower.Value})");
                     __result = false; return;
                 }
@@ -173,7 +176,7 @@ namespace PrecisionStockpileControl
                 // Source-stack gate: never start a trip from a stack smaller than the batch size.
                 if (t.stackCount < data.batch)
                 {
-                    LogReject(t, unit, "underBatch",
+                    if (PscLog.Enabled) LogReject(t, unit, "underBatch",
                         $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (source stack {t.stackCount} < batch {data.batch})");
                     __result = false; return;
                 }
@@ -192,7 +195,7 @@ namespace PrecisionStockpileControl
                     // is stable until delivery, so this only bites at plan time).
                     if (blim.Upper.Value - PscAdmissionScope.PlanningCount(data, t.def, unit) < data.batch)
                     {
-                        LogReject(t, unit, "underBatchRoom",
+                        if (PscLog.Enabled) LogReject(t, unit, "underBatchRoom",
                             $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (cap room < batch {data.batch})");
                         __result = false; return;
                     }
@@ -204,7 +207,7 @@ namespace PrecisionStockpileControl
                     // space — the same churn (N1) otherwise hits a batched unit with no upper. Scoped to the
                     // store-search so an in-flight hauler's FailOn re-check never runs the cell scan or
                     // self-cancels (physical room is unchanged until delivery anyway).
-                    LogReject(t, unit, "underBatchRoom",
+                    if (PscLog.Enabled) LogReject(t, unit, "underBatchRoom",
                         $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (physical room < batch {data.batch})");
                     __result = false; return;
                 }
@@ -254,14 +257,14 @@ namespace PrecisionStockpileControl
                 // and short-circuits last, so it only runs when this gate would otherwise reject.
                 if (srcData != null && srcData.onlyToDestinations && source.Settings.AllowedToAccept(t))
                 {
-                    LogReject(t, unit, "onlyToDestinations",
+                    if (PscLog.Enabled) LogReject(t, unit, "onlyToDestinations",
                         $"feeder: rejected {t.def.defName} -> {unit.UniqueLoadID} (source onlyToDestinations, no functional edge)");
                     return true;
                 }
             }
             else if (PscFeederHaulContext.TryGet(t, out var carriedRoute) && carriedRoute.map == unit.Map)
             {
-                LogReject(t, unit, "carriedRoute",
+                if (PscLog.Enabled) LogReject(t, unit, "carriedRoute",
                     $"feeder: rejected carried {t.def.defName} -> {unit.UniqueLoadID} (planned route no longer a functional edge)");
                 return true;
             }
@@ -269,7 +272,7 @@ namespace PrecisionStockpileControl
             targetData = PscStorageDataStore.TryGet(target);
             if (targetData != null && targetData.onlyFromSource)
             {
-                LogReject(t, unit, "onlyFromSource",
+                if (PscLog.Enabled) LogReject(t, unit, "onlyFromSource",
                     $"feeder: rejected {t.def.defName} -> {unit.UniqueLoadID} (target onlyFromSource, no functional edge)");
                 return true;
             }

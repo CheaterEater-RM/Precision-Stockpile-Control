@@ -248,6 +248,8 @@ namespace PrecisionStockpileControl
             base.MapRemoved();
             if (ReferenceEquals(map, lastForMap)) { lastForMap = null; lastForComp = null; }
             PscFeederHaulContext.ClearForMap(map);
+            PscHaulUnit.ClearIdCache();   // drop this map's group objects from the id cache
+
         }
 
         internal void RebuildTrackingFromStore(bool markDirty)

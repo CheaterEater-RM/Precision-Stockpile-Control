@@ -43,18 +43,25 @@ namespace PrecisionStockpileControl
             return c - 'a' + 1;
         }
 
-        // Lower = better. Composite of effective sub-tier (dominant) then letter.
-        private static int RankWithinBand(PscStorageData data, StoragePriority band)
-        {
-            byte sub = data?.subTier ?? 0;
-            string letter = data?.letter;
-            return EffectiveSubTier(sub, band) * 100 + LetterRank(letter);
-        }
+        // Bumped whenever PscMod.Settings.priorityNumbering changes (settings apply / reset). The
+        // PscStorageData rank cache stamps the generation it computed under and recomputes on a mismatch,
+        // so a numbering toggle transparently invalidates every cached rank without enumerating units.
+        public static int NumberingGeneration;
+
+        // Pure "rank within band" (lower = better): effective sub-tier (dominant) then letter. No
+        // per-call lookups — the cached form (PscStorageData.GetRank) and the no-data fast path below
+        // both call this. Depends on the global priorityNumbering via EffectiveSubTier, so any caller
+        // that memoises the result must also key on NumberingGeneration.
+        public static int ComputeRankWithinBand(byte subTier, string letter, StoragePriority band)
+            => EffectiveSubTier(subTier, band) * 100 + LetterRank(letter);
 
         public static int RankWithinBand(StorageSettings settings)
         {
             if (settings == null) return AnchorTier(StoragePriority.Normal) * 100;
-            return RankWithinBand(PscStorageDataStore.TryGet(settings), settings.Priority);
+            var data = PscStorageDataStore.TryGet(settings);
+            // Most units have no PSC data — compute inline (subTier 0 / no letter), never touch a cache.
+            if (data == null) return ComputeRankWithinBand(0, null, settings.Priority);
+            return data.GetRank(settings.Priority);
         }
 
         // Within-band tiebreak for the sort comparator: negative => a sorts before b (higher
@@ -187,6 +194,27 @@ namespace PrecisionStockpileControl
         //
         // Correctness depends on the sort postfix ordering same-band groups by fine-order, so the
         // strictly-better groups are visited before the break point is reached.
+        // Per-search memo (perf): within ONE TryFindBestBetterStoreCellFor, ShouldContinueSearch is
+        // called once per same-band candidate group with an INVARIANT item t, so resolving the item's
+        // current unit + rank on every call is wasted. Memoise them keyed by reference-identity on t.
+        // ThreadStatic matches PscAdmissionScope.InStoreSearch's threading/MP story; the memo is
+        // self-correcting if ever re-entered with a different t, and ClearSearchMemo() (from the
+        // planning-scope Finalizer) drops the strong refs between searches.
+        [System.ThreadStatic] private static Thing scsMemoThing;
+        [System.ThreadStatic] private static bool scsMemoValid;
+        [System.ThreadStatic] private static ISlotGroup scsMemoGroup;
+        [System.ThreadStatic] private static int scsMemoRank;
+
+        // Reset the per-search memo (all fields, so no stale state lingers and the strong Thing/group
+        // refs are dropped between searches). Called from StoreUtility_PlanningScope_Patch.Finalizer.
+        public static void ClearSearchMemo()
+        {
+            scsMemoThing = null;
+            scsMemoValid = false;
+            scsMemoGroup = null;
+            scsMemoRank = 0;
+        }
+
         public static bool ShouldContinueSearch(StoragePriority candidatePriority,
             StoragePriority currentPriority, SlotGroup candidate, Thing t, Map map)
         {
@@ -200,13 +228,22 @@ namespace PrecisionStockpileControl
             var candidateUnit = PscHaulUnit.FromSlotGroup(candidate);
             if (!candidateUnit.IsValid) return false;
 
-            var currentUnit = PscHaulUnit.ResolveCurrent(t);
-            if (!currentUnit.IsValid) return false;
+            // Resolve the item's current unit + rank ONCE per search (invariant across candidates).
+            if (!ReferenceEquals(t, scsMemoThing))
+            {
+                scsMemoThing = t;
+                var cur = PscHaulUnit.ResolveCurrent(t);
+                scsMemoValid = cur.IsValid;
+                scsMemoGroup = cur.group;
+                scsMemoRank = scsMemoValid ? RankWithinBand(cur.Settings) : 0;
+            }
+            if (!scsMemoValid) return false;
+            var currentUnit = new PscHaulUnit(scsMemoGroup);
             // Never relocate within the same unit (or a linked sibling sharing one StorageGroup).
             if (candidateUnit.Equals(currentUnit)) return false;
 
             int candidateRank = RankWithinBand(candidateUnit.Settings);
-            int currentRank = RankWithinBand(currentUnit.Settings);
+            int currentRank = scsMemoRank;
             bool continueSearch = candidateRank < currentRank; // candidate strictly better
             if (continueSearch && PscLog.Enabled)
                 PscLog.MsgThrottled($"scs:{candidateUnit.UniqueLoadID}:{currentUnit.UniqueLoadID}",

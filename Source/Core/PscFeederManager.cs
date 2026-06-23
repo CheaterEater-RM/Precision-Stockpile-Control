@@ -168,6 +168,10 @@ namespace PrecisionStockpileControl
             ClearOrphanedFeederFlags(liveIds);
             PscFeederHaulContext.PruneForMap(map, owner);
             owner.RebuildTrackingFromStore(markDirty);
+            // A prune is exactly when storage units may have gone dead (despawn, unlink, removed mod);
+            // drop the id cache so dead group objects don't linger as keys. Rebuilt lazily and cheaply;
+            // prune is a rare UI/lifecycle event, never on the haul hot path.
+            PscHaulUnit.ClearIdCache();
         }
 
         private void ClearOrphanedFeederFlags(HashSet<string> liveIds)
@@ -207,13 +211,17 @@ namespace PrecisionStockpileControl
         {
             if (!source.IsValid || !dest.IsValid) return false;
             if (source.Map != map || dest.Map != map) return false;
+            // Structural edge check FIRST: most (source, candidate-target) pairs in a haul scan have
+            // no edge, so the cheap HasEdge lookup short-circuits before the priority comparison
+            // (Outranks reads two fine-order ranks) and the settings reads. All conditions are ANDed;
+            // reordering is behavior-neutral.
+            if (!links.HasEdge(source.UniqueLoadID, dest.UniqueLoadID)) return false;
             var sourceSettings = source.Settings;
             var destSettings = dest.Settings;
             if (sourceSettings == null || destSettings == null) return false;
             // D5 unified onto the fine-order key (M4): the destination must strictly outrank the
             // source by full priority (band, then sub-tier, then letter), not just by vanilla band.
-            if (!PscOrder.Outranks(destSettings, sourceSettings)) return false;
-            return links.HasEdge(source.UniqueLoadID, dest.UniqueLoadID);
+            return PscOrder.Outranks(destSettings, sourceSettings);
         }
 
         public bool HasFunctionalFeederEdge(string sourceId, string destId)
@@ -231,11 +239,14 @@ namespace PrecisionStockpileControl
         {
             if (!source.IsValid || !dest.IsValid) return false;
             if (source.Map != map || dest.Map != map) return false;
+            // Structural reachability FIRST (memoised behind the graph generation): skip the Outranks
+            // rank reads and settings reads on the common no-path pair. The live Outranks check still
+            // runs for an actual path, keeping a later priority edit from leaving a stale allowance.
+            if (!links.IsDownstreamReachable(source.UniqueLoadID, dest.UniqueLoadID)) return false;
             var sourceSettings = source.Settings;
             var destSettings = dest.Settings;
             if (sourceSettings == null || destSettings == null) return false;
-            if (!PscOrder.Outranks(destSettings, sourceSettings)) return false;
-            return links.IsDownstreamReachable(source.UniqueLoadID, dest.UniqueLoadID);
+            return PscOrder.Outranks(destSettings, sourceSettings);
         }
 
         public bool HasFunctionalFeederPath(string sourceId, string destId)

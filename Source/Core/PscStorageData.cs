@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using RimWorld;
 using UnityEngine;
 using Verse;
 
@@ -175,7 +176,31 @@ namespace PrecisionStockpileControl
 
         // ---- Dirty marking (cheap; called from drift-seam patches) ----
         public void MarkDirty(ThingDef def) { if (def != null) dirtyDefs.Add(def); }
-        public void MarkAllDirty() { allDirty = true; }
+        public void MarkAllDirty() { allDirty = true; rankCacheGen = -1; }
+
+        // Cached fine-order rank (PscOrder.ComputeRankWithinBand). Runtime-only, never scribed. Recompute
+        // only when the band changes — the band self-compare also transparently catches a vanilla
+        // priority-button edit that has no PSC seam — or the global numbering generation bumps. Any policy
+        // edit (subTier/letter included) invalidates via MarkAllDirty resetting rankCacheGen above. Plain
+        // ints keep the read branch tiny; -1 generation forces a recompute on first read / after a fresh
+        // CopyPolicyFrom.
+        // Thread-safety: GetRank can run on off-main reachability threads (the feeder Outranks gate). The
+        // unsynchronised write is a benign, self-correcting race — every thread computes the IDENTICAL
+        // value for the same (subTier, letter, band, gen), and settings.Priority is stable across a scan,
+        // so the three fields never combine into a wrong-band rank. Matches the count/reserved best-effort
+        // cache posture; ints/byte writes are atomic, so no structural corruption is possible.
+        private int rankCache;
+        private int rankCacheGen = -1;                                    // -1 forces a recompute on first read
+        private StoragePriority rankCacheBand = (StoragePriority)byte.MaxValue;   // impossible-band sentinel
+
+        public int GetRank(StoragePriority band)
+        {
+            if (rankCacheGen == PscOrder.NumberingGeneration && rankCacheBand == band) return rankCache;
+            rankCache = PscOrder.ComputeRankWithinBand(subTier, letter, band);
+            rankCacheGen = PscOrder.NumberingGeneration;
+            rankCacheBand = band;
+            return rankCache;
+        }
 
         // ---- Count access (recomputes from the unit's HeldThings when dirty) ----
         public int GetCount(ThingDef def, PscHaulUnit unit)

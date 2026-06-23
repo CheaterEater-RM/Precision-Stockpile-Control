@@ -205,6 +205,7 @@ namespace PrecisionStockpileControl
             {
                 Settings.ResetToDefaults();
                 PscLog.Enabled = Settings.debugLogging;   // keep the cached gate in sync with the reset value
+                PscOrder.NumberingGeneration++;           // reset may flip 1-10 numbering; invalidate rank caches
                 ResortAllMaps();                          // 1-10 numbering may have flipped back to default
             }
         }
@@ -267,7 +268,11 @@ namespace PrecisionStockpileControl
             bool prevNumbering = Settings.priorityNumbering;
             listing.CheckboxLabeled("PSC_SettingsPriorityNumbering".Translate(), ref Settings.priorityNumbering,
                 "PSC_SettingsPriorityNumberingTip".Translate());
-            if (Settings.priorityNumbering != prevNumbering) ResortAllMaps();
+            if (Settings.priorityNumbering != prevNumbering)
+            {
+                PscOrder.NumberingGeneration++;   // invalidate every cached fine-order rank (band-independent)
+                ResortAllMaps();
+            }
             listing.CheckboxLabeled("PSC_SettingsReverseOrder".Translate(), ref Settings.reverseOrder,
                 "PSC_SettingsReverseOrderTip".Translate());
 
