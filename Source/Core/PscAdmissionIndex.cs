@@ -263,7 +263,9 @@ namespace PrecisionStockpileControl
                 {
                     if (!(planning && PscSearchContext.TryGetFeederAllows(t, unit, out hasFunctionalEdge)))
                     {
-                        hasFunctionalEdge = psc.FeederAllows(source, unit);
+                        // Cross-search memo (Cache B): memoizes ONLY this FeederAllows(source, target) subquery
+                        // across searches; the PscSearchContext memo above is the within-search inner layer.
+                        hasFunctionalEdge = psc.FeederDecisions.FeederAllows(psc, source, unit);
                         if (planning) PscSearchContext.CacheFeederAllows(t, unit, hasFunctionalEdge);
                     }
                 }

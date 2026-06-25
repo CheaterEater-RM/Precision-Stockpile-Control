@@ -50,7 +50,9 @@ namespace PrecisionStockpileControl
         // Bumped on every edge mutation. The overlay's port-layout cache (PscFeederLayout) reads this
         // so it can rebuild only when the route set actually changed, not every frame. Runtime-only,
         // never scribed. All mutations route through MarkDirty() so no site can forget to bump it.
-        private int generation;
+        // volatile: written on the main thread (MarkDirty, single writer), read on off-main reachability threads
+        // by PscFeederDecisionCache's stamp compare, so the read must see the latest bump promptly.
+        private volatile int generation;
         public int Generation => generation;
         private void MarkDirty() { dirty = true; generation++; }
 

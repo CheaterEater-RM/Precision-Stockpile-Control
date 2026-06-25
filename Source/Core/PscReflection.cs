@@ -25,6 +25,7 @@ namespace PrecisionStockpileControl
     //   Widgets.CheckboxMulti(Rect,MultiCheckboxState,bool)                       (overload)
     //   PickUpAndHaul.WorkGiver_HaulToInventory:CapacityAt(Thing,IntVec3,Map)     (soft dependency)
     //   HaulersDream.BulkHaul:StorageSpaceForDef(Pawn,Thing,IntVec3,Map)          (soft dep, private)
+    //   HaulDestinationManager.map            (private field)   — owning map for the selection-gen chokepoint
     internal static class PscReflection
     {
         // ---- Listing.curY -------------------------------------------------------------------------
@@ -173,6 +174,21 @@ namespace PrecisionStockpileControl
         {
             try { return AccessTools.TypeByName(name); }
             catch { return null; }
+        }
+
+        // ---- HaulDestinationManager.map (owning map for the selection-gen chokepoint) -----------------
+        private static readonly AccessTools.FieldRef<HaulDestinationManager, Map> HaulDestMapRef = ResolveHaulDestMap();
+
+        // The map owning a HaulDestinationManager, read by the priority-change chokepoint (SelectionGen_Patches)
+        // to bump that map's selectionGen. Degrades to null if the field is gone; the caller then
+        // over-invalidates all maps (safe), so a vanished seam never serves a stale feeder-decision cache.
+        public static Map GetHaulDestinationMap(HaulDestinationManager mgr)
+            => HaulDestMapRef != null && mgr != null ? HaulDestMapRef(mgr) : null;
+
+        private static AccessTools.FieldRef<HaulDestinationManager, Map> ResolveHaulDestMap()
+        {
+            try { return AccessTools.FieldRefAccess<HaulDestinationManager, Map>("map"); }
+            catch (Exception ex) { LogMissing("HaulDestinationManager.map", ex); return null; }
         }
 
         // ---- resolution helpers (resolve once, log once, degrade) ---------------------------------

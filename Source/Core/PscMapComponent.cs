@@ -48,6 +48,30 @@ namespace PrecisionStockpileControl
         public PscFeederManager Feeder => feeder;
         public PscFeederLinks Links => feeder.Links;
 
+        // Coarse selection-cache invalidation stamp (store-search rewrite, Phase 3a). Bumped on the RARE
+        // structural / policy / priority events that change which targets a source may feed (D2 / D3), NEVER on
+        // per-tick count churn. PscFeederDecisionCache stamps against it (paired with PscFeederLinks.Generation);
+        // a mismatch is a lazy flush. volatile: read on off-main reachability threads, written on the main thread.
+        private volatile int selectionGen;
+        public int SelectionGen => selectionGen;
+        public void BumpSelectionGen() => selectionGen++;
+
+        // Bump every live map's selectionGen. Used by the settings UI (a feeder-skip toggle changes FeederAllows
+        // results map-wide) and as the safe fallback when the priority chokepoint cannot resolve its owning map
+        // (over-invalidate rather than risk a stale feeder verdict). Rare path: never per-tick.
+        public static void BumpSelectionGenAllMaps()
+        {
+            var maps = Current.Game?.Maps;
+            if (maps == null) return;
+            for (int i = 0; i < maps.Count; i++)
+                For(maps[i])?.BumpSelectionGen();
+        }
+
+        // Cross-search memo of the FeederAllows(source, target) subquery (Cache B). Per map; stamp-flushed on a
+        // selectionGen / feeder-generation mismatch. Concurrent-safe for off-main reachability scans.
+        private readonly PscFeederDecisionCache feederDecisions = new PscFeederDecisionCache();
+        public PscFeederDecisionCache FeederDecisions => feederDecisions;
+
         // Tracked = active StorageSettings whose owner resolves onto THIS map. Maintained on
         // policy change (runtime) and rebuilt in FinalizeInit (load). Internal so PscAdmissionIndex
         // can read it when rebuilding the prefilter below.
@@ -148,6 +172,7 @@ namespace PrecisionStockpileControl
             RecomputeReservedActive();
             RecomputePerTileActive();
             PscAdmissionIndex.Rebuild(this);
+            BumpSelectionGen();
         }
 
         private void RecomputeFeederActive()
@@ -268,7 +293,7 @@ namespace PrecisionStockpileControl
             if (ReferenceEquals(map, lastForMap)) { lastForMap = null; lastForComp = null; }
             PscFeederHaulContext.ClearForMap(map);
             PscHaulUnit.ClearIdCache();   // drop this map's group objects from the id cache
-
+            feederDecisions.Clear();      // string-keyed (pins nothing), but drop it for hygiene
         }
 
         internal void RebuildTrackingFromStore(bool markDirty)
@@ -301,6 +326,7 @@ namespace PrecisionStockpileControl
             RecomputeReservedActive();
             RecomputePerTileActive();
             PscAdmissionIndex.Rebuild(this);
+            BumpSelectionGen();
         }
 
         // Called after a fine-order edit (sub-tier / letter / band via the level box). Updates

@@ -1,50 +1,41 @@
 using System;
 using System.Collections.Generic;
 using RimWorld;
+using UnityEngine;
 using Verse;
 
 namespace PrecisionStockpileControl
 {
-    // The owned slot-group selection engine (store-search rewrite, Phase 2). It replaces PSC's per-group
+    // The owned slot-group selection engine (store-search rewrite, Phase 2 + 3a). It replaces PSC's per-group
     // admission fan-out (the AllowedToAccept planning postfix + the fine-order transpiler + the rank-primary
-    // re-scan): it ranks ALL eligible groups by the full (band, within-band rank) key, hard-admits each via
-    // the shared PscAdmissionIndex.HardReject, and delegates the legal-cell pick to vanilla
-    // TryFindBestBetterStoreCellForIn. The retained AllowedToAccept backstop is bypassed only around that
-    // delegated probe (PscEngineScope.BypassAdmissionBackstop), so admission is paid exactly once.
+    // re-scan) with ONE integrated pass over the already full-key-sorted AllGroupsListInPriorityOrder: it walks
+    // the groups best-first, applies PSC admission (PscAdmissionIndex.HardReject) plus the live vanilla filter
+    // (AllowedToAccept, backstop bypassed) per canonical unit, and scans each unit's cells with vanilla's own
+    // closest-good-cell rule sharing ONE distance accumulator across the best-key bucket (mirrors
+    // TryFindBestBetterStoreCellForWorker). The retained AllowedToAccept backstop is bypassed only around the
+    // per-unit filter confirm, so admission is paid exactly once.
     //
     // Tri-state: Unaffected (run vanilla), NoLegalTarget (PSC applies, no admissible+legal cell), Found.
     //
-    // Verified vanilla fact this relies on: the worker (TryFindBestBetterStoreCellForWorker) applies NO
-    // currentPriority break -- it runs slotGroup.Settings.AllowedToAccept(t) then takes the closest good cell.
-    // So the currentPriority handed to …ForIn is moot; the engine owns priority filtering (the StrictlyBetter
-    // gate), and …ForIn just supplies the closest legal cell in a candidate unit.
+    // Verified vanilla facts this relies on (1.6.4850):
+    //   - The list is kept full-key sorted: vanilla's InsertionSort(CompareSlotGroupPrioritiesDescending) plus
+    //     PSC's HaulDestinationManager_Compare_Patch fine-order tiebreak, re-sorted on every priority / fine-order
+    //     edit. So one best-first walk needs no per-search copy or sort.
+    //   - The worker applies NO currentPriority break and shares ONE closestDistSquared across a band
+    //     (StoreUtility.cs:173-205); the inline scan reproduces that exactly (shared bestDist). That is why a
+    //     within-bucket cell pick can differ from the deleted Phase 2 per-candidate …ForIn (which used a fresh
+    //     accumulator per group) and instead matches vanilla. See the "shared-accumulator refinement" note in
+    //     STORE_SEARCH_REWRITE_PHASE3A_PLAN.md.
     public static class PscStoreSearchEngine
     {
         public enum PscSearchResult { Unaffected, NoLegalTarget, Found }
 
-        private struct Candidate
-        {
-            public ISlotGroup group;     // canonical (StorageGroup for a linked unit) -> one …ForIn covers all cells
-            public PscHaulUnit unit;
-            public StoragePriority band;
-            public int rank;             // PscOrder.RankWithinBand (lower = better)
-            public int order;            // gather index: a deterministic tiebreak for equal keys (MP-safe)
-        }
-
-        // Best-first: band descending, then within-band rank ascending, then gather order (so equal-key units
-        // keep AllGroupsListInPriorityOrder order -- deterministic across multiplayer clients). Cached so Sort
-        // does not allocate a delegate per search.
-        private static readonly Comparison<Candidate> ByKey = (a, b) =>
-        {
-            int c = ((int)b.band).CompareTo((int)a.band);
-            if (c != 0) return c;
-            c = a.rank.CompareTo(b.rank);
-            if (c != 0) return c;
-            return a.order.CompareTo(b.order);
-        };
-
-        // Reused per search (the search may run on off-main reachability threads, so keep it thread-local).
-        [ThreadStatic] private static List<Candidate> candidateBuffer;
+        // Reused per search to dedup a linked StorageGroup's member slot groups to one canonical scan (a linked
+        // StorageGroup lists many member slot groups -> one canonical unit -> one scan over all its cells).
+        // ThreadStatic: the search can run on off-main reachability threads. Reference equality is correct here
+        // (ISlotGroup impls do not override Equals, per PscHaulUnit). Cleared at the top of each search and by
+        // ClearThreadStaticState (the engine prefix Finalizer) so it never pins a removed map's group objects.
+        [ThreadStatic] private static HashSet<ISlotGroup> seenCanon;
 
         public static PscSearchResult TryFindBestStoreCell(Thing t, Pawn carrier, Map map,
             StoragePriority currentPriority, Faction faction, in PscSearchOptions options, out IntVec3 cell)
@@ -83,102 +74,98 @@ namespace PrecisionStockpileControl
             // The engine NEVER demotes the item's band on its own: effBand is exactly the currentPriority vanilla
             // passed (already Unstored when the per-tile prefix demoted a genuine floor over-cap). A correctly
             // stored item therefore only relocates to a STRICTLY better unit, never down its (uphill-priority)
-            // feeder chain. An earlier build demoted to Unstored whenever the item shared a cell with another
-            // storable (a "LWM case A" probe), but vanilla shelves hold 3 stacks per cell, so it fired on every
-            // normal shelf item and hauled correctly placed goods back to lower chain nodes. Vanilla/LWM enforce
-            // cell capacity at placement and DSU cells are ceded above, so there is no real non-DSU over-cap
-            // case left to handle here.
+            // feeder chain. Vanilla/LWM enforce cell capacity at placement and DSU cells are ceded above, so
+            // there is no real non-DSU over-cap case left to handle here.
             StoragePriority effBand = currentPriority;
             int currentRank = source.IsValid ? PscOrder.RankWithinBand(source.Settings) : 0;
 
-            // Gather eligible candidate units, deduped to canonical units (a linked StorageGroup lists many
-            // member slot groups -> one canonical unit -> one …ForIn over all its cells). Mirrors the vanilla
-            // outer-loop eligibility guards (faction, HaulDestinationEnabled) that …ForIn itself does not apply.
-            var candidates = candidateBuffer ?? (candidateBuffer = new List<Candidate>());
-            candidates.Clear();
-            var groups = map.haulDestinationManager.AllGroupsListInPriorityOrder;
-            for (int i = 0; i < groups.Count; i++)
-            {
-                var g = groups[i];
-                var settings = g.Settings;
-                if (settings == null) continue;
-                var parent = g.parent;
-                if (parent == null || !parent.HaulDestinationEnabled) continue;
-                if (parent is Thing pt && pt.Faction != faction) continue;
-                var unit = PscHaulUnit.FromSlotGroup(g);
-                if (!unit.IsValid) continue;
-                bool dup = false;
-                for (int j = 0; j < candidates.Count; j++)
-                    if (candidates[j].unit.Equals(unit)) { dup = true; break; }
-                if (dup) continue;
-                candidates.Add(new Candidate
-                {
-                    group = unit.group,
-                    unit = unit,
-                    band = settings.Priority,
-                    rank = PscOrder.RankWithinBand(settings),
-                    order = candidates.Count,
-                });
-            }
-            candidates.Sort(ByKey);
-
             IntVec3 itemPos = t.SpawnedOrAnyParentSpawned ? t.PositionHeld
                 : (carrier != null ? carrier.PositionHeld : IntVec3.Invalid);
+
+            var seen = seenCanon ?? (seenCanon = new HashSet<ISlotGroup>());
+            seen.Clear();
 
             IntVec3 bestCell = IntVec3.Invalid;
             int bestBand = int.MinValue, bestRank = int.MaxValue;
             float bestDist = float.MaxValue;
             ISlotGroup chosenGroup = null;
 
-            for (int i = 0; i < candidates.Count; i++)
+            // One pass over the already full-key-sorted list (vanilla's band InsertionSort + PSC's Compare patch
+            // keep it ordered; PSC re-sorts on every priority / fine-order edit). No copy, no re-sort, no O(n^2)
+            // dedup, no per-candidate …ForIn.
+            var groups = map.haulDestinationManager.AllGroupsListInPriorityOrder;
+            for (int gi = 0; gi < groups.Count; gi++)
             {
-                var cnd = candidates[i];
-                int cb = (int)cnd.band;
-                bool sourceIsTarget = source.IsValid && source.Equals(cnd.unit);
+                var g = groups[gi];
+                var settings = g.Settings;
+                if (settings == null) continue;
+                int cb = (int)settings.Priority;
+                int rank = PscOrder.RankWithinBand(settings);
 
-                // Same-unit: only a deliberate intra-unit relocation (per-tile spread or plain-cell over-cap)
-                // may target the item's own unit; a normal item never relocates within its unit.
+                // Best-key bucket fully scanned: every later group is worse-or-equal (sorted list), so stop.
+                if (bestCell.IsValid && (cb < bestBand || (cb == bestBand && rank > bestRank))) break;
+
+                // Vanilla outer-loop eligibility (faction + HaulDestinationEnabled) that the worker does not apply.
+                var parent = g.parent;
+                if (parent == null || !parent.HaulDestinationEnabled) continue;
+                if (parent is Thing pt && pt.Faction != faction) continue;
+
+                // Canonicalize FIRST, dedup SECOND, scan THIRD: a linked StorageGroup's member slot groups
+                // collapse to one canonical unit scanned once over its full CellsList.
+                var unit = PscHaulUnit.FromSlotGroup(g);
+                if (!unit.IsValid) continue;
+                var canon = unit.group;
+                if (!seen.Add(canon)) continue;
+
+                bool sourceIsTarget = source.IsValid && source.Equals(unit);
+                // Same-unit: only a deliberate intra-unit relocation (per-tile spread) may target the item's own
+                // unit; a normal item never relocates within its unit.
                 if (sourceIsTarget && !allowSameUnitRelocation) continue;
                 // Cross-unit: must strictly out-rank the item's EFFECTIVE current full key.
-                if (!sourceIsTarget && !StrictlyBetter(cnd.band, cnd.rank, effBand, currentRank)) continue;
-                // Best-key bucket fully scanned: every later candidate is worse-or-equal (sorted), so stop.
-                if (bestCell.IsValid && (cb < bestBand || (cb == bestBand && cnd.rank > bestRank))) break;
+                if (!sourceIsTarget && !StrictlyBetter(settings.Priority, rank, effBand, currentRank)) continue;
+
                 // Hard admission (planning: effective count + per-search memo). sourceIsTarget routes the
                 // own-contents / over-cap-drain branch for an intra-unit relocation candidate.
-                if (PscAdmissionIndex.HardReject(cnd.unit.Settings, t, cnd.unit, source, sourceData,
+                if (PscAdmissionIndex.HardReject(unit.Settings, t, unit, source, sourceData,
                         sourceIsTarget, planning: true, out _)) continue;
 
-                // Delegate the legal-cell pick to vanilla, bracketed by the admission bypass + excluded cells
-                // (the ONLY place the bypass flag is set). The worker's AllowedToAccept(t) runs as the live
-                // filter confirm at zero PSC cost; ExcludedCells is null on the vanilla path (adapters only).
-                IntVec3 c;
-                bool found;
+                // Live vanilla filter, backstop bypassed ONLY here (admission was already decided by HardReject).
+                // Mirrors the worker's single AllowedToAccept(t) gate, which it runs BEFORE the sampling below.
+                bool ok;
                 PscEngineScope.BypassAdmissionBackstop = true;
+                try { ok = canon.Settings.AllowedToAccept(t); }
+                finally { PscEngineScope.BypassAdmissionBackstop = false; }
+                if (!ok) continue;
+
+                // Vanilla-faithful per-group cell scan (mirror TryFindBestBetterStoreCellForWorker EXACTLY):
+                // shared bestDist across groups, Rand.Range only when accurate and only after AllowedToAccept
+                // passed (matching the worker's early return before num), the per-group i >= num early break.
+                // CellsList is a static temp: iterated now, NEVER retained. ExcludedCells (PUAH skipCells, the
+                // Phase 4 bulk adapters) is held across the scan so the Phase 4 IsGoodStoreCell postfix sees it;
+                // the engine clears it in finally, so the option is honored without relying on the Harmony
+                // Finalizer (which also clears it, defensively). null / empty on the vanilla path.
+                var cells = canon.CellsList;
+                int count = cells.Count;
+                int num = options.NeedAccurateResult ? Mathf.FloorToInt(count * Rand.Range(0.005f, 0.018f)) : 0;
                 PscEngineScope.ExcludedCells = options.ExcludedCells;
                 try
                 {
-                    found = StoreUtility.TryFindBestBetterStoreCellForIn(t, carrier, map, currentPriority,
-                        faction, cnd.group, out c, options.NeedAccurateResult);
-                }
-                finally
-                {
-                    PscEngineScope.BypassAdmissionBackstop = false;
-                    PscEngineScope.ExcludedCells = null;
-                }
-
-                if (found && c.IsValid)
-                {
-                    float d = itemPos.IsValid ? (itemPos - c).LengthHorizontalSquared : 0f;
-                    if (!bestCell.IsValid || cb > bestBand || (cb == bestBand && cnd.rank < bestRank)
-                        || (cb == bestBand && cnd.rank == bestRank && d < bestDist))
+                    for (int i = 0; i < count; i++)
                     {
-                        bestCell = c;
-                        bestBand = cb;
-                        bestRank = cnd.rank;
-                        bestDist = d;
-                        chosenGroup = cnd.group;
+                        IntVec3 c = cells[i];
+                        float d = itemPos.IsValid ? (itemPos - c).LengthHorizontalSquared : 0f;
+                        if (!(d > bestDist) && StoreUtility.IsGoodStoreCell(c, map, t, carrier, faction))
+                        {
+                            bestCell = c;
+                            bestDist = d;
+                            bestBand = cb;
+                            bestRank = rank;
+                            chosenGroup = canon;
+                            if (i >= num) break;
+                        }
                     }
                 }
+                finally { PscEngineScope.ExcludedCells = null; }
             }
 
             if (bestCell.IsValid)
@@ -193,12 +180,11 @@ namespace PrecisionStockpileControl
             return PscSearchResult.NoLegalTarget;
         }
 
-        // Release the per-search thread-static buffer at end of search (called from
-        // StoreUtility_Engine_Patch.Finalizer, alongside the scope + PscSearchContext clears). The buffer is
-        // otherwise only cleared at the START of the next search, so between searches it would retain the
-        // candidates' ISlotGroup/StorageGroup refs and could pin a removed temporary map until the next search
-        // on this thread. Clear() zeroes the backing array (net48), dropping those refs.
-        public static void ClearThreadStaticState() => candidateBuffer?.Clear();
+        // Release the per-search thread-static dedup set at end of search (called from
+        // StoreUtility_Engine_Patch.Finalizer, alongside the scope + PscSearchContext clears). It is otherwise
+        // only cleared at the START of the next search, so between searches it would retain the candidates'
+        // ISlotGroup/StorageGroup refs and could pin a removed temporary map until the next search on this thread.
+        public static void ClearThreadStaticState() => seenCanon?.Clear();
 
         // Full-key strictly-better test: band dominates (higher wins), then within-band rank (lower wins).
         private static bool StrictlyBetter(StoragePriority candBand, int candRank, StoragePriority curBand, int curRank)
