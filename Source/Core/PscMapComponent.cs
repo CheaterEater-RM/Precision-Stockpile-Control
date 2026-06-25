@@ -49,8 +49,17 @@ namespace PrecisionStockpileControl
         public PscFeederLinks Links => feeder.Links;
 
         // Tracked = active StorageSettings whose owner resolves onto THIS map. Maintained on
-        // policy change (runtime) and rebuilt in FinalizeInit (load).
-        private readonly HashSet<StorageSettings> tracked = new HashSet<StorageSettings>();
+        // policy change (runtime) and rebuilt in FinalizeInit (load). Internal so PscAdmissionIndex
+        // can read it when rebuilding the prefilter below.
+        internal readonly HashSet<StorageSettings> tracked = new HashSet<StorageSettings>();
+
+        // Soft def->units "maybe-accepts" prefilter (store-search rewrite, Phase 1). Managed units whose
+        // filter allows the def AND whose mode permits intake. Rebuilt from `tracked` on the same seams that
+        // maintain the gates (UpdateTracking / RebuildTrackingFromStore / the resync backstop) via
+        // PscAdmissionIndex.Rebuild; read via PscAdmissionIndex.CandidateUnits. Map-local, never persisted;
+        // rebuilt in FinalizeInit on load. Built but not yet consumed until the engine lands (Phase 2/3).
+        internal readonly Dictionary<ThingDef, List<StorageSettings>> admitIndex
+            = new Dictionary<ThingDef, List<StorageSettings>>();
 
         private readonly List<StorageSettings> resyncSnapshot = new List<StorageSettings>();
         private int resyncCursor;
@@ -138,6 +147,7 @@ namespace PrecisionStockpileControl
             RecomputeAlarmActive();
             RecomputeReservedActive();
             RecomputePerTileActive();
+            PscAdmissionIndex.Rebuild(this);
         }
 
         private void RecomputeFeederActive()
@@ -290,6 +300,7 @@ namespace PrecisionStockpileControl
             RecomputeAlarmActive();
             RecomputeReservedActive();
             RecomputePerTileActive();
+            PscAdmissionIndex.Rebuild(this);
         }
 
         // Called after a fine-order edit (sub-tier / letter / band via the level box). Updates
@@ -357,6 +368,11 @@ namespace PrecisionStockpileControl
                 RebuildReservedInbound();
 
             if (tick % ResyncInterval != 0) return;
+            // Soft staleness backstop for the def->units prefilter: catches changes that don't route through
+            // UpdateTracking, most importantly a vanilla filter / category toggle on a managed unit. Bounded
+            // by managed-unit count; runs once per ResyncInterval. (Filter-allows correctness never depends on
+            // this: the live delegated AllowedToAccept enforces it. This only refreshes the soft prefilter.)
+            PscAdmissionIndex.Rebuild(this);
             resyncSnapshot.Clear();
             resyncSnapshot.AddRange(tracked);
             if (resyncSnapshot.Count == 0) return;
