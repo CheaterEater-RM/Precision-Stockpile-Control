@@ -25,7 +25,7 @@ namespace PrecisionStockpileControl
         // needs no extra invalidation. Lower = higher priority.
         public static int RankOf(StorageSettings s) => PscOrder.RankWithinBand(s);
 
-        private static readonly List<StorageSettings> Empty = new List<StorageSettings>();
+        private static readonly IReadOnlyList<StorageSettings> Empty = new List<StorageSettings>();
 
         // Soft "maybe-accepts" prefilter: the MANAGED units whose filter allows `def` AND whose mode permits
         // intake. Def-level only; item-specific filter facets (rot / quality / HP / special filters) are
@@ -33,8 +33,16 @@ namespace PrecisionStockpileControl
         // pure-vanilla and reached via the engine's walk of AllGroupsListInPriorityOrder, so they are not
         // listed. At Precise the engine ignores this and walks the full eligible set, so a stale list can
         // never drop an admissible unit; Balanced/Performance narrowing semantics are finalized in Phase 3.
-        // Built but NOT yet authoritative in Phase 1. Treat the returned list as read-only.
-        public static List<StorageSettings> CandidateUnits(Map map, ThingDef def)
+        //
+        // CONTRACT (read carefully before Phase 2 consumes this):
+        //  - The return is READ-ONLY. It is the live backing list inside admitIndex (or the shared Empty
+        //    sentinel), handed out as IReadOnlyList so a consumer cannot Add/Sort/Clear it in place and
+        //    corrupt the index. The engine MUST copy into its own buffer before ranking/filtering.
+        //  - This is NOT "the candidate list." It is the managed-unit prefilter only. The Phase 2 engine
+        //    still has to merge in unmanaged vanilla stockpiles (walked from AllGroupsListInPriorityOrder)
+        //    before it has a complete candidate set. Never treat CandidateUnits alone as exhaustive.
+        // Built but NOT yet authoritative in Phase 1.
+        public static IReadOnlyList<StorageSettings> CandidateUnits(Map map, ThingDef def)
         {
             if (def == null) return Empty;
             var psc = PscMapComponent.For(map);

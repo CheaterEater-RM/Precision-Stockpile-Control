@@ -40,6 +40,7 @@
             <li>PrecisionStockpileControl.PscMapComponent</li>
             <li>PrecisionStockpileControl.PscPerTile</li>
             <li>PrecisionStockpileControl.PscOrder</li>
+            <li>PrecisionStockpileControl.PscAdmissionIndex</li>
             <li>PrecisionStockpileControl.PscAdmissionScope</li>
             <li>PrecisionStockpileControl.StoreUtility_PlanningScope_Patch</li>
             <li>PrecisionStockpileControl.StorageSettings_AllowedToAccept_Patch</li>

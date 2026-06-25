@@ -152,7 +152,11 @@ def print_footer(entries: list[Entry]) -> None:
     if total:
         tags = Counter(e.tag for e in entries)
         # Stable, readable order: known subsystems first, then any others alphabetically.
-        known = ["link", "feeder", "order", "migrate", "migration", "reserve", GENERAL_TAG]
+        # Store-search-rewrite seams add: index (def->units prefilter), engine (store-search
+        # engine), bulk / puah / hd (bulk-haul integrations). Only "index" is emitted today; the
+        # rest land with their Phase 2+ seams but are pinned here so the order is stable when they do.
+        known = ["link", "feeder", "order", "migrate", "migration", "reserve",
+                 "index", "engine", "bulk", "puah", "hd", GENERAL_TAG]
         seen = set()
         parts = []
         for t in known:
