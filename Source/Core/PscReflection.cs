@@ -142,6 +142,39 @@ namespace PrecisionStockpileControl
         public static MethodBase HaulersDreamStorageSpaceForDef()
             => AccessTools.Method(HaulersDreamStorageSpaceForDefId, new[] { typeof(Pawn), typeof(Thing), typeof(IntVec3), typeof(Map) });
 
+        // ---- LWM Deep Storage detection (soft dependency — no compile/load-time reference) ----------
+        // The CompDeepStorage type, resolved once (null when LWM is absent). The store-search engine uses it
+        // to DECLINE takeover for any item currently resting in a Deep Storage cell: a deliberate Phase 2
+        // broad stance (PSC cedes ALL DSU-resident items to LWM's own relocation transpiler, not only
+        // over-capacity ones, rather than reproducing LWM's per-item / per-cell weight + stack capacity model).
+        // Fail-safe: a resolution miss or absent LWM yields null here, so IsItemInDeepStorage returns false and
+        // PSC behaves as if no Deep Storage is present. A finer "over-capacity only" probe is a later refinement.
+        private static readonly Type DeepStorageCompType = ResolveTypeByName("LWM.DeepStorage.CompDeepStorage");
+
+        // True when the item's current cell belongs to a storage BUILDING carrying a CompDeepStorage (a DSU).
+        // Plain stockpile zones (parent is a Zone, not a ThingWithComps) and a missing LWM both read false.
+        public static bool IsItemInDeepStorage(Thing t)
+        {
+            if (DeepStorageCompType == null) return false;        // LWM absent
+            if (t == null || !t.SpawnedOrAnyParentSpawned) return false;
+            var map = t.MapHeld;
+            if (map == null) return false;
+            var slot = map.haulDestinationManager.SlotGroupAt(t.PositionHeld);
+            if (slot?.parent is ThingWithComps building)
+            {
+                var comps = building.AllComps;
+                for (int i = 0; i < comps.Count; i++)
+                    if (DeepStorageCompType.IsInstanceOfType(comps[i])) return true;
+            }
+            return false;
+        }
+
+        private static Type ResolveTypeByName(string name)
+        {
+            try { return AccessTools.TypeByName(name); }
+            catch { return null; }
+        }
+
         // ---- resolution helpers (resolve once, log once, degrade) ---------------------------------
         private static AccessTools.FieldRef<Listing, float> ResolveCurY()
         {
