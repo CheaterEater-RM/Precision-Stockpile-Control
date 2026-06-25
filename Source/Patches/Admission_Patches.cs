@@ -6,49 +6,6 @@ using Verse.AI;
 
 namespace PrecisionStockpileControl
 {
-    // Reservation scope (Regression Fix 2). The admission gate's reservation-aware "effective" count
-    // (physical + reserved-inbound) must be read ONLY while planning a NEW haul — i.e. inside the
-    // StoreUtility.TryFindBestBetterStoreCellFor store-search. AllowedToAccept is also called by validity
-    // re-checks that have nothing to do with planning: JobDriver_HaulToCell's goto/place FailOn via
-    // StoreUtility.IsValidStorageFor, StoreUtility.IsInValidStorage / ListerHaulables, and the filter UI.
-    // If those read effective, an in-flight hauler's OWN reservation makes its destination read "full" and
-    // the hauler self-cancels before delivering (the pile never reaches its cap), and stored items can be
-    // flagged misplaced (churn). This flag marks the dynamic extent of the store-search so only the
-    // planning gate sees reserved-inbound; everything else reads physical. The hard cap at the carry-drop
-    // seam (physical) is the final backstop. ThreadStatic guards off-thread reachability scans; it is
-    // multiplayer-deterministic (set and cleared within a single sim-thread call).
-    internal static class PscAdmissionScope
-    {
-        [System.ThreadStatic] public static bool InStoreSearch;
-
-        // The soft-planning count read: effective while planning a new haul, physical for every other
-        // AllowedToAccept caller. No-op difference when reservedFillCounting is off (effective == physical).
-        public static int PlanningCount(PscStorageData data, ThingDef def, PscHaulUnit unit)
-            => InStoreSearch ? data.GetEffectiveCount(def, unit) : data.GetCount(def, unit);
-    }
-
-    // Mark the planning store-search so PscAdmissionScope.PlanningCount reads effective only here. A
-    // separate patch class from the fine-order transpiler on the same method (FineOrder_Patches.cs) —
-    // Harmony composes multiple patch classes on one target. The finalizer runs even if the search throws,
-    // and the __state save/restore keeps it re-entrancy-safe.
-    [HarmonyPatch(typeof(StoreUtility), nameof(StoreUtility.TryFindBestBetterStoreCellFor))]
-    public static class StoreUtility_PlanningScope_Patch
-    {
-        public static void Prefix(out bool __state)
-        {
-            __state = PscAdmissionScope.InStoreSearch;
-            PscAdmissionScope.InStoreSearch = true;
-        }
-
-        public static void Finalizer(bool __state)
-        {
-            PscAdmissionScope.InStoreSearch = __state;
-            // Drop the per-search item context so the item's resolved source/rank/data never carries
-            // across searches (the item can move between them) and the strong refs are released.
-            PscSearchContext.Clear();
-        }
-    }
-
     // Stockpile-wide admission gate (design §8). Postfix on the per-group AllowedToAccept(Thing)
     // — the overload TryFindBestBetterStoreCellForWorker calls once per candidate group, NOT the
     // ThingDef overload (which is the scan/UI path; leaving it untouched keeps defs visible in the
@@ -58,52 +15,45 @@ namespace PrecisionStockpileControl
     {
         public static void Postfix(StorageSettings __instance, Thing t, ref bool __result)
         {
+            // Engine-context bypass (store-search rewrite, Phase 2): during the engine's own delegated
+            // …ForIn cell probe, admission was already decided by the engine's hard-admit, so this backstop
+            // early-outs. The flag is set ONLY around that probe (PscStoreSearchEngine), so outside it this
+            // backstop is fully active for every external caller.
+            if (PscEngineScope.BypassAdmissionBackstop) return;
             if (!__result) return;                       // never override vanilla rejection
             if (PscStorageDataStore.IsEmpty) return;     // cheapest early-out
             if (t == null) return;
 
-            // Target-side resolution: in-search, MRU-cache the candidate's StorageSettings -> unit
-            // (the fine-order re-scan probes the same target group per cell). Gated on InStoreSearch
-            // because canonical resolution can shift around link/unlink/despawn, so the cached entry
-            // must not outlive the bracketed search; every other caller resolves fresh.
-            var unit = PscAdmissionScope.InStoreSearch
-                ? PscSearchContext.TargetUnit(__instance)
-                : PscHaulUnit.ResolveSettings(__instance);
+            // The backstop serves external callers: validity rechecks (JobDriver_HaulToCell FailOn,
+            // IsInValidStorage / ListerHaulables, filter UI), PUAH / Hauler's Dream bulk admission, store-search
+            // clones -- AND one PLANNING path: a store search the engine CEDED to vanilla/LWM for a DSU-resident
+            // source item (PscEngineScope.VanillaFallbackPlanning). The two need opposite counts, so the planning
+            // mode is the flag, not a constant:
+            //   - flag false (every recheck): PHYSICAL counts. Reserved-inbound is the engine's concern; a
+            //     recheck reading effective would make an in-flight hauler's own reservation self-cancel it.
+            //   - flag true (DSU cede): EFFECTIVE/reserved counts, because a store search IS planning -- without
+            //     it, concurrent haulers relocating out of Deep Storage all admit into the same capped unit
+            //     against a stale physical count and overshoot the cap. Scoped to the ceded search only (set at
+            //     the engine's DSU cede, cleared by StoreUtility_Engine_Patch.Finalizer), so it never reaches a
+            //     FailOn recheck (which runs outside TryFindBestBetterStoreCellFor).
+            var unit = PscHaulUnit.ResolveSettings(__instance);
             if (!unit.IsValid) return;
 
-            // Resolve the item's current (source) unit once (loose / unspawned / carried => invalid). An
-            // item already stored in THIS unit is validly stored — feeder and limit rules never apply to
-            // a unit's own contents (D16), or vanilla's IsInValidBestStorage/Accepts chain would flag a
-            // capped or restricted stockpile's own contents as haulable (churn / ejection). Inside a store
-            // search the source + its policy are invariant across every candidate (the fine-order re-scan
-            // multiplies these calls for the same t), so read them from the shared per-search context —
-            // but ONLY there (the window the planning Finalizer brackets); every other caller (validity
-            // recheck, haul FailOn, UI) resolves fresh.
-            PscHaulUnit source;
-            PscStorageData sourceData;
-            if (PscAdmissionScope.InStoreSearch)
-            {
-                PscSearchContext.TrySource(t, out source);
-                sourceData = PscSearchContext.SourceData(t);
-            }
-            else
-            {
-                source = PscHaulUnit.ResolveCurrent(t);
-                sourceData = source.IsValid ? PscStorageDataStore.TryGet(source.Settings) : null;
-            }
+            // Map-local gate (consistent with the engine): no PSC activity on this unit's map means no PSC
+            // rule can apply (source and target share a map for an intra-map haul), so behave exactly like
+            // vanilla. The global IsEmpty above does not cover a multi-map game where another map is managed
+            // but this one is not. For() is memoised, so this is cheap.
+            var psc = PscMapComponent.For(unit.Map);
+            if (psc == null || !psc.anyPscActive) return;
+
+            var source = PscHaulUnit.ResolveCurrent(t);
+            var sourceData = source.IsValid ? PscStorageDataStore.TryGet(source.Settings) : null;
             bool sourceIsTarget = source.IsValid && source.Equals(unit);
 
-            // All hard checks (mode / feeder / batchEmpty / cap / hysteresis / batch source+room / own-contents
-            // drain) live in the shared predicate so the engine and this backstop run ONE implementation
-            // (store-search rewrite, Phase 2). planning == InStoreSearch reproduces the pre-rewrite behavior
-            // exactly: effective count + per-search memos while planning a new haul, physical + fresh on every
-            // validity recheck. After the cutover the engine becomes the planning path and this backstop
-            // passes planning: false.
             if (PscAdmissionIndex.HardReject(__instance, t, unit, source, sourceData, sourceIsTarget,
-                    planning: PscAdmissionScope.InStoreSearch, out _))
+                    planning: PscEngineScope.VanillaFallbackPlanning, out _))
                 __result = false;
         }
-
     }
 
     // Haul-count upper clamp (design §7, §8). Postfix on the job builder: cap job.count so the trip

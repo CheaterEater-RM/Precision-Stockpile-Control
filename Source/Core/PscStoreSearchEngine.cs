@@ -59,23 +59,36 @@ namespace PrecisionStockpileControl
             var psc = PscMapComponent.For(map);
             if (psc == null || !psc.anyPscActive) return PscSearchResult.Unaffected;
 
-            // Deep Storage source cell: decline takeover so LWM's own transpiler owns DSU relocation. Phase 2
-            // broad stance (documented): PSC cedes ALL DSU-resident items, not only over-capacity ones, rather
-            // than reproducing LWM's weight/stack capacity model. Fail-safe false when LWM is absent.
-            if (PscReflection.IsItemInDeepStorage(t)) return PscSearchResult.Unaffected;
+            // Deep Storage source cell: decline takeover so LWM's own transpiler owns DSU relocation. PSC cedes
+            // ALL DSU-resident items rather than reproducing LWM's weight/stack capacity model. Fail-safe false
+            // when LWM is absent. PSC policy is still active though, so the AllowedToAccept backstop becomes the
+            // planning gate for this ceded search: mark it planning so the backstop reads effective/reserved
+            // counts (else concurrent DSU relocations overshoot a capped destination). Cleared by the Finalizer.
+            if (PscReflection.IsItemInDeepStorage(t))
+            {
+                PscEngineScope.VanillaFallbackPlanning = true;
+                return PscSearchResult.Unaffected;
+            }
 
-            // Source over-cap booleans. perTileSpread: the per-tile relocate PREFIX already demoted
-            // currentPriority to Unstored (it runs before the engine), so the engine only needs the boolean for
-            // the same-unit-relocation gate -- it does NOT re-demote currentPriority for per-tile. plainCell
-            // (LWM case A: a non-DSU cell already holding another storable) the prefix does NOT handle, so the
-            // engine demotes its own effective current band.
+            // perTileSpread: the per-tile relocate PREFIX already demoted currentPriority to Unstored (it runs
+            // before the engine), so the engine only needs the boolean for the same-unit-relocation gate -- it
+            // does NOT re-demote currentPriority for per-tile. Same-unit relocation is allowed ONLY for per-tile
+            // spread: the downstream HaulToCellStorageJob same-unit cancel exempts ONLY perTileSpread
+            // (Admission_Patches.cs), so a non-per-tile same-unit pick would be cancelled and strand the item.
             bool perTileSpread = PscPerTile.TryGetCellCap(t, out int perCellCap) && t.stackCount > perCellCap;
-            bool plainCellOverCapacity = SourceCellOverCapacity(t, map);
-            bool allowSameUnitRelocation = perTileSpread || plainCellOverCapacity;
+            bool allowSameUnitRelocation = perTileSpread;
 
             PscSearchContext.TrySource(t, out var source);
             var sourceData = PscSearchContext.SourceData(t);
-            StoragePriority effBand = plainCellOverCapacity ? StoragePriority.Unstored : currentPriority;
+            // The engine NEVER demotes the item's band on its own: effBand is exactly the currentPriority vanilla
+            // passed (already Unstored when the per-tile prefix demoted a genuine floor over-cap). A correctly
+            // stored item therefore only relocates to a STRICTLY better unit, never down its (uphill-priority)
+            // feeder chain. An earlier build demoted to Unstored whenever the item shared a cell with another
+            // storable (a "LWM case A" probe), but vanilla shelves hold 3 stacks per cell, so it fired on every
+            // normal shelf item and hauled correctly placed goods back to lower chain nodes. Vanilla/LWM enforce
+            // cell capacity at placement and DSU cells are ceded above, so there is no real non-DSU over-cap
+            // case left to handle here.
+            StoragePriority effBand = currentPriority;
             int currentRank = source.IsValid ? PscOrder.RankWithinBand(source.Settings) : 0;
 
             // Gather eligible candidate units, deduped to canonical units (a linked StorageGroup lists many
@@ -180,29 +193,19 @@ namespace PrecisionStockpileControl
             return PscSearchResult.NoLegalTarget;
         }
 
+        // Release the per-search thread-static buffer at end of search (called from
+        // StoreUtility_Engine_Patch.Finalizer, alongside the scope + PscSearchContext clears). The buffer is
+        // otherwise only cleared at the START of the next search, so between searches it would retain the
+        // candidates' ISlotGroup/StorageGroup refs and could pin a removed temporary map until the next search
+        // on this thread. Clear() zeroes the backing array (net48), dropping those refs.
+        public static void ClearThreadStaticState() => candidateBuffer?.Clear();
+
         // Full-key strictly-better test: band dominates (higher wins), then within-band rank (lower wins).
         private static bool StrictlyBetter(StoragePriority candBand, int candRank, StoragePriority curBand, int curRank)
         {
             int cb = (int)candBand, db = (int)curBand;
             if (cb != db) return cb > db;
             return candRank < curRank;
-        }
-
-        // LWM case A: the item's current cell already holds ANOTHER storable item (a non-DSU occupied cell),
-        // so the item should relocate out. Replicated WHENEVER PSC takes over (not gated on PSC policy) so PSC
-        // does not silently regress LWM's relocation of an item sitting on an occupied plain cell. The item
-        // itself is exempt. DSU cells are handled by the decline above, so this only ever sees plain cells.
-        private static bool SourceCellOverCapacity(Thing t, Map map)
-        {
-            if (!t.SpawnedOrAnyParentSpawned) return false;
-            var list = map.thingGrid.ThingsListAt(t.PositionHeld);
-            for (int i = 0; i < list.Count; i++)
-            {
-                var o = list[i];
-                if (o == t) continue;
-                if (o.def.EverStorable(false)) return true;
-            }
-            return false;
         }
     }
 }

@@ -41,8 +41,7 @@
             <li>PrecisionStockpileControl.PscPerTile</li>
             <li>PrecisionStockpileControl.PscOrder</li>
             <li>PrecisionStockpileControl.PscAdmissionIndex</li>
-            <li>PrecisionStockpileControl.PscAdmissionScope</li>
-            <li>PrecisionStockpileControl.StoreUtility_PlanningScope_Patch</li>
+            <li>PrecisionStockpileControl.PscStoreSearchEngine</li>
             <li>PrecisionStockpileControl.StorageSettings_AllowedToAccept_Patch</li>
             <li>PrecisionStockpileControl.HaulAIUtility_HaulToCellStorageJob_Patch</li>
             <li>PrecisionStockpileControl.PscCap</li>
@@ -58,7 +57,8 @@
             <li>PrecisionStockpileControl.Pawn_CarryTracker_TryDropCarriedThing_ReservePatch</li>
             <li>PrecisionStockpileControl.JobDriver_HaulToCell_NotifyStarting_ReservePatch</li>
             <li>PrecisionStockpileControl.HaulDestinationManager_Compare_Patch</li>
-            <li>PrecisionStockpileControl.StoreUtility_FineOrder_Patch</li>
+            <li>PrecisionStockpileControl.StoreUtility_Engine_Patch</li>
+            <li>PrecisionStockpileControl.StoreUtility_Engine_Revalidate_Patch</li>
             <li>PrecisionStockpileControl.StoreUtility_NoStorageBlockersIn_PerTile_Patch</li>
             <li>PrecisionStockpileControl.StoreUtility_PerTileRelocate_Patch</li>
             <li>PrecisionStockpileControl.ThingUtility_TryAbsorbStackNumToTake_PerTile_Patch</li>

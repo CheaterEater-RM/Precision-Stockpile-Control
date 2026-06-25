@@ -90,7 +90,7 @@ namespace PrecisionStockpileControl
         }
 
         // One-entry memo for the haul hot path. For() is called per admission candidate
-        // (TryFeederReject) and per relocation candidate (ShouldContinueSearch), and the vanilla
+        // (TryFeederReject) and per store-search candidate (the PscStoreSearchEngine walk), and the vanilla
         // Map.GetComponent<T> is a linear is-T scan over every map component (long with many mods
         // loaded). A map's PscMapComponent instance never changes for its lifetime, so caching the
         // last (map, component) pair is always valid for a live map. The single strong Map ref is

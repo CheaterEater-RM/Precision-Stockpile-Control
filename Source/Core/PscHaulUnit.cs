@@ -39,7 +39,7 @@ namespace PrecisionStockpileControl
         // is hit per feeder edge check (HasEdge) plus the live-id scans — so memoise by the canonical
         // group's REFERENCE identity (the id is constant for an object's lifetime). ConcurrentDictionary
         // with lock-free reads, NOT a plain Dictionary: AllowedToAccept — and thus this getter via the
-        // feeder gate — can run on off-main reachability threads (see PscAdmissionScope), so a plain map
+        // feeder gate — can run on off-main reachability threads (see PscSearchContext), so a plain map
         // would race. Bounded against leaks by ClearIdCache() on new-game/load (PscGameComponent), every
         // feeder prune (PscFeederManager.PruneFeederLinksAndFlags), and map removal.
         private static readonly ConcurrentDictionary<object, string> idCache =

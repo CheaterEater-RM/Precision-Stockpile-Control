@@ -41,12 +41,14 @@ namespace PrecisionStockpileControl
     }
 
     // Existing-pile relocation (Scope B). An already-stored spawned stack whose own floor cell holds more
-    // than the per-tile cap is forced to read as Unstored, so vanilla's IsInValidBestStorage finds the
-    // emptier cell NoStorageBlockersIn now steers to and the excess becomes haulable. The actual move
-    // (and its excess-only count) is handled by the HaulToCellStorageJob clamps. Separate prefix class
-    // from PSC's PscAdmissionScope prefix + fine-order transpiler on the same method (Harmony composes
-    // them); it only writes the by-ref currentPriority, so ordering is irrelevant. Untouched for carried /
-    // unspawned items (no current cell -> no cap).
+    // than the per-tile cap is forced to read as Unstored, so the store search finds the emptier cell
+    // NoStorageBlockersIn now steers to and the excess becomes haulable. The actual move (and its excess-only
+    // count) is handled by the HaulToCellStorageJob clamps. This prefix OWNS the per-tile currentPriority
+    // demotion: it only writes the by-ref currentPriority (never returns false), and the engine prefix is
+    // ordered after it (PscStoreSearchEngine's prefix is Priority.Low, this is unprioritized = Normal), so the
+    // demotion is in place when the engine reads currentPriority. The engine therefore inherits the per-tile
+    // demotion and does NOT duplicate it -- it computes only the perTileSpread boolean (for its same-unit
+    // relocation gate). Untouched for carried / unspawned items (no current cell -> no cap).
     [HarmonyPatch(typeof(StoreUtility), nameof(StoreUtility.TryFindBestBetterStoreCellFor))]
     public static class StoreUtility_PerTileRelocate_Patch
     {

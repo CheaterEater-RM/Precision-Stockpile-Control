@@ -21,6 +21,15 @@ namespace PrecisionStockpileControl
     //   - IntendedUnitGroup is the canonical group the engine selected for this search. The HD re-validation
     //     postfix reads it (after HD's haul-to-stack postfix may have re-pointed the cell into a different
     //     same-priority unit) to confirm "PSC owns which unit"; the engine prefix's Finalizer clears it.
+    //   - VanillaFallbackPlanning marks a search the engine CEDED to vanilla/LWM (an LWM Deep Storage source
+    //     item, PscStoreSearchEngine's DSU decline) while PSC policy is still active. On that path the engine
+    //     does no hard-admit, so the retained AllowedToAccept backstop is the planning gate -- and a store
+    //     search is planning, so it must read effective/reserved counts (HardReject planning: true) or
+    //     concurrent DSU relocations all admit into the same capped unit against a stale physical count and
+    //     overshoot. Set ONLY at the DSU cede (so it never affects the in-flight FailOn recheck path, which
+    //     correctly reads physical), cleared by the engine prefix's Finalizer. This is distinct from
+    //     BypassAdmissionBackstop (which SILENCES the backstop) and from HardReject's own `planning` parameter
+    //     (which it merely supplies a value for on this one ceded path).
     //
     // ThreadStatic so off-main reachability scans keep their own state; set and cleared within one search on
     // one sim thread -> multiplayer-deterministic.
@@ -29,5 +38,6 @@ namespace PrecisionStockpileControl
         [System.ThreadStatic] public static bool BypassAdmissionBackstop;
         [System.ThreadStatic] public static HashSet<IntVec3> ExcludedCells;
         [System.ThreadStatic] public static ISlotGroup IntendedUnitGroup;
+        [System.ThreadStatic] public static bool VanillaFallbackPlanning;
     }
 }
