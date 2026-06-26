@@ -25,6 +25,7 @@ namespace PrecisionStockpileControl
     //   Widgets.CheckboxMulti(Rect,MultiCheckboxState,bool)                       (overload)
     //   PickUpAndHaul.WorkGiver_HaulToInventory:CapacityAt(Thing,IntVec3,Map)     (soft dependency)
     //   HaulersDream.BulkHaul:StorageSpaceForDef(Pawn,Thing,IntVec3,Map)          (soft dep, private)
+    //   HaulDestinationManager.map            (private field)   — owning map for the selection-gen chokepoint
     internal static class PscReflection
     {
         // ---- Listing.curY -------------------------------------------------------------------------
@@ -141,6 +142,64 @@ namespace PrecisionStockpileControl
 
         public static MethodBase HaulersDreamStorageSpaceForDef()
             => AccessTools.Method(HaulersDreamStorageSpaceForDefId, new[] { typeof(Pawn), typeof(Thing), typeof(IntVec3), typeof(Map) });
+
+        // ---- LWM Deep Storage detection (soft dependency — no compile/load-time reference) ----------
+        // The CompDeepStorage type, resolved once (null when LWM is absent). The store-search engine uses it
+        // to DECLINE takeover for any item currently resting in a Deep Storage cell: a deliberate Phase 2
+        // broad stance (PSC cedes ALL DSU-resident items to LWM's own relocation transpiler, not only
+        // over-capacity ones, rather than reproducing LWM's per-item / per-cell weight + stack capacity model).
+        // Fail-safe: a resolution miss or absent LWM yields null here, so IsItemInDeepStorage returns false and
+        // PSC behaves as if no Deep Storage is present. A finer "over-capacity only" probe is a later refinement.
+        private static readonly Type DeepStorageCompType = ResolveTypeByName("LWM.DeepStorage.CompDeepStorage");
+
+        // True when the item is RESTING in a storage BUILDING carrying a CompDeepStorage (a DSU). Resolve the
+        // item's OWN slot group (GetSlotGroup uses Thing.Position, null when unspawned) rather than probing the
+        // holder's cell: a carried/in-container item must NOT inherit whatever storage sits under the hauler, or
+        // a pawn standing on a DSU would wrongly cede the search for an item that is not in Deep Storage at all.
+        // Plain stockpile zones (parent is a Zone, not a ThingWithComps) and a missing LWM both read false.
+        public static bool IsItemInDeepStorage(Thing t)
+        {
+            if (DeepStorageCompType == null) return false;        // LWM absent
+            if (t == null || !t.Spawned) return false;            // carried / in a container: not DSU-resident
+            var slot = t.GetSlotGroup();
+            if (slot?.parent is ThingWithComps building)
+            {
+                var comps = building.AllComps;
+                for (int i = 0; i < comps.Count; i++)
+                    if (DeepStorageCompType.IsInstanceOfType(comps[i])) return true;
+            }
+            return false;
+        }
+
+        private static Type ResolveTypeByName(string name)
+        {
+            // TypeByName returns null when the type is simply absent (the normal soft-dependency case, e.g. LWM
+            // not installed) -- that path stays silent and DSU detection no-ops. Only a genuine throw (an
+            // assembly load fault) reaches the catch; per AGENTS.md it must not be swallowed silently, so log
+            // once and degrade to null.
+            try { return AccessTools.TypeByName(name); }
+            catch (Exception ex)
+            {
+                Log.Error("[PSC] Error resolving optional type '" + name + "' (soft dependency); the dependent "
+                    + "feature is disabled. " + ex);
+                return null;
+            }
+        }
+
+        // ---- HaulDestinationManager.map (owning map for the selection-gen chokepoint) -----------------
+        private static readonly AccessTools.FieldRef<HaulDestinationManager, Map> HaulDestMapRef = ResolveHaulDestMap();
+
+        // The map owning a HaulDestinationManager, read by the priority-change chokepoint (SelectionGen_Patches)
+        // to bump that map's selectionGen. Degrades to null if the field is gone; the caller then
+        // over-invalidates all maps (safe), so a vanished seam never serves a stale feeder-decision cache.
+        public static Map GetHaulDestinationMap(HaulDestinationManager mgr)
+            => HaulDestMapRef != null && mgr != null ? HaulDestMapRef(mgr) : null;
+
+        private static AccessTools.FieldRef<HaulDestinationManager, Map> ResolveHaulDestMap()
+        {
+            try { return AccessTools.FieldRefAccess<HaulDestinationManager, Map>("map"); }
+            catch (Exception ex) { LogMissing("HaulDestinationManager.map", ex); return null; }
+        }
 
         // ---- resolution helpers (resolve once, log once, degrade) ---------------------------------
         private static AccessTools.FieldRef<Listing, float> ResolveCurY()

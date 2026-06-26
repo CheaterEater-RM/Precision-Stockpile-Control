@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using HarmonyLib;
 using RimWorld;
 using Verse;
@@ -6,49 +7,6 @@ using Verse.AI;
 
 namespace PrecisionStockpileControl
 {
-    // Reservation scope (Regression Fix 2). The admission gate's reservation-aware "effective" count
-    // (physical + reserved-inbound) must be read ONLY while planning a NEW haul — i.e. inside the
-    // StoreUtility.TryFindBestBetterStoreCellFor store-search. AllowedToAccept is also called by validity
-    // re-checks that have nothing to do with planning: JobDriver_HaulToCell's goto/place FailOn via
-    // StoreUtility.IsValidStorageFor, StoreUtility.IsInValidStorage / ListerHaulables, and the filter UI.
-    // If those read effective, an in-flight hauler's OWN reservation makes its destination read "full" and
-    // the hauler self-cancels before delivering (the pile never reaches its cap), and stored items can be
-    // flagged misplaced (churn). This flag marks the dynamic extent of the store-search so only the
-    // planning gate sees reserved-inbound; everything else reads physical. The hard cap at the carry-drop
-    // seam (physical) is the final backstop. ThreadStatic guards off-thread reachability scans; it is
-    // multiplayer-deterministic (set and cleared within a single sim-thread call).
-    internal static class PscAdmissionScope
-    {
-        [System.ThreadStatic] public static bool InStoreSearch;
-
-        // The soft-planning count read: effective while planning a new haul, physical for every other
-        // AllowedToAccept caller. No-op difference when reservedFillCounting is off (effective == physical).
-        public static int PlanningCount(PscStorageData data, ThingDef def, PscHaulUnit unit)
-            => InStoreSearch ? data.GetEffectiveCount(def, unit) : data.GetCount(def, unit);
-    }
-
-    // Mark the planning store-search so PscAdmissionScope.PlanningCount reads effective only here. A
-    // separate patch class from the fine-order transpiler on the same method (FineOrder_Patches.cs) —
-    // Harmony composes multiple patch classes on one target. The finalizer runs even if the search throws,
-    // and the __state save/restore keeps it re-entrancy-safe.
-    [HarmonyPatch(typeof(StoreUtility), nameof(StoreUtility.TryFindBestBetterStoreCellFor))]
-    public static class StoreUtility_PlanningScope_Patch
-    {
-        public static void Prefix(out bool __state)
-        {
-            __state = PscAdmissionScope.InStoreSearch;
-            PscAdmissionScope.InStoreSearch = true;
-        }
-
-        public static void Finalizer(bool __state)
-        {
-            PscAdmissionScope.InStoreSearch = __state;
-            // Drop the per-search item context so the item's resolved source/rank/data never carries
-            // across searches (the item can move between them) and the strong refs are released.
-            PscSearchContext.Clear();
-        }
-    }
-
     // Stockpile-wide admission gate (design §8). Postfix on the per-group AllowedToAccept(Thing)
     // — the overload TryFindBestBetterStoreCellForWorker calls once per candidate group, NOT the
     // ThingDef overload (which is the scan/UI path; leaving it untouched keeps defs visible in the
@@ -58,276 +16,66 @@ namespace PrecisionStockpileControl
     {
         public static void Postfix(StorageSettings __instance, Thing t, ref bool __result)
         {
+            // Engine-context bypass (store-search rewrite, Phase 2): during the engine's own delegated
+            // …ForIn cell probe, admission was already decided by the engine's hard-admit, so this backstop
+            // early-outs. The flag is set ONLY around that probe (PscStoreSearchEngine), so outside it this
+            // backstop is fully active for every external caller.
+            if (PscEngineScope.BypassAdmissionBackstop) return;
             if (!__result) return;                       // never override vanilla rejection
             if (PscStorageDataStore.IsEmpty) return;     // cheapest early-out
             if (t == null) return;
 
-            // Target-side resolution: in-search, MRU-cache the candidate's StorageSettings -> unit
-            // (the fine-order re-scan probes the same target group per cell). Gated on InStoreSearch
-            // because canonical resolution can shift around link/unlink/despawn, so the cached entry
-            // must not outlive the bracketed search; every other caller resolves fresh.
-            var unit = PscAdmissionScope.InStoreSearch
-                ? PscSearchContext.TargetUnit(__instance)
-                : PscHaulUnit.ResolveSettings(__instance);
+            // The backstop serves external callers: validity rechecks (JobDriver_HaulToCell FailOn,
+            // IsInValidStorage / ListerHaulables, filter UI), PUAH / Hauler's Dream bulk admission, store-search
+            // clones -- AND one PLANNING path: a store search the engine CEDED to vanilla/LWM for a DSU-resident
+            // source item (PscEngineScope.VanillaFallbackPlanning). The two need opposite counts, so the planning
+            // mode is the flag, not a constant:
+            //   - flag false (every recheck): PHYSICAL counts. Reserved-inbound is the engine's concern; a
+            //     recheck reading effective would make an in-flight hauler's own reservation self-cancel it.
+            //   - flag true (DSU cede): EFFECTIVE/reserved counts, because a store search IS planning -- without
+            //     it, concurrent haulers relocating out of Deep Storage all admit into the same capped unit
+            //     against a stale physical count and overshoot the cap. Scoped to the ceded search only (set at
+            //     the engine's DSU cede, cleared by StoreUtility_Engine_Patch.Finalizer), so it never reaches a
+            //     FailOn recheck (which runs outside TryFindBestBetterStoreCellFor).
+            var unit = PscHaulUnit.ResolveSettings(__instance);
             if (!unit.IsValid) return;
 
-            // Resolve the item's current (source) unit once (loose / unspawned / carried => invalid). An
-            // item already stored in THIS unit is validly stored — feeder and limit rules never apply to
-            // a unit's own contents (D16), or vanilla's IsInValidBestStorage/Accepts chain would flag a
-            // capped or restricted stockpile's own contents as haulable (churn / ejection). Inside a store
-            // search the source + its policy are invariant across every candidate (the fine-order re-scan
-            // multiplies these calls for the same t), so read them from the shared per-search context —
-            // but ONLY there (the window the planning Finalizer brackets); every other caller (validity
-            // recheck, haul FailOn, UI) resolves fresh.
-            PscHaulUnit source;
-            PscStorageData sourceData;
-            if (PscAdmissionScope.InStoreSearch)
-            {
-                PscSearchContext.TrySource(t, out source);
-                sourceData = PscSearchContext.SourceData(t);
-            }
-            else
-            {
-                source = PscHaulUnit.ResolveCurrent(t);
-                sourceData = source.IsValid ? PscStorageDataStore.TryGet(source.Settings) : null;
-            }
-            bool sourceIsTarget = source.IsValid && source.Equals(unit);
-            PscStorageData data = PscStorageDataStore.TryGet(__instance);
-
-            // Mode haul-in block (M5.2): an Off / RetrieveOnly unit accepts no new hauls. Target-keyed
-            // and guarded by sourceIsTarget so the unit's own contents are never flagged as misplaced
-            // (D16). The freeze side (no haul-out / use) is handled separately by the IsForbidden
-            // postfix in StorageMode_Patches.
-            if (!sourceIsTarget && data != null &&
-                (data.mode == PscStorageMode.Off || data.mode == PscStorageMode.RetrieveOnly))
-            {
-                if (PscLog.Enabled) LogReject(t, unit, "modeNoIntake",
-                    $"mode: rejected {t.def.defName} -> {unit.UniqueLoadID} (mode {data.mode}, no intake)");
-                __result = false; return;
-            }
-
-            // Feeder gates first (a source's onlyToDestinations blocks the haul even into a no-policy
-            // target). targetData is reused by the limit gate when the feeder gate had to resolve it.
-            if (!sourceIsTarget && TryFeederReject(__instance, t, unit, source, sourceData, ref data))
-            {
-                __result = false; return;
-            }
-
-            // Batch empty (source-keyed): never let an item LEAVE its source unless this stack is at least
-            // batchEmpty — the most one trip can remove (a haul carries from a single source stack). Mirrors
-            // the destination-keyed batch-fill source-stack gate below, and reuses the same source-policy
-            // rejection mechanism as the feeder onlyToDestinations rule, so it's churn-safe (only fires when
-            // leaving the source; a unit's own contents are protected by sourceIsTarget above).
-            if (!sourceIsTarget && source.IsValid)
-            {
-                // sourceData is the item's source-unit policy, resolved once above (per-search cached).
-                // Same exemption as onlyToDestinations above: never let "no small removals" trap an item
-                // the source no longer allows — a disallowed/misplaced item must stay evacuable.
-                if (sourceData != null && sourceData.batchEmpty > 0 && t.stackCount < sourceData.batchEmpty
-                    && source.Settings.AllowedToAccept(t))
-                {
-                    if (PscLog.Enabled) LogReject(t, source, "underBatchEmpty",
-                        $"batchEmpty: rejected {t.def.defName} leaving {source.UniqueLoadID} (source stack {t.stackCount} < batchEmpty {sourceData.batchEmpty})");
-                    __result = false; return;
-                }
-            }
-
-            // --- Limit / batch gates (M1/M2) ---
-            data ??= PscStorageDataStore.TryGet(__instance);
-            if (data == null) return;
-            bool hasLimit = data.HasLimit(t.def);
-            if (!hasLimit && data.batch <= 0) return;    // no effective limit and no batch -> vanilla
-
-            // D16: a unit's own contents are normally always valid (never reject/eject them). The ONE
-            // documented exception (DESIGN §8): contents STRICTLY over the per-def cap read as misplaced,
-            // so vanilla's normal hauling drains the excess to any other valid storage and stops EXACTLY
-            // at the cap (== upper is valid again). Covers force-dropped excess, direct spawns, and
-            // lowering a limit below current contents. Tighten-only (a vanilla true -> false). The
-            // drain-trip clamp in HaulToCellStorageJob keeps a single hauler from overshooting below the
-            // cap (anti-oscillation). Reads the cached count, no scan.
-            if (sourceIsTarget)
-            {
-                if (hasLimit)
-                {
-                    var ownLim = data.GetLimit(t.def);
-                    if (ownLim.Upper.HasValue)
-                    {
-                        int ownCount = data.GetCount(t.def, unit);
-                        if (ownCount > ownLim.Upper.Value)
-                        {
-                            if (PscLog.Enabled) LogReject(t, unit, "overCapDrain",
-                                $"limit: draining over-cap {t.def.defName} from {unit.UniqueLoadID} ({ownCount} > cap {ownLim.Upper.Value})");
-                            __result = false; return;
-                        }
-                    }
-                }
-                return;                                  // own contents otherwise always valid (D16)
-            }
-
-            if (hasLimit)
-            {
-                var lim = data.GetLimit(t.def);
-                // Soft planning gate: effective = physical + reserved-inbound, so concurrent haulers
-                // don't all admit against the same stale physical count and overshoot the cap. Scoped to
-                // the store-search (PscAdmissionScope) so a hauler's own in-flight FailOn re-check reads
-                // physical and never self-cancels; the hard drop cap (HardCap_Patches) stays on physical.
-                // No-op when the feature is off.
-                int n = PscAdmissionScope.PlanningCount(data, t.def, unit);
-
-                // Upper — the maximum (M2 makes this a hard cap at drop time via HardCap_Patches)
-                if (lim.Upper.HasValue && n >= lim.Upper.Value)
-                {
-                    if (PscLog.Enabled) LogReject(t, unit, "overCap",
-                        $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (at/over cap {n}/{lim.Upper.Value})");
-                    __result = false; return;
-                }
-
-                // Lower / hysteresis (D15): lower unset => always refill; otherwise require refill state
-                if (lim.Lower.HasValue && !data.IsRefilling(t.def))
-                {
-                    if (PscLog.Enabled) LogReject(t, unit, "hysteresis",
-                        $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (not refilling; above lower threshold {lim.Lower.Value})");
-                    __result = false; return;
-                }
-            }
-
-            // Batch (D12): the trip must be able to deliver at least `batch` in one go.
-            if (data.batch > 0)
-            {
-                // Source-stack gate: never start a trip from a stack smaller than the batch size.
-                if (t.stackCount < data.batch)
-                {
-                    if (PscLog.Enabled) LogReject(t, unit, "underBatch",
-                        $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (source stack {t.stackCount} < batch {data.batch})");
-                    __result = false; return;
-                }
-
-                // Destination-room gate: a unit that can't fit a full batch (room < batch) is not a valid
-                // batch destination — reject here so vanilla stops treating it as one. Without this, a
-                // batched pile sitting with 0 < room < batch passes admission every haul scan but has the
-                // resulting job cancelled by the HaulToCellStorageJob room<batch clamp, churning plan/cancel
-                // forever while loose stock exists. The last <batch items are intentionally never topped off
-                // ("no small trips"); this only stops the wasted re-planning.
-                var blim = hasLimit ? data.GetLimit(t.def) : null;
-                if (blim != null && blim.Upper.HasValue)
-                {
-                    // Capped: cap-room arithmetic. Effective room (physical + reserved) so in-flight hauls
-                    // count too, but only while planning (PlanningCount reads physical on a re-check, which
-                    // is stable until delivery, so this only bites at plan time).
-                    if (blim.Upper.Value - PscAdmissionScope.PlanningCount(data, t.def, unit) < data.batch)
-                    {
-                        if (PscLog.Enabled) LogReject(t, unit, "underBatchRoom",
-                            $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (cap room < batch {data.batch})");
-                        __result = false; return;
-                    }
-                }
-                else if (PscAdmissionScope.InStoreSearch
-                         && unit.PhysicalRoomForDef(t.def, data.batch) < data.batch)
-                {
-                    // Uncapped (or lower-only): no cap to subtract from, so gate on vanilla PHYSICAL stack
-                    // space — the same churn (N1) otherwise hits a batched unit with no upper. Scoped to the
-                    // store-search so an in-flight hauler's FailOn re-check never runs the cell scan or
-                    // self-cancels (physical room is unchanged until delivery anyway).
-                    if (PscLog.Enabled) LogReject(t, unit, "underBatchRoom",
-                        $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (physical room < batch {data.batch})");
-                    __result = false; return;
-                }
-            }
-        }
-
-        // Feeder gates (M3, D11/D16). Evaluated before the target-data early-out: a SOURCE's
-        // onlyToDestinations must block hauling its items even into a target with no PSC policy. Both
-        // rules reduce to the same functional directed edge (source -> target); loose items have no
-        // source edge, so onlyFromSource rejects them. Returns true when the haul must be rejected,
-        // and sets targetData if it resolved the target's PSC data (reused by the limit gate).
-        private static bool TryFeederReject(StorageSettings target, Thing t, PscHaulUnit unit,
-            PscHaulUnit source, PscStorageData sourceData, ref PscStorageData targetData)
-        {
+            // Map-local gate (consistent with the engine): no PSC activity on this unit's map means no PSC
+            // rule can apply (source and target share a map for an intra-map haul), so behave exactly like
+            // vanilla. The global IsEmpty above does not cover a multi-map game where another map is managed
+            // but this one is not. For() is memoised, so this is cheap.
             var psc = PscMapComponent.For(unit.Map);
-            if (psc == null || !psc.anyFeederActive) return false;
+            if (psc == null || !psc.anyPscActive) return;
 
-            // Opt B (feeder source short-circuit): a functional edge needs an OUTGOING edge from source;
-            // if the source has none, FeederAllows is false for every candidate (direct AND skip-hop), so
-            // skip the per-candidate lookup. We still fall through to the onlyToDestinations / carried-route
-            // / onlyFromSource rejections below. Cached per-search (source is invariant); fresh otherwise.
-            bool hasFunctionalEdge = false;
-            if (source.IsValid)
-            {
-                bool sourceHasDest;
-                if (!(PscAdmissionScope.InStoreSearch && PscSearchContext.TryGetSourceHasFeederDest(t, out sourceHasDest)))
-                {
-                    sourceHasDest = psc.Links.HasAnyDestination(source.UniqueLoadID);
-                    if (PscAdmissionScope.InStoreSearch) PscSearchContext.CacheSourceHasFeederDest(t, sourceHasDest);
-                }
-                // Opt B3: source is invariant within a search, so FeederAllows(source, unit) varies
-                // only by target -> memo it per-search keyed by the target unit (cached otherwise).
-                if (sourceHasDest)
-                {
-                    if (!(PscAdmissionScope.InStoreSearch && PscSearchContext.TryGetFeederAllows(t, unit, out hasFunctionalEdge)))
-                    {
-                        hasFunctionalEdge = psc.FeederAllows(source, unit);
-                        if (PscAdmissionScope.InStoreSearch) PscSearchContext.CacheFeederAllows(t, unit, hasFunctionalEdge);
-                    }
-                }
-            }
-            if (!hasFunctionalEdge && !source.IsValid
-                && PscFeederHaulContext.TryGet(t, out var route)
-                && route.map == unit.Map
-                && route.destId == unit.UniqueLoadID
-                && psc.FeederAllows(route.sourceId, route.destId))
-            {
-                hasFunctionalEdge = true;
-            }
-            // Loose-item skip (feederSkipLooseItems): a genuinely loose ground item (no source unit AND no
-            // active route) may enter a chain that has an open mouth and skip straight to this node. The
-            // no-route guard keeps an in-flight feeder haul pinned to its destination by the carriedRoute
-            // reject below instead of being diverted here.
-            if (!hasFunctionalEdge && !source.IsValid
-                && PscMod.Settings != null && PscMod.Settings.feederSkipHops && PscMod.Settings.feederSkipLooseItems
-                && !PscFeederHaulContext.TryGet(t, out _)
-                && psc.LooseItemMayEnterChainAt(unit, t))
-            {
-                hasFunctionalEdge = true;
-            }
-            if (hasFunctionalEdge) return false;
+            var source = PscHaulUnit.ResolveCurrent(t);
+            var sourceData = source.IsValid ? PscStorageDataStore.TryGet(source.Settings) : null;
+            bool sourceIsTarget = source.IsValid && source.Equals(unit);
 
-            if (source.IsValid)
-            {
-                // sourceData is the source-unit policy resolved once by the postfix (per-search cached).
-                // A source no longer accepting this item (player disallowed its def, or it's a leftover)
-                // must stay evacuable to ANY storage — onlyToDestinations only holds the source's VALID
-                // contents. AllowedToAccept is vanilla's "validly stored here" test; the nested call is
-                // safe (the item's current unit == source, so that postfix early-outs on sourceIsTarget)
-                // and short-circuits last, so it only runs when this gate would otherwise reject.
-                if (sourceData != null && sourceData.onlyToDestinations && source.Settings.AllowedToAccept(t))
-                {
-                    if (PscLog.Enabled) LogReject(t, unit, "onlyToDestinations",
-                        $"feeder: rejected {t.def.defName} -> {unit.UniqueLoadID} (source onlyToDestinations, no functional edge)");
-                    return true;
-                }
-            }
-            else if (PscFeederHaulContext.TryGet(t, out var carriedRoute) && carriedRoute.map == unit.Map)
-            {
-                if (PscLog.Enabled) LogReject(t, unit, "carriedRoute",
-                    $"feeder: rejected carried {t.def.defName} -> {unit.UniqueLoadID} (planned route no longer a functional edge)");
-                return true;
-            }
-
-            targetData = PscStorageDataStore.TryGet(target);
-            if (targetData != null && targetData.onlyFromSource)
-            {
-                if (PscLog.Enabled) LogReject(t, unit, "onlyFromSource",
-                    $"feeder: rejected {t.def.defName} -> {unit.UniqueLoadID} (target onlyFromSource, no functional edge)");
-                return true;
-            }
-            return false;
+            if (PscAdmissionIndex.HardReject(__instance, t, unit, source, sourceData, sourceIsTarget,
+                    planning: PscEngineScope.VanillaFallbackPlanning, out _))
+                __result = false;
         }
+    }
 
-        // Throttled dev-log of an admission rejection. Keyed per (def, unit, reason) so a steady haul
-        // scan logs each distinct rejection at most once per throttle window.
-        private static void LogReject(Thing t, PscHaulUnit unit, string reason, string msg)
+    // Filter-edit seam (store-search rewrite, Phase 1 1C). Vanilla wires the storage filter's change
+    // callback to the PRIVATE StorageSettings.TryNotifyChanged (filter = new ThingFilter(TryNotifyChanged),
+    // RimWorld/StorageSettings.cs), which fires on every player category/filter toggle. PSC's soft
+    // def->units prefilter (PscMapComponent.admitIndex) is the one piece of state a vanilla filter edit
+    // can stale WITHOUT routing through PSC's own NotifyPolicyChanged, so mark the owning map's index
+    // dirty here; MapComponentTick then rebuilds it lazily (<=250 ticks) instead of unconditionally every
+    // window. PSC's own edits call owner.Notify_SettingsChanged() directly (NOT TryNotifyChanged), so this
+    // never self-triggers. Private target -> explicit TargetMethod. Cheap: filter edits are a rare UI event.
+    [HarmonyPatch]
+    public static class StorageSettings_TryNotifyChanged_AdmitIndexPatch
+    {
+        static MethodBase TargetMethod() => AccessTools.Method(typeof(StorageSettings), "TryNotifyChanged");
+
+        public static void Postfix(StorageSettings __instance)
         {
-            if (PscLog.Enabled) PscLog.MsgThrottled($"adm:{t.def?.defName}:{unit.UniqueLoadID}:{reason}", msg);
+            if (PscStorageDataStore.IsEmpty) return;     // no PSC policy anywhere -> nothing to refresh
+            var unit = PscHaulUnit.ResolveSettings(__instance);
+            if (!unit.IsValid) return;
+            PscMapComponent.For(unit.Map)?.MarkAdmitIndexDirty();
         }
     }
 

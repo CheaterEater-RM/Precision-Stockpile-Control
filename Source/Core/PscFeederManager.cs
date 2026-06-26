@@ -172,6 +172,11 @@ namespace PrecisionStockpileControl
             // drop the id cache so dead group objects don't linger as keys. Rebuilt lazily and cheaply;
             // prune is a rare UI/lifecycle event, never on the haul hot path.
             PscHaulUnit.ClearIdCache();
+            // The reference-keyed feeder-decision memo (Phase 1 S2) pins canonical group objects as keys,
+            // so clear it here too — a despawned unit's group must not linger. RebuildTrackingFromStore
+            // above already bumped selectionGen (and a real edge removal bumped the feeder generation), so
+            // the memo would flush on its next query regardless; this just drops the dead refs immediately.
+            owner.FeederDecisions.Clear();
         }
 
         private void ClearOrphanedFeederFlags(HashSet<string> liveIds)
@@ -266,6 +271,36 @@ namespace PrecisionStockpileControl
         public bool FeederAllows(string sourceId, string destId)
             => HasFunctionalFeederEdge(sourceId, destId)
                || (PscMod.Settings != null && PscMod.Settings.feederSkipHops && HasFunctionalFeederPath(sourceId, destId));
+
+        // Carried-route variant (store-search rewrite, Phase 1 1E). The dest is already a live unit in
+        // hand (the haul candidate), so do NOT re-resolve it via the O(groups) TryResolveLiveUnit scan the
+        // string overload does, and check the structural edge/reachability by id FIRST so the common
+        // no-edge pair resolves nothing. Mirrors FeederAllows(string, string) exactly: a direct functional
+        // edge OR, when feederSkipHops is on, a downstream-reachable functional path, both gated on the
+        // dest strictly out-ranking the source by the full fine-order key (the live Outranks check is the
+        // only thing needing the source's settings, so the source is the only endpoint resolved, and only
+        // once an edge/path exists). Behavior-neutral vs the string overload: sourceId resolves to the same
+        // source object, dest is the same canonical unit destId would have resolved to, and a non-live
+        // source yields false either way.
+        public bool FeederAllows(string sourceId, PscHaulUnit dest)
+        {
+            if (string.IsNullOrEmpty(sourceId) || !dest.IsValid || dest.Map != map) return false;
+            string destId = dest.UniqueLoadID;
+            if (destId == null) return false;
+
+            bool directEdge = links.HasEdge(sourceId, destId);
+            bool skipPath = !directEdge && PscMod.Settings != null && PscMod.Settings.feederSkipHops
+                && links.IsDownstreamReachable(sourceId, destId);
+            if (!directEdge && !skipPath) return false;   // no structural edge/path -> resolve nothing
+
+            // Structural edge/path exists; resolve the source once for the live Outranks check. A despawned
+            // source fails to resolve here, matching the string overload's TryResolveLiveUnit-fail -> false.
+            if (!TryResolveLiveUnit(sourceId, out var source)) return false;
+            var sourceSettings = source.Settings;
+            var destSettings = dest.Settings;
+            if (sourceSettings == null || destSettings == null) return false;
+            return PscOrder.Outranks(destSettings, sourceSettings);
+        }
 
         // Loose-item skip rule (feederSkipLooseItems). A ground item has no source, so it is normally
         // barred from any onlyFromSource node. With this on, it may enter `dest` if the chain feeding

@@ -17,10 +17,6 @@ namespace PrecisionStockpileControl
     // at sub-tier 1 / no letter is the best within its band.
     public static class PscOrder
     {
-        // Set true if the fail-closed transpiler could not match the vanilla IL (version drift or a
-        // conflicting IL edit). Same-band relocation is then off; the sort tiebreak still works.
-        public static bool TranspilerFailed;
-
         // The default sub-tier a band collapses to (its 1-10 anchor): Low anchors at tier 2 (level
         // 10), every other band at tier 1 (levels 1/3/5/7). See design §9 anchor table.
         public static int AnchorTier(StoragePriority band) => band == StoragePriority.Low ? 2 : 1;
@@ -72,15 +68,23 @@ namespace PrecisionStockpileControl
             return RankWithinBand(a).CompareTo(RankWithinBand(b));
         }
 
+        // The full-key comparison primitive over already-resolved (band, rank) pairs: negative => A is the
+        // better full key (higher band wins; within a band, lower rank wins, per RankWithinBand). This is the
+        // SINGLE source of truth for PSC's storage ordering: Compare/Outranks resolve ranks live and delegate
+        // here, while the store-search engine passes its per-group PRECOMPUTED rank ints so its hot walk shares
+        // this exact logic without re-reading ranks.
+        public static int CompareKey(StoragePriority bandA, int rankA, StoragePriority bandB, int rankB)
+        {
+            int a = (int)bandA, b = (int)bandB;
+            if (a != b) return b.CompareTo(a); // higher band first
+            return rankA.CompareTo(rankB);     // within band, lower rank first
+        }
+
         // Full priority comparison (band, then fine-order). Negative => a is strictly higher
         // priority than b. Used by the feeder validity rule (D5 unified onto the fine-order key).
         public static int Compare(StorageSettings a, StorageSettings b)
-        {
-            int bandA = (int)(a?.Priority ?? StoragePriority.Unstored);
-            int bandB = (int)(b?.Priority ?? StoragePriority.Unstored);
-            if (bandA != bandB) return bandB.CompareTo(bandA); // higher band first
-            return RankWithinBand(a).CompareTo(RankWithinBand(b));
-        }
+            => CompareKey(a?.Priority ?? StoragePriority.Unstored, RankWithinBand(a),
+                          b?.Priority ?? StoragePriority.Unstored, RankWithinBand(b));
 
         // dest strictly outranks source by the full key.
         public static bool Outranks(StorageSettings higher, StorageSettings lower)
@@ -184,43 +188,6 @@ namespace PrecisionStockpileControl
             if (clamped) return AutoOrderResult.Clamped;
             ApplyOrder(dest, source.Priority, srcData?.subTier ?? 0, newLetter);
             return AutoOrderResult.Placed;
-        }
-
-        // ---- Transpiler helper (StoreUtility.TryFindBestBetterStoreCellFor) ----
-        // Returns true when the search should CONTINUE past vanilla's "priority <= currentPriority"
-        // break: i.e. this candidate group shares the item's current band but strictly outranks the
-        // item's current unit by fine-order. When fine-order is inactive this always returns false,
-        // so vanilla's break runs unchanged (byte-identical behavior).
-        //
-        // Correctness depends on the sort postfix ordering same-band groups by fine-order, so the
-        // strictly-better groups are visited before the break point is reached.
-        public static bool ShouldContinueSearch(StoragePriority candidatePriority,
-            StoragePriority currentPriority, SlotGroup candidate, Thing t, Map map)
-        {
-            if (PscStorageDataStore.IsEmpty) return false;
-            // Only same-band continuation; a strictly lower band must still break (vanilla).
-            if ((int)candidatePriority != (int)currentPriority) return false;
-
-            var psc = PscMapComponent.For(map);
-            if (psc == null || !psc.anyFineOrderActive) return false;
-
-            var candidateUnit = PscHaulUnit.FromSlotGroup(candidate);
-            if (!candidateUnit.IsValid) return false;
-
-            // The item's current (source) unit + rank are invariant across all candidates in one search;
-            // PscSearchContext resolves them once (shared with the admission postfix) and the planning-
-            // scope Finalizer clears it. Loose / unspawned / carried => no current unit => nothing to upgrade.
-            if (!PscSearchContext.TrySource(t, out var currentUnit)) return false;
-            // Never relocate within the same unit (or a linked sibling sharing one StorageGroup).
-            if (candidateUnit.Equals(currentUnit)) return false;
-
-            int candidateRank = RankWithinBand(candidateUnit.Settings);
-            int currentRank = PscSearchContext.SourceRank(t);
-            bool continueSearch = candidateRank < currentRank; // candidate strictly better
-            if (continueSearch && PscLog.Enabled)
-                PscLog.MsgThrottled($"scs:{candidateUnit.UniqueLoadID}:{currentUnit.UniqueLoadID}",
-                    $"order: relocate {t?.def?.defName}? candidate {candidateUnit.UniqueLoadID} rank {candidateRank} < current {currentUnit.UniqueLoadID} rank {currentRank} -> continue search");
-            return continueSearch;
         }
 
         // ---- 1-10 numbering mapping (design §9) ----

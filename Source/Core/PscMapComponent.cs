@@ -42,15 +42,90 @@ namespace PrecisionStockpileControl
         // no capped floor stockpile, pays only the cheap setting/IsEmpty checks before the cell lookup.
         public bool anyPerTileActive;
 
+        // Per-item narrowing gates (store-search rewrite, Phase 3b §3/§5). The engine skips its per-candidate
+        // admission gate (HardReject) for an item no PSC rule could reject; these coarse gates + restrictedDefs
+        // below are the policy-keyed terms of that decision. All recomputed synchronously on the policy seam
+        // (UpdateTracking / RebuildTrackingFromStore), so the skip decision is EXACT, never stale.
+        public bool anyBatchActive;          // any tracked unit has batch > 0 (its destination-batch gate could reject)
+        public bool anyOnlyFromSourceActive; // any tracked unit is onlyFromSource (a target could feeder-reject)
+        // Intake-blocking modes. DISTINCT from anyFreezeModeActive (Off || AcceptOnly): admission blocks intake
+        // for Off || RetrieveOnly (PscAdmissionIndex.HardReject), so the narrowing gate must use THAT pair.
+        public bool anyIntakeBlockActive;    // any tracked unit mode Off || RetrieveOnly
+
         // Authoritative directed feeder-link graph for this map (design §4.2) + its mutation/query
         // surface. Scribed via feeder.ExposeData below.
         private readonly PscFeederManager feeder;
         public PscFeederManager Feeder => feeder;
         public PscFeederLinks Links => feeder.Links;
 
+        // Coarse selection-cache invalidation stamp (store-search rewrite, Phase 3a). Bumped on the RARE
+        // structural / policy / priority events that change which targets a source may feed (D2 / D3), NEVER on
+        // per-tick count churn. PscFeederDecisionCache stamps against it (paired with PscFeederLinks.Generation);
+        // a mismatch is a lazy flush. volatile: written on the main thread; defensive against an off-main reader
+        // (vanilla 1.6 is main-thread; see PHASE4 §6.1).
+        private volatile int selectionGen;
+        public int SelectionGen => selectionGen;
+        public void BumpSelectionGen() => selectionGen++;
+
+        // Bump every live map's selectionGen. Used by the settings UI (a feeder-skip toggle changes FeederAllows
+        // results map-wide) and as the safe fallback when the priority chokepoint cannot resolve its owning map
+        // (over-invalidate rather than risk a stale feeder verdict). Rare path: never per-tick.
+        public static void BumpSelectionGenAllMaps()
+        {
+            var maps = Current.Game?.Maps;
+            if (maps == null) return;
+            for (int i = 0; i < maps.Count; i++)
+                For(maps[i])?.BumpSelectionGen();
+        }
+
+        // Cross-search memo of the FeederAllows(source, target) subquery (Cache B). Per map; stamp-flushed on a
+        // selectionGen / feeder-generation mismatch. Concurrent-safe as defensive hardening for a hypothetical
+        // off-main caller (vanilla 1.6 is main-thread; see PHASE4 §6.1).
+        private readonly PscFeederDecisionCache feederDecisions = new PscFeederDecisionCache();
+        public PscFeederDecisionCache FeederDecisions => feederDecisions;
+
         // Tracked = active StorageSettings whose owner resolves onto THIS map. Maintained on
-        // policy change (runtime) and rebuilt in FinalizeInit (load).
-        private readonly HashSet<StorageSettings> tracked = new HashSet<StorageSettings>();
+        // policy change (runtime) and rebuilt in FinalizeInit (load). Internal so PscAdmissionIndex
+        // can read it when rebuilding the prefilter below.
+        internal readonly HashSet<StorageSettings> tracked = new HashSet<StorageSettings>();
+
+        // Soft def->units "maybe-accepts" prefilter (store-search rewrite, Phase 1). Managed units whose
+        // filter allows the def AND whose mode permits intake. Rebuilt from `tracked` on the same seams that
+        // maintain the gates (UpdateTracking / RebuildTrackingFromStore / the resync backstop) via
+        // PscAdmissionIndex.Rebuild; read via PscAdmissionIndex.CandidateUnits. Map-local, never persisted;
+        // rebuilt in FinalizeInit on load. DELIBERATELY UNWIRED forward-scaffold: the shipped engine narrows
+        // per item via restrictedDefs/HasRestrictedDef, not this def->units map. Retained (with its
+        // TryNotifyChanged dirty seam) for the planned Phase 3 Balanced/Performance narrowing; CandidateUnits
+        // has no caller yet.
+        internal readonly Dictionary<ThingDef, List<StorageSettings>> admitIndex
+            = new Dictionary<ThingDef, List<StorageSettings>>();
+
+        // Phase 1 (1C): dirty flag gating the periodic admitIndex rebuild in MapComponentTick. PSC's
+        // own policy edits rebuild admitIndex inline (UpdateTracking / RebuildTrackingFromStore); the
+        // periodic rebuild exists ONLY to catch a VANILLA filter/category edit on a managed unit,
+        // which does not route through those. Set by the StorageSettings.TryNotifyChanged postfix
+        // (the filter-edit seam) and cleared by any PscAdmissionIndex.Rebuild, so a static colony does
+        // zero rebuilds per 250-tick window instead of one full rebuild every window. The count-cache
+        // resync that shares the 250-tick block is a SEPARATE mechanism and still runs unconditionally.
+        internal bool admitIndexDirty;
+        internal void MarkAdmitIndexDirty() { if (anyPscActive) admitIndexDirty = true; }
+
+        // Defs carrying a non-default per-def limit on ANY tracked unit (store-search rewrite, Phase 3b §5):
+        // the policy-keyed term that tells the engine a cap/hysteresis/over-cap-drain could fire for this def.
+        // Built from data.limits (NOT the filter) in PscAdmissionIndex.Rebuild over ALL tracked units, so it is
+        // exact and filter-independent. COPY-ON-WRITE: Rebuild publishes a freshly-built set to this volatile
+        // reference; if the engine is ever reached off-main by a threading caller (vanilla 1.6 is main-thread;
+        // see PHASE4 §6.1), it must not be mutated in place (a HashSet.Contains racing a Clear/Add is unsafe).
+        // Read via HasRestrictedDef; published via
+        // SetRestrictedDefs.
+        private volatile HashSet<ThingDef> restrictedDefs = new HashSet<ThingDef>();
+        public bool HasRestrictedDef(ThingDef def)
+        {
+            if (def == null) return false;
+            var snapshot = restrictedDefs;     // read the volatile reference once, then query the snapshot
+            return snapshot != null && snapshot.Contains(def);
+        }
+        internal void SetRestrictedDefs(HashSet<ThingDef> set) => restrictedDefs = set ?? new HashSet<ThingDef>();
 
         private readonly List<StorageSettings> resyncSnapshot = new List<StorageSettings>();
         private int resyncCursor;
@@ -81,7 +156,7 @@ namespace PrecisionStockpileControl
         }
 
         // One-entry memo for the haul hot path. For() is called per admission candidate
-        // (TryFeederReject) and per relocation candidate (ShouldContinueSearch), and the vanilla
+        // (TryFeederReject) and per store-search candidate (the PscStoreSearchEngine walk), and the vanilla
         // Map.GetComponent<T> is a linear is-T scan over every map component (long with many mods
         // loaded). A map's PscMapComponent instance never changes for its lifetime, so caching the
         // last (map, component) pair is always valid for a live map. The single strong Map ref is
@@ -138,6 +213,11 @@ namespace PrecisionStockpileControl
             RecomputeAlarmActive();
             RecomputeReservedActive();
             RecomputePerTileActive();
+            RecomputeBatchActive();
+            RecomputeOnlyFromSourceActive();
+            RecomputeIntakeBlockActive();
+            PscAdmissionIndex.Rebuild(this);
+            BumpSelectionGen();
         }
 
         private void RecomputeFeederActive()
@@ -151,6 +231,20 @@ namespace PrecisionStockpileControl
         private void RecomputeFreezeModeActive()
             => RecomputeGate(ref anyFreezeModeActive, "mode: gate anyFreezeModeActive",
                 d => d.mode == PscStorageMode.Off || d.mode == PscStorageMode.AcceptOnly);
+
+        // Per-item narrowing gates (Phase 3b §3/§5). anyIntakeBlockActive uses Off || RetrieveOnly (the modes
+        // that block intake in HardReject) — deliberately NOT the Off || AcceptOnly pair of anyFreezeModeActive.
+        private void RecomputeBatchActive()
+            => RecomputeGate(ref anyBatchActive, "batch: gate anyBatchActive",
+                d => d.batch > 0);
+
+        private void RecomputeOnlyFromSourceActive()
+            => RecomputeGate(ref anyOnlyFromSourceActive, "feeder: gate anyOnlyFromSourceActive",
+                d => d.onlyFromSource);
+
+        private void RecomputeIntakeBlockActive()
+            => RecomputeGate(ref anyIntakeBlockActive, "mode: gate anyIntakeBlockActive",
+                d => d.mode == PscStorageMode.Off || d.mode == PscStorageMode.RetrieveOnly);
 
         private void RecomputeAlarmActive()
             => RecomputeGate(ref anyAlarmActive, "alarm: gate anyAlarmActive",
@@ -258,7 +352,7 @@ namespace PrecisionStockpileControl
             if (ReferenceEquals(map, lastForMap)) { lastForMap = null; lastForComp = null; }
             PscFeederHaulContext.ClearForMap(map);
             PscHaulUnit.ClearIdCache();   // drop this map's group objects from the id cache
-
+            feederDecisions.Clear();      // reference-keyed on ISlotGroup: drop so this dead map's group objects don't linger as keys
         }
 
         internal void RebuildTrackingFromStore(bool markDirty)
@@ -290,6 +384,11 @@ namespace PrecisionStockpileControl
             RecomputeAlarmActive();
             RecomputeReservedActive();
             RecomputePerTileActive();
+            RecomputeBatchActive();
+            RecomputeOnlyFromSourceActive();
+            RecomputeIntakeBlockActive();
+            PscAdmissionIndex.Rebuild(this);
+            BumpSelectionGen();
         }
 
         // Called after a fine-order edit (sub-tier / letter / band via the level box). Updates
@@ -339,6 +438,7 @@ namespace PrecisionStockpileControl
         public bool HasFunctionalFeederEdge(string sourceId, string destId) => feeder.HasFunctionalFeederEdge(sourceId, destId);
         public bool FeederAllows(PscHaulUnit source, PscHaulUnit dest) => feeder.FeederAllows(source, dest);
         public bool FeederAllows(string sourceId, string destId) => feeder.FeederAllows(sourceId, destId);
+        public bool FeederAllows(string sourceId, PscHaulUnit dest) => feeder.FeederAllows(sourceId, dest);
         public bool LooseItemMayEnterChainAt(PscHaulUnit dest, Thing t) => feeder.LooseItemMayEnterChainAt(dest, t);
 
         // Staggered resync backstop: every ResyncInterval ticks, mark one tracked unit fully dirty
@@ -357,6 +457,13 @@ namespace PrecisionStockpileControl
                 RebuildReservedInbound();
 
             if (tick % ResyncInterval != 0) return;
+            // Soft staleness backstop for the def->units prefilter: catches changes that don't route through
+            // UpdateTracking, most importantly a vanilla filter / category toggle on a managed unit. Bounded
+            // by managed-unit count. (Filter-allows correctness never depends on this: the live delegated
+            // AllowedToAccept enforces it. This only refreshes the soft prefilter.) Phase 1 (1C): dirty-gated
+            // — rebuilds only when a filter edit marked it (TryNotifyChanged postfix), instead of every window.
+            // Rebuild clears the flag. The count-cache drift backstop below is SEPARATE and runs every window.
+            if (admitIndexDirty) PscAdmissionIndex.Rebuild(this);
             resyncSnapshot.Clear();
             resyncSnapshot.AddRange(tracked);
             if (resyncSnapshot.Count == 0) return;

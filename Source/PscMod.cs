@@ -207,6 +207,7 @@ namespace PrecisionStockpileControl
                 PscLog.Enabled = Settings.debugLogging;   // keep the cached gate in sync with the reset value
                 PscOrder.NumberingGeneration++;           // reset may flip 1-10 numbering; invalidate rank caches
                 ResortAllMaps();                          // 1-10 numbering may have flipped back to default
+                PscMapComponent.BumpSelectionGenAllMaps(); // reset may flip feeder-skip; flush Cache B
             }
         }
 
@@ -247,11 +248,17 @@ namespace PrecisionStockpileControl
                 "PSC_SettingsAutoPrioritySourceTip".Translate());
             listing.CheckboxLabeled("PSC_SettingsAutoPriorityDestination".Translate(), ref Settings.autosetDestinationPriority,
                 "PSC_SettingsAutoPriorityDestinationTip".Translate());
+            bool prevSkipHops = Settings.feederSkipHops;
+            bool prevSkipLoose = Settings.feederSkipLooseItems;
             listing.CheckboxLabeled("PSC_SettingsSkipHops".Translate(), ref Settings.feederSkipHops,
                 "PSC_SettingsSkipHopsTip".Translate());
             // Sub-option: greyed out and forced off unless the parent skip toggle is on.
             SubCheckboxLabeled(listing, "PSC_SettingsSkipLooseItems".Translate(), "PSC_SettingsSkipLooseItemsTip".Translate(),
                 ref Settings.feederSkipLooseItems, disabled: !Settings.feederSkipHops);
+            // A feeder-skip toggle changes FeederAllows results (multi-hop paths / loose-item entry) without
+            // touching any priority or edge, so flush Cache B on every map.
+            if (Settings.feederSkipHops != prevSkipHops || Settings.feederSkipLooseItems != prevSkipLoose)
+                PscMapComponent.BumpSelectionGenAllMaps();
 
             listing.Gap(12f);
             listing.Label("PSC_SettingsFineOrderHeader".Translate());

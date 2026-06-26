@@ -184,11 +184,13 @@ namespace PrecisionStockpileControl
         // edit (subTier/letter included) invalidates via MarkAllDirty resetting rankCacheGen above. Plain
         // ints keep the read branch tiny; -1 generation forces a recompute on first read / after a fresh
         // CopyPolicyFrom.
-        // Thread-safety: GetRank can run on off-main reachability threads (the feeder Outranks gate). The
-        // unsynchronised write is a benign, self-correcting race — every thread computes the IDENTICAL
-        // value for the same (subTier, letter, band, gen), and settings.Priority is stable across a scan,
-        // so the three fields never combine into a wrong-band rank. Matches the count/reserved best-effort
-        // cache posture; ints/byte writes are atomic, so no structural corruption is possible.
+        // Thread-safety: GetRank is only reachable off-main under a hypothetical threading caller (vanilla 1.6
+        // runs the search main-thread; see PHASE4 §6.1). Even then the unsynchronised write is a benign,
+        // self-correcting race — every thread computes the IDENTICAL value for the same (subTier, letter, band,
+        // gen), and settings.Priority is stable across a scan, so the three fields never combine into a
+        // wrong-band rank; ints/byte writes are atomic, so no structural corruption is possible. This
+        // benign-race property is SPECIFIC to these atomic int fields: it does NOT extend to the counts /
+        // reservedInbound Dictionaries (structural Clear/Add), which are main-thread-only and not hardened.
         private int rankCache;
         private int rankCacheGen = -1;                                    // -1 forces a recompute on first read
         private StoragePriority rankCacheBand = (StoragePriority)byte.MaxValue;   // impossible-band sentinel

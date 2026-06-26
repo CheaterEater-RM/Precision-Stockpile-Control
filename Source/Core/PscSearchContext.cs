@@ -3,47 +3,46 @@ using Verse;
 
 namespace PrecisionStockpileControl
 {
-    // Per-store-search memo of the haul item's INVARIANT source side (Phase 2 perf).
+    // Per-store-search memo of the haul item's INVARIANT source side (store-search rewrite, Phase 2).
     //
-    // Within one StoreUtility.TryFindBestBetterStoreCellFor — INCLUDING the fine-order rank-primary
-    // Postfix re-scan, which drives many AllowedToAccept(t) calls for the same t — the item's current
-    // (source) unit, its fine-order rank, and its PscStorageData never change. Resolving them once and
-    // sharing across every candidate (and across both ShouldContinueSearch and the admission postfix)
-    // removes the dominant repeated work Phase 1 left behind.
+    // Within one StoreUtility.TryFindBestBetterStoreCellFor the item's current (source) unit and its
+    // PscStorageData never change, and FeederAllows(source, target) varies only by target. The
+    // PscStoreSearchEngine resolves the source once and reuses it across every candidate it ranks (and the
+    // Hauler's Dream re-validation postfix reads the same memo for that item, via HardReject(planning: true)),
+    // removing repeated per-candidate source resolution and feeder lookups. The AllowedToAccept backstop no
+    // longer uses this: after the rewrite it serves only external callers and resolves fresh.
     //
-    // ThreadStatic to match PscAdmissionScope.InStoreSearch: the admission postfix runs on off-main
-    // reachability threads too, so each thread keeps its own context. Set + cleared within a single
-    // store search on one sim thread -> multiplayer-deterministic. Cleared in
-    // StoreUtility_PlanningScope_Patch.Finalizer.
+    // ThreadStatic: DEFENSIVE per-thread isolation for the case the engine is ever reached off-main by a
+    // threading caller (RimWorld Multiplayer's sim thread, or a threading mod). Vanilla 1.6 runs the store
+    // search synchronously on the MAIN thread (WorkGiver_Haul -> HaulAIUtility -> StoreUtility; reachability is
+    // main-thread too), so this is not a vanilla requirement, and the defense is only partial -- the live count
+    // model (PscStorageData.counts / reservedInbound) is NOT concurrency-safe. See
+    // STORE_SEARCH_REWRITE_PHASE4_DESIGN.md §6.1. Set + cleared within a single store search on one thread ->
+    // multiplayer-deterministic. Cleared in
+    // StoreUtility_Engine_Patch.Finalizer, which runs after the whole postfix chain so the memo survives
+    // through the HD re-validation postfix.
     //
     // Keyed by ReferenceEquals on the item, so it self-corrects if ever entered with a different t.
-    // ShouldContinueSearch (the transpiler callback) is always in-search; the admission postfix reads
-    // this ONLY while PscAdmissionScope.InStoreSearch is true (the window the Finalizer brackets) and
-    // resolves fresh otherwise (validity rechecks, haul FailOn, UI-ish callers).
     internal static class PscSearchContext
     {
         [System.ThreadStatic] private static Thing item;
         [System.ThreadStatic] private static bool sourceValid;
         [System.ThreadStatic] private static ISlotGroup sourceGroup;
-        [System.ThreadStatic] private static int sourceRank;
         [System.ThreadStatic] private static PscStorageData sourceData;
         // Opt B tristate: 0 = unprobed, 1 = source has an outgoing feeder edge, 2 = none.
         [System.ThreadStatic] private static byte feederDestState;
 
-        // Opt A3 target-side resolution MRU (single entry, reference-keyed by the candidate
-        // StorageSettings). The fine-order re-scan probes the same target group per cell, so caching
-        // the last StorageSettings -> unit resolution removes the repeated ResolveSettings work. Used
-        // ONLY in-search (the postfix gates on PscAdmissionScope.InStoreSearch); canonical resolution
-        // can shift around link/unlink/despawn, so the entry must not outlive the search. Caches the
-        // invalid/default result too (targetGroup == null) so ownerless settings don't rebuild. Item-
-        // agnostic (keyed by settings), so NOT reset on item change — only per search in Clear.
-        [System.ThreadStatic] private static StorageSettings targetSettings;
-        [System.ThreadStatic] private static ISlotGroup targetGroup;
+        // Phase 1 (1A): per-search memo of the invariant "does the item's SOURCE unit still accept
+        // it?" check (source.Settings.AllowedToAccept(t)). Source + item are invariant within one
+        // search, so this boolean is too, yet it is otherwise evaluated per candidate in the feeder
+        // onlyToDestinations and batchEmpty evacuable exemptions (PscAdmissionIndex). 0 = unprobed,
+        // 1 = accepts, 2 = rejects. Reset on item change in EnsureFor and per search in Clear.
+        [System.ThreadStatic] private static byte sourceAcceptsState;
 
-        // Opt B3 feeder-decision MRU (single entry, keyed by the target unit's group). Within one
-        // search the source is invariant, so FeederAllows(source, target) varies only by target; cache
-        // the last (target.group -> allows) result. Source-scoped: reset on item change in EnsureFor
-        // (a new item = a new source) and per search in Clear.
+        // Opt B3 feeder-decision MRU (single entry, keyed by the target unit's group). Within one search the
+        // source is invariant, so FeederAllows(source, target) varies only by target; cache the last
+        // (target.group -> allows) result. Reset on item change in EnsureFor (a new item = a new source) and
+        // per search in Clear.
         [System.ThreadStatic] private static ISlotGroup feederTargetGroup;
         [System.ThreadStatic] private static bool feederTargetAllows;
 
@@ -52,16 +51,16 @@ namespace PrecisionStockpileControl
             if (ReferenceEquals(t, item)) return;
             item = t;
             feederDestState = 0;
+            sourceAcceptsState = 0;
             feederTargetGroup = null;
             var cur = PscHaulUnit.ResolveCurrent(t);
             sourceValid = cur.IsValid;
             sourceGroup = cur.group;
             sourceData = sourceValid ? PscStorageDataStore.TryGet(cur.Settings) : null;
-            sourceRank = sourceValid ? PscOrder.RankWithinBand(cur.Settings) : 0;
         }
 
-        // The item's source/current unit (canonical). Returns false (and a default unit) when the item
-        // is loose / unspawned / carried.
+        // The item's source/current unit (canonical). Returns false (and a default unit) when the item is
+        // loose / unspawned / carried.
         public static bool TrySource(Thing t, out PscHaulUnit source)
         {
             EnsureFor(t);
@@ -69,23 +68,22 @@ namespace PrecisionStockpileControl
             return sourceValid;
         }
 
-        // Fine-order rank of the source unit (0 when no valid source).
-        public static int SourceRank(Thing t) { EnsureFor(t); return sourceRank; }
-
         // PSC policy of the source unit (null when none / no valid source).
         public static PscStorageData SourceData(Thing t) { EnsureFor(t); return sourceData; }
 
-        // Opt A3: the candidate/target unit for `settings`, MRU-cached by reference identity. Caches
-        // the invalid/default unit too (ownerless settings -> group == null). Call only while in-search
-        // (the postfix gates this on PscAdmissionScope.InStoreSearch); Clear() drops the entry per
-        // search so a stale group never outlives a link/unlink/despawn.
-        public static PscHaulUnit TargetUnit(StorageSettings settings)
+        // Phase 1 (1A): memoised source.Settings.AllowedToAccept(t) for the search's invariant
+        // source, computed once and reused by the per-candidate evacuable exemptions on the planning
+        // (engine) path. Returns false for a loose/unspawned/carried item (no source) — the callers
+        // only consult it when source.IsValid, so a false here for a no-source item is never read.
+        public static bool SourceAcceptsItem(Thing t)
         {
-            if (ReferenceEquals(settings, targetSettings)) return new PscHaulUnit(targetGroup);
-            var u = PscHaulUnit.ResolveSettings(settings);
-            targetSettings = settings;
-            targetGroup = u.group;
-            return u;
+            EnsureFor(t);
+            if (sourceAcceptsState == 0)
+            {
+                var s = sourceValid ? sourceGroup?.Settings : null;
+                sourceAcceptsState = (s != null && s.AllowedToAccept(t)) ? (byte)1 : (byte)2;
+            }
+            return sourceAcceptsState == 1;
         }
 
         // Opt B (feeder source short-circuit): cached "does the source have any outgoing feeder edge?".
@@ -105,11 +103,11 @@ namespace PrecisionStockpileControl
             feederDestState = hasDest ? (byte)1 : (byte)2;
         }
 
-        // Opt B3 (feeder decision memo): cached "does FeederAllows(source, target) hold?" for the
-        // current search's invariant source. Keyed by the target unit's group; returns true if the
-        // answer is already known this search (`allows` carries it). EnsureFor self-resets the entry
-        // when the item (hence source) changes. TryFeederReject (which holds the map component)
-        // computes + CacheFeederAllows on a miss, keeping this type feeder-agnostic.
+        // Opt B3 (feeder decision memo): cached "does FeederAllows(source, target) hold?" for the current
+        // search's invariant source. Keyed by the target unit's group; returns true if the answer is already
+        // known this search (`allows` carries it). EnsureFor self-resets the entry when the item (hence
+        // source) changes. TryFeederReject (which holds the map component) computes + CacheFeederAllows on a
+        // miss, keeping this type feeder-agnostic.
         public static bool TryGetFeederAllows(Thing t, PscHaulUnit target, out bool allows)
         {
             EnsureFor(t);
@@ -124,18 +122,16 @@ namespace PrecisionStockpileControl
             feederTargetAllows = allows;
         }
 
-        // Reset every field so no stale state lingers and the strong Thing/group/data refs are dropped
-        // between searches. Called from StoreUtility_PlanningScope_Patch.Finalizer.
+        // Reset every field so no stale state lingers and the strong Thing/group/data refs are dropped between
+        // searches. Called from StoreUtility_Engine_Patch.Finalizer.
         public static void Clear()
         {
             item = null;
             sourceValid = false;
             sourceGroup = null;
-            sourceRank = 0;
             sourceData = null;
             feederDestState = 0;
-            targetSettings = null;
-            targetGroup = null;
+            sourceAcceptsState = 0;
             feederTargetGroup = null;
             feederTargetAllows = false;
         }
