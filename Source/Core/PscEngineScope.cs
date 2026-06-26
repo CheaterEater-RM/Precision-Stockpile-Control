@@ -32,7 +32,8 @@ namespace PrecisionStockpileControl
     //     BypassAdmissionBackstop (which SILENCES the backstop) and from HardReject's own `planning` parameter
     //     (which it merely supplies a value for on this one ceded path).
     //
-    // ThreadStatic so off-main reachability scans keep their own state; set and cleared within one search on
+    // ThreadStatic: defensive isolation if ever reached off-main by a threading caller (vanilla 1.6 is
+    // main-thread; see PHASE4 §6.1). Set and cleared within one search on
     // one sim thread -> multiplayer-deterministic.
     internal static class PscEngineScope
     {

@@ -11,9 +11,9 @@ namespace PrecisionStockpileControl
     // under. selectionGen carries priority / order / policy / feeder-skip changes; the feeder generation carries
     // structural edge mutations. Neither counter alone is sufficient (a band edit does not bump the feeder
     // generation, an edge add does not bump selectionGen), so the cache keys on BOTH. A mismatch on either is a
-    // lazy whole-cache flush. Concurrent-safe because store searches run on off-main reachability threads
-    // (mirrors PscHaulUnit.idCache's model): a ConcurrentDictionary body, a double-checked lock only around the
-    // rare flush.
+    // lazy whole-cache flush. Concurrent-safe as DEFENSIVE hardening in case store searches are ever reached
+    // off-main by a threading caller (vanilla 1.6 is main-thread; see PHASE4 §6.1) (mirrors PscHaulUnit.idCache's
+    // model): a ConcurrentDictionary body, a double-checked lock only around the rare flush.
     public sealed class PscFeederDecisionCache
     {
         private readonly ConcurrentDictionary<(string, string), bool> memo =

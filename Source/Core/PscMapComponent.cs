@@ -61,7 +61,8 @@ namespace PrecisionStockpileControl
         // Coarse selection-cache invalidation stamp (store-search rewrite, Phase 3a). Bumped on the RARE
         // structural / policy / priority events that change which targets a source may feed (D2 / D3), NEVER on
         // per-tick count churn. PscFeederDecisionCache stamps against it (paired with PscFeederLinks.Generation);
-        // a mismatch is a lazy flush. volatile: read on off-main reachability threads, written on the main thread.
+        // a mismatch is a lazy flush. volatile: written on the main thread; defensive against an off-main reader
+        // (vanilla 1.6 is main-thread; see PHASE4 §6.1).
         private volatile int selectionGen;
         public int SelectionGen => selectionGen;
         public void BumpSelectionGen() => selectionGen++;
@@ -78,7 +79,8 @@ namespace PrecisionStockpileControl
         }
 
         // Cross-search memo of the FeederAllows(source, target) subquery (Cache B). Per map; stamp-flushed on a
-        // selectionGen / feeder-generation mismatch. Concurrent-safe for off-main reachability scans.
+        // selectionGen / feeder-generation mismatch. Concurrent-safe as defensive hardening for a hypothetical
+        // off-main caller (vanilla 1.6 is main-thread; see PHASE4 §6.1).
         private readonly PscFeederDecisionCache feederDecisions = new PscFeederDecisionCache();
         public PscFeederDecisionCache FeederDecisions => feederDecisions;
 
@@ -99,8 +101,9 @@ namespace PrecisionStockpileControl
         // the policy-keyed term that tells the engine a cap/hysteresis/over-cap-drain could fire for this def.
         // Built from data.limits (NOT the filter) in PscAdmissionIndex.Rebuild over ALL tracked units, so it is
         // exact and filter-independent. COPY-ON-WRITE: Rebuild publishes a freshly-built set to this volatile
-        // reference; the engine reads it on off-main reachability threads, so it must never be mutated in place
-        // (a HashSet.Contains racing a Clear/Add is unsafe). Read via HasRestrictedDef; published via
+        // reference; if the engine is ever reached off-main by a threading caller (vanilla 1.6 is main-thread;
+        // see PHASE4 §6.1), it must not be mutated in place (a HashSet.Contains racing a Clear/Add is unsafe).
+        // Read via HasRestrictedDef; published via
         // SetRestrictedDefs.
         private volatile HashSet<ThingDef> restrictedDefs = new HashSet<ThingDef>();
         public bool HasRestrictedDef(ThingDef def)

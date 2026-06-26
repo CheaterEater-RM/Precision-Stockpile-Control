@@ -12,8 +12,13 @@ namespace PrecisionStockpileControl
     // removing repeated per-candidate source resolution and feeder lookups. The AllowedToAccept backstop no
     // longer uses this: after the rewrite it serves only external callers and resolves fresh.
     //
-    // ThreadStatic: the engine can run on off-main reachability threads, so each thread keeps its own context.
-    // Set + cleared within a single store search on one sim thread -> multiplayer-deterministic. Cleared in
+    // ThreadStatic: DEFENSIVE per-thread isolation for the case the engine is ever reached off-main by a
+    // threading caller (RimWorld Multiplayer's sim thread, or a threading mod). Vanilla 1.6 runs the store
+    // search synchronously on the MAIN thread (WorkGiver_Haul -> HaulAIUtility -> StoreUtility; reachability is
+    // main-thread too), so this is not a vanilla requirement, and the defense is only partial -- the live count
+    // model (PscStorageData.counts / reservedInbound) is NOT concurrency-safe. See
+    // STORE_SEARCH_REWRITE_PHASE4_DESIGN.md §6.1. Set + cleared within a single store search on one thread ->
+    // multiplayer-deterministic. Cleared in
     // StoreUtility_Engine_Patch.Finalizer, which runs after the whole postfix chain so the memo survives
     // through the HD re-validation postfix.
     //

@@ -32,7 +32,8 @@ namespace PrecisionStockpileControl
 
         // Reused per search to dedup a linked StorageGroup's member slot groups to one canonical scan (a linked
         // StorageGroup lists many member slot groups -> one canonical unit -> one scan over all its cells).
-        // ThreadStatic: the search can run on off-main reachability threads. Reference equality is correct here
+        // ThreadStatic: defensive per-thread isolation if ever reached off-main by a threading caller (vanilla
+        // 1.6 runs it main-thread; see PscSearchContext / PHASE4 §6.1). Reference equality is correct here
         // (ISlotGroup impls do not override Equals, per PscHaulUnit). Cleared at the top of each search and by
         // ClearThreadStaticState (the engine prefix Finalizer) so it never pins a removed map's group objects.
         [ThreadStatic] private static HashSet<ISlotGroup> seenCanon;

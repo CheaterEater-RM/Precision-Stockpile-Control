@@ -61,7 +61,8 @@ namespace PrecisionStockpileControl
             // restrictedDefs (store-search rewrite, Phase 3b §5): defs carrying a non-default limit on ANY
             // tracked unit, collected from data.limits over ALL units — including Off / RetrieveOnly, whose
             // cap still gates the over-cap drain. Built into a NEW set and published copy-on-write below (the
-            // engine reads it on off-main reachability threads, so the live set is never mutated in place).
+            // engine could read it off-main only under a threading caller (vanilla 1.6 is main-thread; PHASE4
+            // §6.1), so the live set is published copy-on-write and never mutated in place).
             var restricted = new HashSet<ThingDef>();
             foreach (var s in psc.tracked)
             {
