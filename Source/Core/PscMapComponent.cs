@@ -435,6 +435,7 @@ namespace PrecisionStockpileControl
         public bool HasFunctionalFeederEdge(string sourceId, string destId) => feeder.HasFunctionalFeederEdge(sourceId, destId);
         public bool FeederAllows(PscHaulUnit source, PscHaulUnit dest) => feeder.FeederAllows(source, dest);
         public bool FeederAllows(string sourceId, string destId) => feeder.FeederAllows(sourceId, destId);
+        public bool FeederAllows(string sourceId, PscHaulUnit dest) => feeder.FeederAllows(sourceId, dest);
         public bool LooseItemMayEnterChainAt(PscHaulUnit dest, Thing t) => feeder.LooseItemMayEnterChainAt(dest, t);
 
         // Staggered resync backstop: every ResyncInterval ticks, mark one tracked unit fully dirty

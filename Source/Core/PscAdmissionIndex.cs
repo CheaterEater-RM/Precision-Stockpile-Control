@@ -298,7 +298,7 @@ namespace PrecisionStockpileControl
             }
             if (!hasFunctionalEdge && carriedCase
                 && carriedRoute.destId == unit.UniqueLoadID
-                && psc.FeederAllows(carriedRoute.sourceId, carriedRoute.destId))
+                && psc.FeederAllows(carriedRoute.sourceId, unit))   // 1E: dest is the live candidate, don't re-resolve
             {
                 hasFunctionalEdge = true;
             }
