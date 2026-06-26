@@ -55,8 +55,11 @@ namespace PrecisionStockpileControl
     // haul-to-stack postfix on this same method still runs on PSC's result and CAN re-point foundCell into a
     // DIFFERENT same-priority unit than the engine chose (verified against HD source). That would break
     // "PSC owns which unit". Ordered after HD's postfix; when PSC owned the search and the final cell's unit
-    // differs from the intended unit, re-validate against PSC policy and veto if it violates a hard rule.
-    // This is re-validation, not re-selection: a same-unit cell refinement passes untouched.
+    // differs from the intended unit, re-validate against PSC policy and veto if the final unit ranks WORSE by
+    // PSC's fine-order full key (HD's stack search is fine-order-blind, so it can demote into a lower sub-tier/
+    // letter unit that HardReject would not catch) OR violates a hard rule (cap/feeder/mode).
+    // This is re-validation, not re-selection: a same-unit cell refinement, and a cross-unit move to an
+    // equal-full-key unit (a legitimate stack-merge), both pass untouched.
     [HarmonyPatch(typeof(StoreUtility), nameof(StoreUtility.TryFindBestBetterStoreCellFor))]
     [HarmonyAfter("giwaffed.HaulersDream")]
     [HarmonyPriority(Priority.VeryLow)]
@@ -69,17 +72,31 @@ namespace PrecisionStockpileControl
             if (intended == null || t == null || map == null) return;
             var finalUnit = PscHaulUnit.ResolveCell(foundCell, map);
             if (!finalUnit.IsValid || ReferenceEquals(finalUnit.group, intended)) return;   // same unit: only a cell refine
+
+            // HD re-pointed the cell into a DIFFERENT canonical unit than the engine chose. Veto if that move
+            // breaks "PSC owns which unit" in either of two independent ways. (1) the final unit ranks strictly
+            // WORSE by PSC's full key (band, then within-band fine-order rank): HD's haul-to-stack search is
+            // fine-order-blind, so it can demote the item into a lower sub-tier / letter unit holding a partial
+            // stack, and HardReject would NOT catch that (the lower unit may break no cap/feeder/mode rule). A
+            // same-full-key unit (two undifferentiated units in one fine-order bucket) is a legitimate stack-merge
+            // and is left alone -- the player expressed no fine-order preference between them. (2) the final unit
+            // HARD-rejects the item (cap / feeder / mode) -- the engine would never have picked it.
+            bool worseFineOrder = PscOrder.Outranks(intended.Settings, finalUnit.Settings);
+
             var source = PscHaulUnit.ResolveCurrent(t);
             var sourceData = source.IsValid ? PscStorageDataStore.TryGet(source.Settings) : null;
             bool sourceIsTarget = source.IsValid && source.Equals(finalUnit);
             // planning: true -- re-pointing the haul into a different unit is still a planning decision, so
             // effective / reserved counts apply (the engine populated the per-search memo for t this search).
-            if (PscAdmissionIndex.HardReject(finalUnit.Settings, t, finalUnit, source, sourceData,
-                    sourceIsTarget, planning: true, out var reason))
+            string reason = null;
+            if (worseFineOrder
+                || PscAdmissionIndex.HardReject(finalUnit.Settings, t, finalUnit, source, sourceData,
+                    sourceIsTarget, planning: true, out reason))
             {
                 if (PscLog.Enabled)
                     PscLog.MsgThrottled($"engveto:{t.def?.defName}:{finalUnit.UniqueLoadID}",
-                        $"engine: vetoed cross-unit refine {t.def?.defName} -> {finalUnit.UniqueLoadID} (reason {reason})");
+                        $"engine: vetoed cross-unit refine {t.def?.defName} -> {finalUnit.UniqueLoadID} "
+                        + (worseFineOrder ? "(worse fine-order key)" : $"(reason {reason})"));
                 foundCell = IntVec3.Invalid;
                 __result = false;
             }

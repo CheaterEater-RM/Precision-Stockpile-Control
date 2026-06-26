@@ -152,15 +152,16 @@ namespace PrecisionStockpileControl
         // PSC behaves as if no Deep Storage is present. A finer "over-capacity only" probe is a later refinement.
         private static readonly Type DeepStorageCompType = ResolveTypeByName("LWM.DeepStorage.CompDeepStorage");
 
-        // True when the item's current cell belongs to a storage BUILDING carrying a CompDeepStorage (a DSU).
+        // True when the item is RESTING in a storage BUILDING carrying a CompDeepStorage (a DSU). Resolve the
+        // item's OWN slot group (GetSlotGroup uses Thing.Position, null when unspawned) rather than probing the
+        // holder's cell: a carried/in-container item must NOT inherit whatever storage sits under the hauler, or
+        // a pawn standing on a DSU would wrongly cede the search for an item that is not in Deep Storage at all.
         // Plain stockpile zones (parent is a Zone, not a ThingWithComps) and a missing LWM both read false.
         public static bool IsItemInDeepStorage(Thing t)
         {
             if (DeepStorageCompType == null) return false;        // LWM absent
-            if (t == null || !t.SpawnedOrAnyParentSpawned) return false;
-            var map = t.MapHeld;
-            if (map == null) return false;
-            var slot = map.haulDestinationManager.SlotGroupAt(t.PositionHeld);
+            if (t == null || !t.Spawned) return false;            // carried / in a container: not DSU-resident
+            var slot = t.GetSlotGroup();
             if (slot?.parent is ThingWithComps building)
             {
                 var comps = building.AllComps;

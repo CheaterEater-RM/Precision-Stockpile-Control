@@ -200,6 +200,28 @@ namespace PrecisionStockpileControl
                 finally { PscEngineScope.BypassAdmissionBackstop = false; }
                 if (!ok) continue;
 
+                // Modded multi-stack storage (Adaptive Storage Framework / Reel's Expanded Storage and the like)
+                // enforces BUILDING-level capacity in its IHaulDestination.Accepts override. Vanilla's worker
+                // stopped calling parent.Accepts in 1.5 (it calls Settings.AllowedToAccept instead), so ASF re-adds
+                // the capacity gate via a TryFindBestBetterStoreCellForWorker PREFIX -- which this integrated scan
+                // bypasses, because it never calls the worker. Honor the capacity directly and mod-agnostically:
+                // ISlotGroupParent : IHaulDestination, and a non-vanilla Building_Storage subtype may re-map Accepts
+                // onto a capacity check (ASF does). Vanilla shelves (exactly Building_Storage) and stockpile zones
+                // have filter-only Accepts == the AllowedToAccept already confirmed above, so they skip this entirely
+                // and the vanilla hot path pays only one type test. Standalone units ONLY: a linked StorageGroup's
+                // per-building capacity can't be judged from a single member without risking a false reject of
+                // another member's free cells, and admission is tighten-only (never wrongly reject a legal target),
+                // so linked groups fall through to vanilla's per-cell IsGoodStoreCell checks below.
+                if (!(canon is StorageGroup) && parent is Building_Storage moddedStore
+                    && moddedStore.GetType() != typeof(Building_Storage))
+                {
+                    bool capacityOk;
+                    PscEngineScope.BypassAdmissionBackstop = true;   // base.Accepts -> AllowedToAccept: don't re-enter PSC admission
+                    try { capacityOk = parent.Accepts(t); }
+                    finally { PscEngineScope.BypassAdmissionBackstop = false; }
+                    if (!capacityOk) continue;
+                }
+
                 // Hard admission (planning: effective count + per-search memo). sourceIsTarget routes the
                 // own-contents / over-cap-drain branch for an intra-unit relocation candidate. Skipped (Phase 3b
                 // §3/§5) when needAdmission proved no PSC rule can reject this item -- a no-op omission.
