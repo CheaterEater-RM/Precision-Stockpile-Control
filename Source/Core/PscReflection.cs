@@ -24,6 +24,7 @@ namespace PrecisionStockpileControl
     //   Widgets.Checkbox(float,float,bool&,float,bool,bool,Texture2D,Texture2D)  (overload)
     //   Widgets.CheckboxMulti(Rect,MultiCheckboxState,bool)                       (overload)
     //   PickUpAndHaul.WorkGiver_HaulToInventory:CapacityAt(Thing,IntVec3,Map)     (soft dependency)
+    //   PickUpAndHaul.JobDriver_HaulToInventory:TryMakePreToilReservations(bool)  (soft dep, capture seam)
     //   HaulersDream.BulkHaul:StorageSpaceForDef(Pawn,Thing,IntVec3,Map)          (soft dep, private)
     //   HaulDestinationManager.map            (private field)   — owning map for the selection-gen chokepoint
     internal static class PscReflection
@@ -131,6 +132,15 @@ namespace PrecisionStockpileControl
         // Resolved via member-id string; returns null when PUAH is absent (gates the patch via Prepare).
         public static MethodBase PuahCapacityAt()
             => AccessTools.Method(PuahCapacityAtId, new[] { typeof(Thing), typeof(IntVec3), typeof(Map) });
+
+        // The PUAH bulk-gather job driver's reservation seam — the COMMITTED point (reservations succeeded,
+        // job about to run) where the queued items to be hauled into inventory are still spawned in their
+        // source, so PSC can snapshot feeder-source provenance before SplitOff/merge destroys it. PUAH
+        // overrides this method, so resolving by member id targets PUAH's own override (not base JobDriver).
+        public const string PuahHaulToInventoryReserveId = "PickUpAndHaul.JobDriver_HaulToInventory:TryMakePreToilReservations";
+
+        public static MethodBase PuahHaulToInventoryReserve()
+            => AccessTools.Method(PuahHaulToInventoryReserveId, new[] { typeof(bool) });
 
         // ---- Hauler's Dream (soft dependency — no compile/load-time reference) ----------------------
         // BulkHaul.StorageSpaceForDef is HD's per-destination capacity probe (the analogue of PUAH's

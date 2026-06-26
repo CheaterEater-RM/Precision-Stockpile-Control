@@ -46,6 +46,20 @@ namespace PrecisionStockpileControl
         [System.ThreadStatic] private static ISlotGroup feederTargetGroup;
         [System.ThreadStatic] private static bool feederTargetAllows;
 
+        // The hauling pawn for this search (carrier), set by the engine entry. Per SEARCH, not per item, so it
+        // is reset only in Clear (not EnsureFor). The carried-item feeder restore (PscPuahSourceTracker) needs
+        // it to look up (carrier, def) provenance; non-engine callers (the AllowedToAccept backstop) leave it
+        // null and so never restore.
+        [System.ThreadStatic] private static Pawn carrier;
+
+        // Restored carried-source memo (PUAH bulk haul): for an item with no live source, the captured feeder
+        // source for (carrier, def), resolved once per item. 0 = unprobed, 1 = found, 2 = none. `restoredHoldBack`
+        // is precomputed at probe time (source onlyToDestinations AND still allows the def) so the hold-back
+        // decision never re-enters AllowedToAccept per candidate. Per ITEM, so reset in EnsureFor and Clear.
+        [System.ThreadStatic] private static byte restoredState;
+        [System.ThreadStatic] private static string restoredSourceId;
+        [System.ThreadStatic] private static bool restoredHoldBack;
+
         private static void EnsureFor(Thing t)
         {
             if (ReferenceEquals(t, item)) return;
@@ -53,11 +67,19 @@ namespace PrecisionStockpileControl
             feederDestState = 0;
             sourceAcceptsState = 0;
             feederTargetGroup = null;
+            restoredState = 0;
+            restoredSourceId = null;
+            restoredHoldBack = false;
             var cur = PscHaulUnit.ResolveCurrent(t);
             sourceValid = cur.IsValid;
             sourceGroup = cur.group;
             sourceData = sourceValid ? PscStorageDataStore.TryGet(cur.Settings) : null;
         }
+
+        // The hauling pawn for this search (or null). Set once by the engine entry; read by the carried-item
+        // feeder restore.
+        public static Pawn Carrier => carrier;
+        public static void SetCarrier(Pawn p) => carrier = p;
 
         // The item's source/current unit (canonical). Returns false (and a default unit) when the item is
         // loose / unspawned / carried.
@@ -122,6 +144,27 @@ namespace PrecisionStockpileControl
             feederTargetAllows = allows;
         }
 
+        // Carried-source restore memo: the captured feeder source for the current (carrier, item-def), or
+        // null when none, plus the precomputed hold-back decision. Resolved once per item by TryFeederReject
+        // (which holds the map component + tracker) and reused across every candidate. Returns true when a
+        // source is already known this item; `probed` distinguishes "known to be none" (2) from "unprobed" (0).
+        public static bool TryGetRestoredSource(Thing t, out string sourceId, out bool holdBack, out bool probed)
+        {
+            EnsureFor(t);
+            sourceId = restoredSourceId;
+            holdBack = restoredHoldBack;
+            probed = restoredState != 0;
+            return restoredState == 1;
+        }
+
+        public static void CacheRestoredSource(Thing t, string sourceId, bool holdBack)
+        {
+            EnsureFor(t);
+            restoredSourceId = sourceId;
+            restoredHoldBack = holdBack;
+            restoredState = sourceId != null ? (byte)1 : (byte)2;
+        }
+
         // Reset every field so no stale state lingers and the strong Thing/group/data refs are dropped between
         // searches. Called from StoreUtility_Engine_Patch.Finalizer.
         public static void Clear()
@@ -134,6 +177,10 @@ namespace PrecisionStockpileControl
             sourceAcceptsState = 0;
             feederTargetGroup = null;
             feederTargetAllows = false;
+            carrier = null;
+            restoredState = 0;
+            restoredSourceId = null;
+            restoredHoldBack = false;
         }
     }
 }

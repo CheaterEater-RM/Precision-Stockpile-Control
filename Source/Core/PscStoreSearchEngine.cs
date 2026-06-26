@@ -89,6 +89,11 @@ namespace PrecisionStockpileControl
             bool perTileSpread = PscPerTile.TryGetCellCap(t, out int perCellCap) && t.stackCount > perCellCap;
             bool allowSameUnitRelocation = perTileSpread;
 
+            // Carried-item feeder restore (PUAH): remember the hauling pawn so TryFeederReject can look up the
+            // captured feeder source for an item that has no live source (in this pawn's inventory). Cleared by
+            // the Finalizer with the rest of the per-search context.
+            PscSearchContext.SetCarrier(carrier);
+
             PscSearchContext.TrySource(t, out var source);
             var sourceData = PscSearchContext.SourceData(t);
 

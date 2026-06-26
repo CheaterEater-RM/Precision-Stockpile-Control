@@ -14,6 +14,7 @@ namespace PrecisionStockpileControl
             PscStorageDataStore.Clear();
             PscMigration.ClearPending();
             PscFeederHaulContext.ClearAll();   // routes are keyed by live Things; never inherit a prior session's
+            PscPuahSourceTracker.ClearAll();   // PUAH carried-item provenance; runtime-only, same lifecycle
             PscHaulUnit.ClearIdCache();        // id cache is keyed by live group objects; same lifecycle
         }
 
@@ -24,6 +25,15 @@ namespace PrecisionStockpileControl
         {
             base.FinalizeInit();
             PscMigration.ResolveAllPending();
+        }
+
+        // Periodic, self-throttled reconcile of the PUAH carried-source provenance tracker against live pawn
+        // inventories, so a segment that the store search never looks up again after the final unload (and a
+        // dead/emptied pawn) is dropped instead of lingering until its age backstop. No-op (one int compare)
+        // when nothing is captured, which is the case for every non-PUAH / non-feeder colony.
+        public override void GameComponentTick()
+        {
+            PscPuahSourceTracker.Tick(GenTicks.TicksGame);
         }
     }
 }

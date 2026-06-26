@@ -271,7 +271,20 @@ namespace PrecisionStockpileControl
             bool carriedCase = !source.IsValid
                 && PscFeederHaulContext.TryGet(t, out carriedRoute)
                 && carriedRoute.map == unit.Map;
-            if (!sourceOnlyTo && !targetOnlyFrom && !carriedCase) return false;
+
+            // PUAH carried-item provenance (restored source). A bulk-hauled item has no live source and no
+            // per-Thing route, but its origin feeder source may be remembered per (carrier, def). Resolve once
+            // per item (memoised): restoredSourceId enables entry into a downstream onlyFromSource node, and
+            // restoredHoldBack (origin onlyToDestinations AND still allows the def) keeps the item OUT of the
+            // unconstrained overflow -- as if it were still spawned in its source. This is fed ONLY into the
+            // feeder gate; the cap/batch/mode gates in HardReject still see the (invalid) live source (D-codex).
+            string restoredSourceId = null;
+            bool restoredHoldBack = false;
+            if (!source.IsValid && !carriedCase && !PscPuahSourceTracker.IsEmpty)
+                ResolveRestoredSource(psc, t, unit, out restoredSourceId, out restoredHoldBack);
+            bool restoredCase = restoredSourceId != null;
+
+            if (!sourceOnlyTo && !targetOnlyFrom && !carriedCase && !(restoredCase && restoredHoldBack)) return false;
 
             // A strict rule is in play -> compute whether a functional edge exempts this candidate. Opt B
             // (feeder source short-circuit): a functional edge needs an OUTGOING edge from source; if the
@@ -301,6 +314,12 @@ namespace PrecisionStockpileControl
             if (!hasFunctionalEdge && carriedCase
                 && carriedRoute.destId == unit.UniqueLoadID
                 && psc.FeederAllows(carriedRoute.sourceId, unit))   // 1E: dest is the live candidate, don't re-resolve
+            {
+                hasFunctionalEdge = true;
+            }
+            // Restored-source exemption (PUAH): a carried item may flow to ANY functional destination of its
+            // remembered origin (not a single planned dest), so it can still enter the chain after the merge.
+            if (!hasFunctionalEdge && restoredCase && psc.FeederAllows(restoredSourceId, unit))
             {
                 hasFunctionalEdge = true;
             }
@@ -334,6 +353,14 @@ namespace PrecisionStockpileControl
                     $"feeder: rejected carried {t.def.defName} -> {unit.UniqueLoadID} (planned route no longer a functional edge)");
                 return true;
             }
+            else if (restoredCase && restoredHoldBack)
+            {
+                // Carried (PUAH) item from an onlyToDestinations origin, candidate is not a functional dest:
+                // hold it back from the unconstrained overflow, just as the live source would.
+                if (PscLog.Enabled) LogReject(t, unit, "puahOnlyToDestinations",
+                    $"feeder: rejected carried(puah) {t.def.defName} -> {unit.UniqueLoadID} (origin onlyToDestinations, no functional edge)");
+                return true;
+            }
 
             if (targetOnlyFrom)
             {
@@ -350,6 +377,43 @@ namespace PrecisionStockpileControl
         // fresh because its `source` can differ per call. Callers gate on source.IsValid before here.
         private static bool SourceAcceptsItem(PscHaulUnit source, Thing t, bool planning)
             => planning ? PscSearchContext.SourceAcceptsItem(t) : source.Settings.AllowedToAccept(t);
+
+        // Resolve (once per item, memoised in PscSearchContext) the captured feeder source for a PUAH-carried
+        // item with no live source. `holdBack` folds the two hold-back conditions -- origin onlyToDestinations
+        // AND the origin still accepts this item -- so the per-candidate rejection never re-evaluates them.
+        // The tracker stores only the source id; the strict flags are read LIVE here, so a mid-haul link break
+        // or onlyToDestinations toggle stops holding the item back on the next search (codex review).
+        private static void ResolveRestoredSource(PscMapComponent psc, Thing t, PscHaulUnit unit,
+            out string sourceId, out bool holdBack)
+        {
+            if (PscSearchContext.TryGetRestoredSource(t, out sourceId, out holdBack, out bool probed))
+                return;                                                   // memo: found
+            if (probed) { sourceId = null; holdBack = false; return; }    // memo: none
+
+            var carrier = PscSearchContext.Carrier;
+            if (carrier != null && PscPuahSourceTracker.TryGetSource(carrier, t.def, unit.Map, out sourceId))
+                holdBack = RestoredOriginHoldsBack(psc, sourceId, t);
+            else
+            {
+                sourceId = null;
+                holdBack = false;
+            }
+            PscSearchContext.CacheRestoredSource(t, sourceId, holdBack);
+        }
+
+        // Live hold-back decision for a restored origin: it currently restricts outflow (onlyToDestinations)
+        // AND still accepts THIS item. Reads live PscStorageData + the source's RAW item-aware ThingFilter
+        // (filter.Allows(t), so thing-specific filters apply) -- never AllowedToAccept, which would re-enter
+        // PSC admission in a carried context. Mirrors the live path's exemption: onlyToDestinations only holds
+        // back contents the source still accepts.
+        private static bool RestoredOriginHoldsBack(PscMapComponent psc, string sourceId, Thing t)
+        {
+            if (sourceId == null || !psc.Feeder.TryResolveLiveUnit(sourceId, out var src)) return false;
+            var data = PscStorageDataStore.TryGet(src.Settings);
+            if (data == null || !data.onlyToDestinations) return false;
+            var settings = src.Settings;
+            return settings?.filter != null && settings.filter.Allows(t);
+        }
 
         // Throttled dev-log of an admission rejection. Keyed per (def, unit, reason) so a steady haul scan
         // logs each distinct rejection at most once per throttle window.
