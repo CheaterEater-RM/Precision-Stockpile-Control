@@ -58,11 +58,18 @@ namespace PrecisionStockpileControl
             if (psc == null) return;
             var index = psc.admitIndex;
             index.Clear();
+            // restrictedDefs (store-search rewrite, Phase 3b §5): defs carrying a non-default limit on ANY
+            // tracked unit, collected from data.limits over ALL units — including Off / RetrieveOnly, whose
+            // cap still gates the over-cap drain. Built into a NEW set and published copy-on-write below (the
+            // engine reads it on off-main reachability threads, so the live set is never mutated in place).
+            var restricted = new HashSet<ThingDef>();
             foreach (var s in psc.tracked)
             {
                 var data = PscStorageDataStore.TryGet(s);
                 if (data == null) continue;
-                // Off / RetrieveOnly block haul-in: such a unit can never be an intake candidate.
+                foreach (var kv in data.limits)
+                    if (kv.Value != null && !kv.Value.IsDefault) restricted.Add(kv.Key);
+                // Off / RetrieveOnly block haul-in: such a unit can never be an intake candidate (admitIndex only).
                 if (data.mode != PscStorageMode.Normal && data.mode != PscStorageMode.AcceptOnly) continue;
                 var filter = s.filter;
                 if (filter == null) continue;
@@ -77,8 +84,9 @@ namespace PrecisionStockpileControl
                     list.Add(s);
                 }
             }
+            psc.SetRestrictedDefs(restricted);
             if (PscLog.Enabled)
-                PscLog.Msg($"index: rebuilt map={psc.map.uniqueID} units={psc.tracked.Count} defs={index.Count}");
+                PscLog.Msg($"index: rebuilt map={psc.map.uniqueID} units={psc.tracked.Count} defs={index.Count} restricted={restricted.Count}");
         }
 
         // ── Selection-level hard-admit predicate (store-search rewrite, Phase 2) ──────────────────────

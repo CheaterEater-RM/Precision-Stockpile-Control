@@ -42,6 +42,16 @@ namespace PrecisionStockpileControl
         // no capped floor stockpile, pays only the cheap setting/IsEmpty checks before the cell lookup.
         public bool anyPerTileActive;
 
+        // Per-item narrowing gates (store-search rewrite, Phase 3b §3/§5). The engine skips its per-candidate
+        // admission gate (HardReject) for an item no PSC rule could reject; these coarse gates + restrictedDefs
+        // below are the policy-keyed terms of that decision. All recomputed synchronously on the policy seam
+        // (UpdateTracking / RebuildTrackingFromStore), so the skip decision is EXACT, never stale.
+        public bool anyBatchActive;          // any tracked unit has batch > 0 (its destination-batch gate could reject)
+        public bool anyOnlyFromSourceActive; // any tracked unit is onlyFromSource (a target could feeder-reject)
+        // Intake-blocking modes. DISTINCT from anyFreezeModeActive (Off || AcceptOnly): admission blocks intake
+        // for Off || RetrieveOnly (PscAdmissionIndex.HardReject), so the narrowing gate must use THAT pair.
+        public bool anyIntakeBlockActive;    // any tracked unit mode Off || RetrieveOnly
+
         // Authoritative directed feeder-link graph for this map (design §4.2) + its mutation/query
         // surface. Scribed via feeder.ExposeData below.
         private readonly PscFeederManager feeder;
@@ -84,6 +94,22 @@ namespace PrecisionStockpileControl
         // rebuilt in FinalizeInit on load. Built but not yet consumed until the engine lands (Phase 2/3).
         internal readonly Dictionary<ThingDef, List<StorageSettings>> admitIndex
             = new Dictionary<ThingDef, List<StorageSettings>>();
+
+        // Defs carrying a non-default per-def limit on ANY tracked unit (store-search rewrite, Phase 3b §5):
+        // the policy-keyed term that tells the engine a cap/hysteresis/over-cap-drain could fire for this def.
+        // Built from data.limits (NOT the filter) in PscAdmissionIndex.Rebuild over ALL tracked units, so it is
+        // exact and filter-independent. COPY-ON-WRITE: Rebuild publishes a freshly-built set to this volatile
+        // reference; the engine reads it on off-main reachability threads, so it must never be mutated in place
+        // (a HashSet.Contains racing a Clear/Add is unsafe). Read via HasRestrictedDef; published via
+        // SetRestrictedDefs.
+        private volatile HashSet<ThingDef> restrictedDefs = new HashSet<ThingDef>();
+        public bool HasRestrictedDef(ThingDef def)
+        {
+            if (def == null) return false;
+            var snapshot = restrictedDefs;     // read the volatile reference once, then query the snapshot
+            return snapshot != null && snapshot.Contains(def);
+        }
+        internal void SetRestrictedDefs(HashSet<ThingDef> set) => restrictedDefs = set ?? new HashSet<ThingDef>();
 
         private readonly List<StorageSettings> resyncSnapshot = new List<StorageSettings>();
         private int resyncCursor;
@@ -171,6 +197,9 @@ namespace PrecisionStockpileControl
             RecomputeAlarmActive();
             RecomputeReservedActive();
             RecomputePerTileActive();
+            RecomputeBatchActive();
+            RecomputeOnlyFromSourceActive();
+            RecomputeIntakeBlockActive();
             PscAdmissionIndex.Rebuild(this);
             BumpSelectionGen();
         }
@@ -186,6 +215,20 @@ namespace PrecisionStockpileControl
         private void RecomputeFreezeModeActive()
             => RecomputeGate(ref anyFreezeModeActive, "mode: gate anyFreezeModeActive",
                 d => d.mode == PscStorageMode.Off || d.mode == PscStorageMode.AcceptOnly);
+
+        // Per-item narrowing gates (Phase 3b §3/§5). anyIntakeBlockActive uses Off || RetrieveOnly (the modes
+        // that block intake in HardReject) — deliberately NOT the Off || AcceptOnly pair of anyFreezeModeActive.
+        private void RecomputeBatchActive()
+            => RecomputeGate(ref anyBatchActive, "batch: gate anyBatchActive",
+                d => d.batch > 0);
+
+        private void RecomputeOnlyFromSourceActive()
+            => RecomputeGate(ref anyOnlyFromSourceActive, "feeder: gate anyOnlyFromSourceActive",
+                d => d.onlyFromSource);
+
+        private void RecomputeIntakeBlockActive()
+            => RecomputeGate(ref anyIntakeBlockActive, "mode: gate anyIntakeBlockActive",
+                d => d.mode == PscStorageMode.Off || d.mode == PscStorageMode.RetrieveOnly);
 
         private void RecomputeAlarmActive()
             => RecomputeGate(ref anyAlarmActive, "alarm: gate anyAlarmActive",
@@ -325,6 +368,9 @@ namespace PrecisionStockpileControl
             RecomputeAlarmActive();
             RecomputeReservedActive();
             RecomputePerTileActive();
+            RecomputeBatchActive();
+            RecomputeOnlyFromSourceActive();
+            RecomputeIntakeBlockActive();
             PscAdmissionIndex.Rebuild(this);
             BumpSelectionGen();
         }

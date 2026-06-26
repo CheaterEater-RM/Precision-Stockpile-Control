@@ -90,6 +90,25 @@ namespace PrecisionStockpileControl
                 return PscSearchResult.NoLegalTarget;
             }
 
+            // Per-item admission narrowing (Phase 3b §3/§5). Skip the per-candidate HardReject when NO PSC rule
+            // could reject this item -- every term is PSC-policy-keyed (rebuilt synchronously on the
+            // NotifyPolicyChanged seam), so this is EXACT, not bounded-staleness. Behavior-neutral: skipAdmission
+            // is taken only when HardReject would return false for every candidate, so omitting it is a no-op vs
+            // the current engine. No vanilla cede -- the engine still runs, so the AllowedToAccept backstop stays
+            // bypassed around the per-unit confirm and linked-storage canonicalization is unchanged (see the
+            // PHASE3B post-Codex revision). Per-tile keeps admission: its over-cap drain / intra-unit relocation
+            // needs HardReject(sourceIsTarget). needAdmission must over-approximate every HardReject reject path
+            // (the Codex-confirmed coverage table); over-inclusion only costs an unnecessary HardReject.
+            bool needAdmission =
+                   psc.HasRestrictedDef(t.def)                                  // a cap / hysteresis / over-cap-drain could fire
+                || psc.anyBatchActive                                           // a destination-batch gate could fire
+                || psc.anyIntakeBlockActive                                     // an Off/RetrieveOnly target blocks intake
+                || (sourceData != null && sourceData.batchEmpty > 0)            // source batchEmpty (live)
+                || (psc.anyFeederActive && (!source.IsValid                     // loose/carried under active feeder
+                        || (sourceData != null && sourceData.onlyToDestinations)
+                        || psc.anyOnlyFromSourceActive));                       // a target could onlyFromSource-reject
+            bool skipAdmission = !needAdmission && !perTileSpread;
+
             // The engine NEVER demotes the item's band on its own: effBand is exactly the currentPriority vanilla
             // passed (already Unstored when the per-tile prefix demoted a genuine floor over-cap). A correctly
             // stored item therefore only relocates to a STRICTLY better unit, never down its (uphill-priority)
@@ -171,8 +190,9 @@ namespace PrecisionStockpileControl
                 if (!ok) continue;
 
                 // Hard admission (planning: effective count + per-search memo). sourceIsTarget routes the
-                // own-contents / over-cap-drain branch for an intra-unit relocation candidate.
-                if (PscAdmissionIndex.HardReject(unit.Settings, t, unit, source, sourceData,
+                // own-contents / over-cap-drain branch for an intra-unit relocation candidate. Skipped (Phase 3b
+                // §3/§5) when needAdmission proved no PSC rule can reject this item -- a no-op omission.
+                if (!skipAdmission && PscAdmissionIndex.HardReject(unit.Settings, t, unit, source, sourceData,
                         sourceIsTarget, planning: true, out _)) continue;
 
                 // Vanilla-faithful per-group cell scan (mirror TryFindBestBetterStoreCellForWorker EXACTLY):
