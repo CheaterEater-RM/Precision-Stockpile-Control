@@ -245,9 +245,25 @@ namespace PrecisionStockpileControl
             var psc = PscMapComponent.For(unit.Map);
             if (psc == null || !psc.anyFeederActive) return false;
 
-            // Opt B (feeder source short-circuit): a functional edge needs an OUTGOING edge from source; if
-            // the source has none, FeederAllows is false for every candidate, so skip the per-candidate
-            // lookup. Cached per-search (source is invariant) when planning; fresh otherwise.
+            // Phase 3b §4.3: the functional-edge computation (FeederAllows / carried-route / loose-chain) only
+            // matters as an EXEMPTION from a strict feeder rejection. If no strict rule is in play for this
+            // candidate, the method returns "allow" regardless of the edge, so skip the (cacheable but non-free)
+            // edge work entirely. Strict rules: source onlyToDestinations, target onlyFromSource, or a carried
+            // item with a planned route on this map. targetData arrives already = TryGet(target) from the sole
+            // caller (HardReject :103) and is reused here instead of re-fetching (the old code re-fetched the
+            // same value at the end). Behavior-neutral: the gate returns false exactly where the original fell
+            // through to its final `return false`.
+            bool sourceOnlyTo = source.IsValid && sourceData != null && sourceData.onlyToDestinations;
+            bool targetOnlyFrom = targetData != null && targetData.onlyFromSource;
+            PscFeederHaulContext.Route carriedRoute = default;
+            bool carriedCase = !source.IsValid
+                && PscFeederHaulContext.TryGet(t, out carriedRoute)
+                && carriedRoute.map == unit.Map;
+            if (!sourceOnlyTo && !targetOnlyFrom && !carriedCase) return false;
+
+            // A strict rule is in play -> compute whether a functional edge exempts this candidate. Opt B
+            // (feeder source short-circuit): a functional edge needs an OUTGOING edge from source; if the
+            // source has none, FeederAllows is false, so skip the lookup. Cached per-search when planning.
             bool hasFunctionalEdge = false;
             if (source.IsValid)
             {
@@ -270,11 +286,9 @@ namespace PrecisionStockpileControl
                     }
                 }
             }
-            if (!hasFunctionalEdge && !source.IsValid
-                && PscFeederHaulContext.TryGet(t, out var route)
-                && route.map == unit.Map
-                && route.destId == unit.UniqueLoadID
-                && psc.FeederAllows(route.sourceId, route.destId))
+            if (!hasFunctionalEdge && carriedCase
+                && carriedRoute.destId == unit.UniqueLoadID
+                && psc.FeederAllows(carriedRoute.sourceId, carriedRoute.destId))
             {
                 hasFunctionalEdge = true;
             }
@@ -295,22 +309,21 @@ namespace PrecisionStockpileControl
                 // stay evacuable to ANY storage -- onlyToDestinations only holds the source's VALID contents.
                 // The nested AllowedToAccept is safe (item's current unit == source, so that postfix early-outs
                 // on sourceIsTarget) and short-circuits last.
-                if (sourceData != null && sourceData.onlyToDestinations && source.Settings.AllowedToAccept(t))
+                if (sourceOnlyTo && source.Settings.AllowedToAccept(t))
                 {
                     if (PscLog.Enabled) LogReject(t, unit, "onlyToDestinations",
                         $"feeder: rejected {t.def.defName} -> {unit.UniqueLoadID} (source onlyToDestinations, no functional edge)");
                     return true;
                 }
             }
-            else if (PscFeederHaulContext.TryGet(t, out var carriedRoute) && carriedRoute.map == unit.Map)
+            else if (carriedCase)
             {
                 if (PscLog.Enabled) LogReject(t, unit, "carriedRoute",
                     $"feeder: rejected carried {t.def.defName} -> {unit.UniqueLoadID} (planned route no longer a functional edge)");
                 return true;
             }
 
-            targetData = PscStorageDataStore.TryGet(target);
-            if (targetData != null && targetData.onlyFromSource)
+            if (targetOnlyFrom)
             {
                 if (PscLog.Enabled) LogReject(t, unit, "onlyFromSource",
                     $"feeder: rejected {t.def.defName} -> {unit.UniqueLoadID} (target onlyFromSource, no functional edge)");

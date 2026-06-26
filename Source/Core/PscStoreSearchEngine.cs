@@ -71,6 +71,25 @@ namespace PrecisionStockpileControl
 
             PscSearchContext.TrySource(t, out var source);
             var sourceData = PscSearchContext.SourceData(t);
+
+            // Source-only rejections (Phase 3b §4.2): two source rules make EVERY cross-unit target illegal, so
+            // decide once and skip the whole group walk instead of rejecting each candidate. Both are
+            // target-independent, so this is behavior-neutral — the per-candidate gates stay in HardReject /
+            // TryFeederReject for the AllowedToAccept backstop (planning:false) callers, which never run this
+            // preflight. Return NoLegalTarget (not Unaffected): the item cannot legally leave its source, so
+            // vanilla must NOT be let loose to find a target for it. The cheap field checks gate the (rare)
+            // AllowedToAccept call, which preserves the evacuate-disallowed-contents exemption (a leftover the
+            // source no longer accepts stays movable). Per-tile is exempt (an intra-unit spread is not the item
+            // leaving its unit); the no-route onlyToDestinations case mirrors the per-candidate Opt-B
+            // short-circuit (HasAnyDestination == false => no candidate can ever present a functional edge).
+            if (!perTileSpread && source.IsValid && sourceData != null
+                && ((sourceData.onlyToDestinations && !psc.Links.HasAnyDestination(source.UniqueLoadID))
+                    || (sourceData.batchEmpty > 0 && t.stackCount < sourceData.batchEmpty))
+                && source.Settings.AllowedToAccept(t))
+            {
+                return PscSearchResult.NoLegalTarget;
+            }
+
             // The engine NEVER demotes the item's band on its own: effBand is exactly the currentPriority vanilla
             // passed (already Unstored when the per-tile prefix demoted a genuine floor over-cap). A correctly
             // stored item therefore only relocates to a STRICTLY better unit, never down its (uphill-priority)
@@ -122,20 +141,39 @@ namespace PrecisionStockpileControl
                 // unit; a normal item never relocates within its unit.
                 if (sourceIsTarget && !allowSameUnitRelocation) continue;
                 // Cross-unit: must strictly out-rank the item's EFFECTIVE current full key.
-                if (!sourceIsTarget && !StrictlyBetter(settings.Priority, rank, effBand, currentRank)) continue;
+                if (!sourceIsTarget && !StrictlyBetter(settings.Priority, rank, effBand, currentRank))
+                {
+                    // Phase 3b §4.4: the list is full-key sorted (band desc, then within-band rank), so once a
+                    // cross-unit group is no longer strictly better than the item's current key, no later group
+                    // can be either — stop the walk instead of scanning the rest only to reject each. Same
+                    // sortedness the bucket break above already relies on. Behavior-neutral: every skipped group
+                    // would have failed this same gate and continued. Per-tile is exempt: its own unit
+                    // (sourceIsTarget) can appear later in the list and must be reached, and the per-tile prefix
+                    // demoted its currentPriority to Unstored so this gate rarely fires for it anyway — keep the
+                    // old continue to preserve that path exactly.
+                    if (!allowSameUnitRelocation) break;
+                    continue;
+                }
 
-                // Hard admission (planning: effective count + per-search memo). sourceIsTarget routes the
-                // own-contents / over-cap-drain branch for an intra-unit relocation candidate.
-                if (PscAdmissionIndex.HardReject(unit.Settings, t, unit, source, sourceData,
-                        sourceIsTarget, planning: true, out _)) continue;
-
-                // Live vanilla filter, backstop bypassed ONLY here (admission was already decided by HardReject).
-                // Mirrors the worker's single AllowedToAccept(t) gate, which it runs BEFORE the sampling below.
+                // Live vanilla filter FIRST (Phase 3b §4.1). PSC admission is tighten-only, so if vanilla
+                // (or another mod's AllowedToAccept postfix) already rejects this target, skip the heavier
+                // PSC feeder/cap/batch work entirely. Behavior-neutral vs running HardReject first: both
+                // gates are pure (HardReject mutates nothing while planning) and AND-ed, so the order never
+                // changes which groups pass — it only avoids the admission cost on filter-rejected candidates.
+                // The backstop is bypassed ONLY around this confirm; HardReject below still runs with it
+                // un-bypassed (unchanged), and its nested source AllowedToAccept self-early-outs on
+                // sourceIsTarget regardless of order. Mirrors the worker's single AllowedToAccept(t) gate,
+                // which it runs BEFORE the sampling below.
                 bool ok;
                 PscEngineScope.BypassAdmissionBackstop = true;
                 try { ok = canon.Settings.AllowedToAccept(t); }
                 finally { PscEngineScope.BypassAdmissionBackstop = false; }
                 if (!ok) continue;
+
+                // Hard admission (planning: effective count + per-search memo). sourceIsTarget routes the
+                // own-contents / over-cap-drain branch for an intra-unit relocation candidate.
+                if (PscAdmissionIndex.HardReject(unit.Settings, t, unit, source, sourceData,
+                        sourceIsTarget, planning: true, out _)) continue;
 
                 // Vanilla-faithful per-group cell scan (mirror TryFindBestBetterStoreCellForWorker EXACTLY):
                 // shared bestDist across groups, Rand.Range only when accurate and only after AllowedToAccept
