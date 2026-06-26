@@ -301,8 +301,15 @@ namespace PrecisionStockpileControl
                 PscEngineScope.IntendedUnitGroup = chosenGroup;     // read by the HD re-validation postfix
                 cell = bestCell;
                 if (PscLog.Enabled)
+                {
+                    // Name the chosen unit and the item's source so the trace shows WHERE stock lands and
+                    // FROM where -- "chosen <overflow>" vs "chosen <chain node>" is the whole diagnosis, and the
+                    // bare band/rank could not distinguish them.
+                    string chosenId = chosenGroup != null ? PscHaulUnit.FromSlotGroup(chosenGroup).UniqueLoadID : "?";
+                    string srcHint = source.IsValid ? source.UniqueLoadID : "no-source(carried/loose)";
                     PscLog.MsgThrottled($"eng:{t.def?.defName}",
-                        $"engine: {t.def?.defName} chosen band {bestBand} rank {bestRank}");
+                        $"engine: {t.def?.defName} chosen {chosenId} (band {bestBand} rank {bestRank}) [from {srcHint}]");
+                }
                 return PscSearchResult.Found;
             }
             return PscSearchResult.NoLegalTarget;

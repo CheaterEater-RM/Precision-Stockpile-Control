@@ -322,6 +322,9 @@ namespace PrecisionStockpileControl
             if (!hasFunctionalEdge && restoredCase && psc.FeederAllows(restoredSourceId, unit))
             {
                 hasFunctionalEdge = true;
+                if (PscLog.Enabled)
+                    PscLog.MsgThrottled($"feeder:puahok:{t.def?.defName}:{unit.UniqueLoadID}",
+                        $"feeder: carried(puah) {t.def?.defName} -> {unit.UniqueLoadID} admitted via restored origin {restoredSourceId}");
             }
             // Loose-item skip (feederSkipLooseItems): a genuinely loose ground item (no source unit AND no
             // active route) may enter a chain with an open mouth and skip straight to this node.
@@ -342,30 +345,29 @@ namespace PrecisionStockpileControl
                 // on sourceIsTarget) and short-circuits last.
                 if (sourceOnlyTo && SourceAcceptsItem(source, t, planning))
                 {
-                    if (PscLog.Enabled) LogReject(t, unit, "onlyToDestinations",
-                        $"feeder: rejected {t.def.defName} -> {unit.UniqueLoadID} (source onlyToDestinations, no functional edge)");
+                    LogFeederReject(psc, t, source.UniqueLoadID, unit, "onlyToDestinations", "source onlyToDestinations");
                     return true;
                 }
             }
             else if (carriedCase)
             {
-                if (PscLog.Enabled) LogReject(t, unit, "carriedRoute",
-                    $"feeder: rejected carried {t.def.defName} -> {unit.UniqueLoadID} (planned route no longer a functional edge)");
+                LogFeederReject(psc, t, carriedRoute.sourceId, unit, "carriedRoute", "carried planned route");
                 return true;
             }
             else if (restoredCase && restoredHoldBack)
             {
                 // Carried (PUAH) item from an onlyToDestinations origin, candidate is not a functional dest:
                 // hold it back from the unconstrained overflow, just as the live source would.
-                if (PscLog.Enabled) LogReject(t, unit, "puahOnlyToDestinations",
-                    $"feeder: rejected carried(puah) {t.def.defName} -> {unit.UniqueLoadID} (origin onlyToDestinations, no functional edge)");
+                LogFeederReject(psc, t, restoredSourceId, unit, "puahOnlyToDestinations", "carried(puah) origin onlyToDestinations");
                 return true;
             }
 
             if (targetOnlyFrom)
             {
-                if (PscLog.Enabled) LogReject(t, unit, "onlyFromSource",
-                    $"feeder: rejected {t.def.defName} -> {unit.UniqueLoadID} (target onlyFromSource, no functional edge)");
+                string diagSrc = source.IsValid ? source.UniqueLoadID
+                    : restoredCase ? restoredSourceId
+                    : carriedCase ? carriedRoute.sourceId : null;
+                LogFeederReject(psc, t, diagSrc, unit, "onlyFromSource", "target onlyFromSource");
                 return true;
             }
             return false;
@@ -420,6 +422,40 @@ namespace PrecisionStockpileControl
         private static void LogReject(Thing t, PscHaulUnit unit, string reason, string msg)
         {
             if (PscLog.Enabled) PscLog.MsgThrottled($"adm:{t.def?.defName}:{unit.UniqueLoadID}:{reason}", msg);
+        }
+
+        // Feeder-specific rejection log that explains WHY there is no functional edge (no source / no route
+        // drawn / route exists but the destination does not out-rank the source). That distinction -- a missing
+        // route vs an inverted priority -- is the key signal for diagnosing a chain that will not flow, and is
+        // invisible in the bare "no functional edge" line. Throttled per (def, reason) by default so a 20-shelf
+        // chain collapses to one representative line; per (def, unit, reason) when debugFeederVerbose is on.
+        private static void LogFeederReject(PscMapComponent psc, Thing t, string sourceId, PscHaulUnit unit,
+            string reason, string strictDesc)
+        {
+            if (!PscLog.Enabled) return;
+            string def = t.def?.defName;
+            string dest = unit.UniqueLoadID;
+            string why = EdgeFailReason(psc, sourceId, unit);
+            if (PscLog.FeederVerbose)
+                PscLog.MsgThrottled($"feeder:{def}:{dest}:{reason}",
+                    $"feeder: rejected {def} -> {dest} ({strictDesc}; {why})");
+            else
+                PscLog.MsgThrottled($"feeder:{def}:{reason}",
+                    $"feeder: {def} blocked by {strictDesc} (e.g. -> {dest}: {why})");
+        }
+
+        // Explain why no functional edge connects sourceId to the candidate unit. A priority misconfig and a
+        // missing route both read as "no functional edge" but need opposite fixes, so name which one it is.
+        private static string EdgeFailReason(PscMapComponent psc, string sourceId, PscHaulUnit unit)
+        {
+            if (string.IsNullOrEmpty(sourceId)) return "item has no source unit (loose / carried, no provenance)";
+            string destId = unit.UniqueLoadID;
+            if (destId == null) return "destination has no id";
+            if (psc.Links.HasEdge(sourceId, destId))
+                return "route drawn, but destination does not out-rank source -- raise the destination's priority";
+            if (PscMod.Settings != null && PscMod.Settings.feederSkipHops && psc.Links.IsDownstreamReachable(sourceId, destId))
+                return "multi-hop path exists, but a hop does not out-rank -- raise priorities along the chain";
+            return "no route drawn from source to this destination";
         }
     }
 }
