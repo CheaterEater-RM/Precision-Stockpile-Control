@@ -20,9 +20,10 @@ namespace PrecisionStockpileControl
     // nothing reads this facade yet, so hauling behavior is unchanged.
     public static class PscAdmissionIndex
     {
-        // ONE explicit rank source for the engine (do NOT trust AllGroupsListInPriorityOrder ordering as the
-        // source of truth). PscOrder.RankWithinBand reads settings.Priority live, so a vanilla priority change
-        // needs no extra invalidation. Lower = higher priority.
+        // Thin wrapper over PscOrder.RankWithinBand (lower = higher priority; reads settings.Priority live, so
+        // a vanilla priority change needs no extra invalidation). DELIBERATELY UNWIRED forward-scaffold:
+        // intended as the Phase 3 narrowing's single rank source, but the shipped engine calls
+        // PscOrder.RankWithinBand directly, so this has no caller yet. Retained for Phase 3.
         public static int RankOf(StorageSettings s) => PscOrder.RankWithinBand(s);
 
         private static readonly IReadOnlyList<StorageSettings> Empty = new List<StorageSettings>();
@@ -34,14 +35,15 @@ namespace PrecisionStockpileControl
         // listed. At Precise the engine ignores this and walks the full eligible set, so a stale list can
         // never drop an admissible unit; Balanced/Performance narrowing semantics are finalized in Phase 3.
         //
-        // CONTRACT (read carefully before Phase 2 consumes this):
+        // CONTRACT (read carefully before Phase 3 wires this in):
         //  - The return is READ-ONLY. It is the live backing list inside admitIndex (or the shared Empty
         //    sentinel), handed out as IReadOnlyList so a consumer cannot Add/Sort/Clear it in place and
         //    corrupt the index. The engine MUST copy into its own buffer before ranking/filtering.
-        //  - This is NOT "the candidate list." It is the managed-unit prefilter only. The Phase 2 engine
+        //  - This is NOT "the candidate list." It is the managed-unit prefilter only. The Phase 3 narrowing
         //    still has to merge in unmanaged vanilla stockpiles (walked from AllGroupsListInPriorityOrder)
         //    before it has a complete candidate set. Never treat CandidateUnits alone as exhaustive.
-        // Built but NOT yet authoritative in Phase 1.
+        // DELIBERATELY UNWIRED forward-scaffold: no caller yet; the shipped engine narrows via restrictedDefs.
+        // Retained for the planned Phase 3 Balanced/Performance narrowing.
         public static IReadOnlyList<StorageSettings> CandidateUnits(Map map, ThingDef def)
         {
             if (def == null) return Empty;
@@ -124,8 +126,8 @@ namespace PrecisionStockpileControl
             }
 
             // Feeder gates first (a source's onlyToDestinations blocks the haul even into a no-policy
-            // target). data is reused by the limit gate when the feeder gate had to resolve it.
-            if (!sourceIsTarget && TryFeederReject(target, t, unit, source, sourceData, ref data, planning))
+            // target). data was resolved above and is passed by value (the feeder gate only reads it).
+            if (!sourceIsTarget && TryFeederReject(target, t, unit, source, sourceData, data, planning))
             {
                 reason = "feeder";
                 return true;
@@ -147,7 +149,7 @@ namespace PrecisionStockpileControl
             }
 
             // --- Limit / batch gates (M1/M2) ---
-            data ??= PscStorageDataStore.TryGet(target);
+            // data was resolved once at the top (TryGet(target)) and TryFeederReject only reads it, so no re-fetch.
             if (data == null) return false;
             bool hasLimit = data.HasLimit(t.def);
             if (!hasLimit && data.batch <= 0) return false;    // no effective limit and no batch -> vanilla
@@ -247,10 +249,10 @@ namespace PrecisionStockpileControl
         // Feeder gates (M3, D11/D16). Evaluated before the target-data early-out: a SOURCE's
         // onlyToDestinations must block hauling its items even into a target with no PSC policy. Both rules
         // reduce to the same functional directed edge (source -> target); loose items have no source edge, so
-        // onlyFromSource rejects them. Returns true when the haul must be rejected, and sets targetData if it
-        // resolved the target's PSC data (reused by the limit gate). `planning` routes the per-search memos.
+        // onlyFromSource rejects them. Returns true when the haul must be rejected. targetData is the target's
+        // already-resolved PSC data (read-only here). `planning` routes the per-search memos.
         private static bool TryFeederReject(StorageSettings target, Thing t, PscHaulUnit unit,
-            PscHaulUnit source, PscStorageData sourceData, ref PscStorageData targetData, bool planning)
+            PscHaulUnit source, PscStorageData sourceData, PscStorageData targetData, bool planning)
         {
             var psc = PscMapComponent.For(unit.Map);
             if (psc == null || !psc.anyFeederActive) return false;

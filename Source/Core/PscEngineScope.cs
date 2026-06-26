@@ -16,9 +16,10 @@ namespace PrecisionStockpileControl
     //     mechanism. (If the bypass flag also carried the count, the engine's hard-admit -- which runs BEFORE
     //     the cell probe -- would read physical and lose reserved-inbound; widening the flag to cover
     //     hard-admit would re-introduce the nested-source bypass bug. Hence the split.)
-    //   - ExcludedCells is the cell-exclusion set for the bulk adapters (PUAH skipCells, Phase 4); the
-    //     IsGoodStoreCell gate reads it, so the engine holds it across the per-group CELL SCAN (a window
-    //     SEPARATE from the narrow AllowedToAccept bypass above). null / empty on the vanilla path.
+    //   - ExcludedCells is the cell-exclusion set for the bulk adapters (PUAH skipCells, Phase 4). The
+    //     engine holds it across the per-group CELL SCAN (a window SEPARATE from the narrow AllowedToAccept
+    //     bypass above) so the Phase 4 IsGoodStoreCell postfix can read it. DELIBERATELY UNWIRED: that postfix
+    //     is deferred to Phase 4, so today nothing reads it and the vanilla path passes null / empty.
     //   - IntendedUnitGroup is the canonical group the engine selected for this search. The HD re-validation
     //     postfix reads it (after HD's haul-to-stack postfix may have re-pointed the cell into a different
     //     same-priority unit) to confirm "PSC owns which unit"; the engine prefix's Finalizer clears it.

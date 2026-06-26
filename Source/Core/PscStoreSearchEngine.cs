@@ -38,6 +38,15 @@ namespace PrecisionStockpileControl
         // ClearThreadStaticState (the engine prefix Finalizer) so it never pins a removed map's group objects.
         [ThreadStatic] private static HashSet<ISlotGroup> seenCanon;
 
+        // Reused per search to copy a linked StorageGroup's cells out of the SHARED static temp
+        // StorageGroup.tmpCellsList before the inner IsGoodStoreCell loop. StorageGroup.CellsList clears and
+        // refills that one static list on every read, so holding the reference across calls that may re-enter
+        // a StorageGroup.CellsList read (a modded IsGoodStoreCell / NoStorageBlockersIn postfix, a nested
+        // search) would clobber it mid-scan (AGENTS.md "never retain StorageGroup.CellsList"). Plain SlotGroups
+        // have stable per-parent CellsLists and skip this. ThreadStatic for the same defensive isolation as
+        // seenCanon; cleared by ClearThreadStaticState.
+        [ThreadStatic] private static List<IntVec3> cellBuffer;
+
         public static PscSearchResult TryFindBestStoreCell(Thing t, Pawn carrier, Map map,
             StoragePriority currentPriority, Faction faction, in PscSearchOptions options, out IntVec3 cell)
         {
@@ -120,12 +129,11 @@ namespace PrecisionStockpileControl
                         || psc.anyOnlyFromSourceActive));                       // a target could onlyFromSource-reject
             bool skipAdmission = !needAdmission && !perTileSpread;
 
-            // The engine NEVER demotes the item's band on its own: effBand is exactly the currentPriority vanilla
-            // passed (already Unstored when the per-tile prefix demoted a genuine floor over-cap). A correctly
-            // stored item therefore only relocates to a STRICTLY better unit, never down its (uphill-priority)
-            // feeder chain. Vanilla/LWM enforce cell capacity at placement and DSU cells are ceded above, so
-            // there is no real non-DSU over-cap case left to handle here.
-            StoragePriority effBand = currentPriority;
+            // The engine NEVER demotes the item's band on its own: candidates are compared against the
+            // currentPriority vanilla passed (already Unstored when the per-tile prefix demoted a genuine floor
+            // over-cap). A correctly stored item therefore only relocates to a STRICTLY better unit, never down
+            // its (uphill-priority) feeder chain. Vanilla/LWM enforce cell capacity at placement and DSU cells
+            // are ceded above, so there is no real non-DSU over-cap case left to handle here.
             int currentRank = source.IsValid ? PscOrder.RankWithinBand(source.Settings) : 0;
 
             IntVec3 itemPos = t.SpawnedOrAnyParentSpawned ? t.PositionHeld
@@ -170,8 +178,8 @@ namespace PrecisionStockpileControl
                 // Same-unit: only a deliberate intra-unit relocation (per-tile spread) may target the item's own
                 // unit; a normal item never relocates within its unit.
                 if (sourceIsTarget && !allowSameUnitRelocation) continue;
-                // Cross-unit: must strictly out-rank the item's EFFECTIVE current full key.
-                if (!sourceIsTarget && !StrictlyBetter(settings.Priority, rank, effBand, currentRank))
+                // Cross-unit: must strictly out-rank the item's current full key (band, then within-band rank).
+                if (!sourceIsTarget && PscOrder.CompareKey(settings.Priority, rank, currentPriority, currentRank) >= 0)
                 {
                     // Phase 3b §4.4: the list is full-key sorted (band desc, then within-band rank), so once a
                     // cross-unit group is no longer strictly better than the item's current key, no later group
@@ -201,17 +209,23 @@ namespace PrecisionStockpileControl
                 if (!ok) continue;
 
                 // Modded multi-stack storage (Adaptive Storage Framework / Reel's Expanded Storage and the like)
-                // enforces BUILDING-level capacity in its IHaulDestination.Accepts override. Vanilla's worker
-                // stopped calling parent.Accepts in 1.5 (it calls Settings.AllowedToAccept instead), so ASF re-adds
-                // the capacity gate via a TryFindBestBetterStoreCellForWorker PREFIX -- which this integrated scan
-                // bypasses, because it never calls the worker. Honor the capacity directly and mod-agnostically:
-                // ISlotGroupParent : IHaulDestination, and a non-vanilla Building_Storage subtype may re-map Accepts
-                // onto a capacity check (ASF does). Vanilla shelves (exactly Building_Storage) and stockpile zones
-                // have filter-only Accepts == the AllowedToAccept already confirmed above, so they skip this entirely
-                // and the vanilla hot path pays only one type test. Standalone units ONLY: a linked StorageGroup's
-                // per-building capacity can't be judged from a single member without risking a false reject of
-                // another member's free cells, and admission is tighten-only (never wrongly reject a legal target),
-                // so linked groups fall through to vanilla's per-cell IsGoodStoreCell checks below.
+                // enforces BUILDING-level capacity. Vanilla's worker stopped calling parent.Accepts in 1.5 (it
+                // calls Settings.AllowedToAccept instead), so ASF re-adds a capacity gate via a
+                // TryFindBestBetterStoreCellForWorker PREFIX -- which this integrated scan bypasses, because it
+                // never calls the worker. Honor the capacity directly and mod-agnostically: ISlotGroupParent :
+                // IHaulDestination, and a non-vanilla Building_Storage subtype re-maps Accepts onto a capacity
+                // check. Verified basis: ASF's Building_Storage-subtype Accepts override DOES include its
+                // capacity check (so parent.Accepts captures it even though we skip ASF's worker prefix), and
+                // LWM Deep Storage's per-cell capacity is honored separately through the StoreUtility.IsGoodStoreCell
+                // path the cell scan below already calls. Vanilla shelves (exactly Building_Storage) and stockpile
+                // zones have filter-only Accepts == the AllowedToAccept already confirmed above, so they skip this
+                // entirely and the vanilla hot path pays only one type test. KNOWN LIMITATION (DESIGN compat
+                // stance): a framework that enforces capacity ONLY in a worker prefix and leaves Accepts
+                // filter-only would be missed here (PSC could over-admit); no such shipped framework is known.
+                // Standalone units ONLY: a linked StorageGroup's per-building capacity can't be judged from a
+                // single member without risking a false reject of another member's free cells, and admission is
+                // tighten-only (never wrongly reject a legal target), so linked groups fall through to vanilla's
+                // per-cell IsGoodStoreCell checks below.
                 if (!(canon is StorageGroup) && parent is Building_Storage moddedStore
                     && moddedStore.GetType() != typeof(Building_Storage))
                 {
@@ -231,11 +245,29 @@ namespace PrecisionStockpileControl
                 // Vanilla-faithful per-group cell scan (mirror TryFindBestBetterStoreCellForWorker EXACTLY):
                 // shared bestDist across groups, Rand.Range only when accurate and only after AllowedToAccept
                 // passed (matching the worker's early return before num), the per-group i >= num early break.
-                // CellsList is a static temp: iterated now, NEVER retained. ExcludedCells (PUAH skipCells, the
-                // Phase 4 bulk adapters) is held across the scan so the Phase 4 IsGoodStoreCell postfix sees it;
-                // the engine clears it in finally, so the option is honored without relying on the Harmony
-                // Finalizer (which also clears it, defensively). null / empty on the vanilla path.
-                var cells = canon.CellsList;
+                // CellsList handling: a linked StorageGroup's CellsList is the SHARED static temp
+                // StorageGroup.tmpCellsList (cleared + refilled on every read), so holding it across the inner
+                // IsGoodStoreCell loop is unsafe -- a reachable StorageGroup.CellsList read (a modded
+                // IsGoodStoreCell / NoStorageBlockersIn postfix, a nested search) would clobber it mid-scan
+                // (AGENTS.md "never retain StorageGroup.CellsList"). So copy a StorageGroup's cells into a reused
+                // per-search buffer first; a plain SlotGroup's CellsList is a stable per-parent list (shelf
+                // cachedOccupiedCells / zone cells), iterated directly so vanilla shelves/zones pay no copy.
+                // ExcludedCells (PUAH skipCells, the Phase 4 bulk adapters) is held across the scan so the
+                // Phase 4 IsGoodStoreCell postfix sees it; the engine clears it in finally, so the option is
+                // honored without relying on the Harmony Finalizer (which also clears it, defensively). null /
+                // empty on the vanilla path.
+                List<IntVec3> cells;
+                if (canon is StorageGroup)
+                {
+                    var buf = cellBuffer ?? (cellBuffer = new List<IntVec3>(128));
+                    buf.Clear();
+                    buf.AddRange(canon.CellsList);   // copy out of the shared static temp before any IsGoodStoreCell call
+                    cells = buf;
+                }
+                else
+                {
+                    cells = canon.CellsList;          // stable per-parent list (shelf / zone) -- no copy needed
+                }
                 int count = cells.Count;
                 int num = options.NeedAccurateResult ? Mathf.FloorToInt(count * Rand.Range(0.005f, 0.018f)) : 0;
                 PscEngineScope.ExcludedCells = options.ExcludedCells;
@@ -271,18 +303,15 @@ namespace PrecisionStockpileControl
             return PscSearchResult.NoLegalTarget;
         }
 
-        // Release the per-search thread-static dedup set at end of search (called from
-        // StoreUtility_Engine_Patch.Finalizer, alongside the scope + PscSearchContext clears). It is otherwise
-        // only cleared at the START of the next search, so between searches it would retain the candidates'
-        // ISlotGroup/StorageGroup refs and could pin a removed temporary map until the next search on this thread.
-        public static void ClearThreadStaticState() => seenCanon?.Clear();
-
-        // Full-key strictly-better test: band dominates (higher wins), then within-band rank (lower wins).
-        private static bool StrictlyBetter(StoragePriority candBand, int candRank, StoragePriority curBand, int curRank)
+        // Release the per-search thread-static buffers at end of search (called from
+        // StoreUtility_Engine_Patch.Finalizer, alongside the scope + PscSearchContext clears). They are
+        // otherwise only cleared at the START of the next search, so between searches they would retain the
+        // candidates' ISlotGroup/StorageGroup refs (seenCanon) and a copied cell list (cellBuffer) and could
+        // pin a removed temporary map until the next search on this thread.
+        public static void ClearThreadStaticState()
         {
-            int cb = (int)candBand, db = (int)curBand;
-            if (cb != db) return cb > db;
-            return candRank < curRank;
+            seenCanon?.Clear();
+            cellBuffer?.Clear();
         }
     }
 }

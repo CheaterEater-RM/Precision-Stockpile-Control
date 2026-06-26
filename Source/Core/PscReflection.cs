@@ -173,8 +173,17 @@ namespace PrecisionStockpileControl
 
         private static Type ResolveTypeByName(string name)
         {
+            // TypeByName returns null when the type is simply absent (the normal soft-dependency case, e.g. LWM
+            // not installed) -- that path stays silent and DSU detection no-ops. Only a genuine throw (an
+            // assembly load fault) reaches the catch; per AGENTS.md it must not be swallowed silently, so log
+            // once and degrade to null.
             try { return AccessTools.TypeByName(name); }
-            catch { return null; }
+            catch (Exception ex)
+            {
+                Log.Error("[PSC] Error resolving optional type '" + name + "' (soft dependency); the dependent "
+                    + "feature is disabled. " + ex);
+                return null;
+            }
         }
 
         // ---- HaulDestinationManager.map (owning map for the selection-gen chokepoint) -----------------

@@ -4,12 +4,18 @@ using Verse;
 
 namespace PrecisionStockpileControl
 {
-    // The store-search engine cutover (store-search rewrite, Phase 2). A prefix on the outer
-    // StoreUtility.TryFindBestBetterStoreCellFor hands the whole slot-group planning result to
-    // PscStoreSearchEngine; the engine ranks all eligible groups and delegates cell legality to vanilla
-    // …ForIn. This replaces the deleted fine-order transpiler + rank-primary re-scan + InStoreSearch
-    // planning scope. Plus the excluded-cell gate (Phase 4 bulk readiness) and the Hauler's Dream
-    // re-validation postfix (keeps "PSC owns which unit" against HD's haul-to-stack postfix).
+    // The store-search engine cutover (store-search rewrite). A bool-prefix on the outer
+    // StoreUtility.TryFindBestBetterStoreCellFor hands the whole slot-group planning to
+    // PscStoreSearchEngine and returns false to suppress vanilla's body; the engine ranks all eligible
+    // units and inlines vanilla's per-cell scan (mirrors TryFindBestBetterStoreCellForWorker, honoring
+    // IsGoodStoreCell). This replaces the deleted fine-order transpiler + rank-primary re-scan +
+    // InStoreSearch planning scope. Plus the excluded-cell gate (Phase 4 bulk readiness) and the Hauler's
+    // Dream re-validation postfix (keeps "PSC owns which unit" against HD's haul-to-stack postfix).
+    //
+    // COMPAT STANCE (DESIGN §9): because the prefix returns false, other mods' POSTFIXES on this method
+    // still run (HD's does), but another mod's transpiler or false-returning prefix on the method BODY is
+    // bypassed for non-DSU items (DSU-resident items are ceded to vanilla/LWM). This is inherent to owning
+    // the walk and is documented as a known stance, not a defect.
 
     [HarmonyPatch(typeof(StoreUtility), nameof(StoreUtility.TryFindBestBetterStoreCellFor))]
     [HarmonyPriority(Priority.Low)]   // run AFTER PSC's per-tile relocate prefix (unprioritized => Normal) so

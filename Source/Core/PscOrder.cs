@@ -68,15 +68,23 @@ namespace PrecisionStockpileControl
             return RankWithinBand(a).CompareTo(RankWithinBand(b));
         }
 
+        // The full-key comparison primitive over already-resolved (band, rank) pairs: negative => A is the
+        // better full key (higher band wins; within a band, lower rank wins, per RankWithinBand). This is the
+        // SINGLE source of truth for PSC's storage ordering: Compare/Outranks resolve ranks live and delegate
+        // here, while the store-search engine passes its per-group PRECOMPUTED rank ints so its hot walk shares
+        // this exact logic without re-reading ranks.
+        public static int CompareKey(StoragePriority bandA, int rankA, StoragePriority bandB, int rankB)
+        {
+            int a = (int)bandA, b = (int)bandB;
+            if (a != b) return b.CompareTo(a); // higher band first
+            return rankA.CompareTo(rankB);     // within band, lower rank first
+        }
+
         // Full priority comparison (band, then fine-order). Negative => a is strictly higher
         // priority than b. Used by the feeder validity rule (D5 unified onto the fine-order key).
         public static int Compare(StorageSettings a, StorageSettings b)
-        {
-            int bandA = (int)(a?.Priority ?? StoragePriority.Unstored);
-            int bandB = (int)(b?.Priority ?? StoragePriority.Unstored);
-            if (bandA != bandB) return bandB.CompareTo(bandA); // higher band first
-            return RankWithinBand(a).CompareTo(RankWithinBand(b));
-        }
+            => CompareKey(a?.Priority ?? StoragePriority.Unstored, RankWithinBand(a),
+                          b?.Priority ?? StoragePriority.Unstored, RankWithinBand(b));
 
         // dest strictly outranks source by the full key.
         public static bool Outranks(StorageSettings higher, StorageSettings lower)

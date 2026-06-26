@@ -10,7 +10,8 @@ namespace PrecisionStockpileControl
     //   - ExcludedCells: cells the engine must treat as ineligible. The Phase 4 PUAH extra-item adapter passes
     //     PUAH's skipCells here; null / empty on the ordinary vanilla-prefix path, which pays nothing.
     //   - NeedAccurateResult: forwarded to the delegated vanilla TryFindBestBetterStoreCellForIn.
-    //   - Caller: which entry routed here (vanilla prefix vs a bulk adapter), for logging + adapter behaviour.
+    //   - Caller: which entry routed here (vanilla prefix vs a bulk adapter). DELIBERATELY UNWIRED: set but
+    //     not read yet; retained for Phase 4 bulk-adapter behaviour + logging.
     public readonly struct PscSearchOptions
     {
         public readonly HashSet<IntVec3> ExcludedCells;

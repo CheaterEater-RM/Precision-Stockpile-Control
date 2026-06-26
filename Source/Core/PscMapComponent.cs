@@ -93,7 +93,10 @@ namespace PrecisionStockpileControl
         // filter allows the def AND whose mode permits intake. Rebuilt from `tracked` on the same seams that
         // maintain the gates (UpdateTracking / RebuildTrackingFromStore / the resync backstop) via
         // PscAdmissionIndex.Rebuild; read via PscAdmissionIndex.CandidateUnits. Map-local, never persisted;
-        // rebuilt in FinalizeInit on load. Built but not yet consumed until the engine lands (Phase 2/3).
+        // rebuilt in FinalizeInit on load. DELIBERATELY UNWIRED forward-scaffold: the shipped engine narrows
+        // per item via restrictedDefs/HasRestrictedDef, not this def->units map. Retained (with its
+        // TryNotifyChanged dirty seam) for the planned Phase 3 Balanced/Performance narrowing; CandidateUnits
+        // has no caller yet.
         internal readonly Dictionary<ThingDef, List<StorageSettings>> admitIndex
             = new Dictionary<ThingDef, List<StorageSettings>>();
 
@@ -349,7 +352,7 @@ namespace PrecisionStockpileControl
             if (ReferenceEquals(map, lastForMap)) { lastForMap = null; lastForComp = null; }
             PscFeederHaulContext.ClearForMap(map);
             PscHaulUnit.ClearIdCache();   // drop this map's group objects from the id cache
-            feederDecisions.Clear();      // string-keyed (pins nothing), but drop it for hygiene
+            feederDecisions.Clear();      // reference-keyed on ISlotGroup: drop so this dead map's group objects don't linger as keys
         }
 
         internal void RebuildTrackingFromStore(bool markDirty)
