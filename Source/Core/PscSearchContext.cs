@@ -32,6 +32,13 @@ namespace PrecisionStockpileControl
         // Opt B tristate: 0 = unprobed, 1 = source has an outgoing feeder edge, 2 = none.
         [System.ThreadStatic] private static byte feederDestState;
 
+        // Phase 1 (1A): per-search memo of the invariant "does the item's SOURCE unit still accept
+        // it?" check (source.Settings.AllowedToAccept(t)). Source + item are invariant within one
+        // search, so this boolean is too, yet it is otherwise evaluated per candidate in the feeder
+        // onlyToDestinations and batchEmpty evacuable exemptions (PscAdmissionIndex). 0 = unprobed,
+        // 1 = accepts, 2 = rejects. Reset on item change in EnsureFor and per search in Clear.
+        [System.ThreadStatic] private static byte sourceAcceptsState;
+
         // Opt B3 feeder-decision MRU (single entry, keyed by the target unit's group). Within one search the
         // source is invariant, so FeederAllows(source, target) varies only by target; cache the last
         // (target.group -> allows) result. Reset on item change in EnsureFor (a new item = a new source) and
@@ -44,6 +51,7 @@ namespace PrecisionStockpileControl
             if (ReferenceEquals(t, item)) return;
             item = t;
             feederDestState = 0;
+            sourceAcceptsState = 0;
             feederTargetGroup = null;
             var cur = PscHaulUnit.ResolveCurrent(t);
             sourceValid = cur.IsValid;
@@ -62,6 +70,21 @@ namespace PrecisionStockpileControl
 
         // PSC policy of the source unit (null when none / no valid source).
         public static PscStorageData SourceData(Thing t) { EnsureFor(t); return sourceData; }
+
+        // Phase 1 (1A): memoised source.Settings.AllowedToAccept(t) for the search's invariant
+        // source, computed once and reused by the per-candidate evacuable exemptions on the planning
+        // (engine) path. Returns false for a loose/unspawned/carried item (no source) — the callers
+        // only consult it when source.IsValid, so a false here for a no-source item is never read.
+        public static bool SourceAcceptsItem(Thing t)
+        {
+            EnsureFor(t);
+            if (sourceAcceptsState == 0)
+            {
+                var s = sourceValid ? sourceGroup?.Settings : null;
+                sourceAcceptsState = (s != null && s.AllowedToAccept(t)) ? (byte)1 : (byte)2;
+            }
+            return sourceAcceptsState == 1;
+        }
 
         // Opt B (feeder source short-circuit): cached "does the source have any outgoing feeder edge?".
         // Returns true if the answer is already known this search; `hasDest` carries it. The caller
@@ -108,6 +131,7 @@ namespace PrecisionStockpileControl
             sourceGroup = null;
             sourceData = null;
             feederDestState = 0;
+            sourceAcceptsState = 0;
             feederTargetGroup = null;
             feederTargetAllows = false;
         }

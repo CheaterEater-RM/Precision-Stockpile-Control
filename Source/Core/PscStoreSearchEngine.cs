@@ -43,6 +43,16 @@ namespace PrecisionStockpileControl
         {
             cell = IntVec3.Invalid;
 
+            // Phase 1 (1D): main-thread tripwire. Vanilla's haul store-search is synchronous and main-thread
+            // (PHASE4 §6.1); PSC's live count/policy model (PscStorageData.counts / reservedInbound) is NOT
+            // concurrency-safe, so the residual ThreadStatic scopes would not actually protect an off-main
+            // caller (a threading mod) — they would silently corrupt counts. Catch that loudly instead of
+            // pretending to be safe. Dev-gated (PscLog.Enabled short-circuits the thread check), so normal
+            // play and profiling pay only one bool read.
+            if (PscLog.Enabled && !UnityData.IsInMainThread)
+                Log.ErrorOnce("[PSC] store-search engine entered off the main thread; PSC's count model is not "
+                    + "thread-safe (threading mod?). See STORE_SEARCH_REWRITE_PHASE4_DESIGN.md §6.1.", 0x1C5A0101);
+
             // Conservative, map-LOCAL opt-in gate (broaden-first): no PSC policy anywhere, then none on THIS
             // map (IsEmpty is global). A policy-free map stays byte-for-byte vanilla even when another map is
             // managed. Per-item narrowing behind the anyXxxActive flags is a later optimisation.

@@ -86,6 +86,7 @@ namespace PrecisionStockpileControl
                 }
             }
             psc.SetRestrictedDefs(restricted);
+            psc.admitIndexDirty = false;   // Phase 1 (1C): any rebuild makes admitIndex fresh; clear the gate.
             if (PscLog.Enabled)
                 PscLog.Msg($"index: rebuilt map={psc.map.uniqueID} units={psc.tracked.Count} defs={index.Count} restricted={restricted.Count}");
         }
@@ -136,7 +137,7 @@ namespace PrecisionStockpileControl
             if (!sourceIsTarget && source.IsValid)
             {
                 if (sourceData != null && sourceData.batchEmpty > 0 && t.stackCount < sourceData.batchEmpty
-                    && source.Settings.AllowedToAccept(t))
+                    && SourceAcceptsItem(source, t, planning))
                 {
                     reason = "underBatchEmpty";
                     if (PscLog.Enabled) LogReject(t, source, reason,
@@ -318,7 +319,7 @@ namespace PrecisionStockpileControl
                 // stay evacuable to ANY storage -- onlyToDestinations only holds the source's VALID contents.
                 // The nested AllowedToAccept is safe (item's current unit == source, so that postfix early-outs
                 // on sourceIsTarget) and short-circuits last.
-                if (sourceOnlyTo && source.Settings.AllowedToAccept(t))
+                if (sourceOnlyTo && SourceAcceptsItem(source, t, planning))
                 {
                     if (PscLog.Enabled) LogReject(t, unit, "onlyToDestinations",
                         $"feeder: rejected {t.def.defName} -> {unit.UniqueLoadID} (source onlyToDestinations, no functional edge)");
@@ -340,6 +341,13 @@ namespace PrecisionStockpileControl
             }
             return false;
         }
+
+        // source.Settings.AllowedToAccept(t) is invariant within a store search, so the engine
+        // (planning) path reuses the per-search memo instead of re-evaluating the vanilla filter for
+        // every candidate (Phase 1 1A). Every other caller (the backstop, planning:false) resolves
+        // fresh because its `source` can differ per call. Callers gate on source.IsValid before here.
+        private static bool SourceAcceptsItem(PscHaulUnit source, Thing t, bool planning)
+            => planning ? PscSearchContext.SourceAcceptsItem(t) : source.Settings.AllowedToAccept(t);
 
         // Throttled dev-log of an admission rejection. Keyed per (def, unit, reason) so a steady haul scan
         // logs each distinct rejection at most once per throttle window.

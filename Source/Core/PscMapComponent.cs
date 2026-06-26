@@ -97,6 +97,16 @@ namespace PrecisionStockpileControl
         internal readonly Dictionary<ThingDef, List<StorageSettings>> admitIndex
             = new Dictionary<ThingDef, List<StorageSettings>>();
 
+        // Phase 1 (1C): dirty flag gating the periodic admitIndex rebuild in MapComponentTick. PSC's
+        // own policy edits rebuild admitIndex inline (UpdateTracking / RebuildTrackingFromStore); the
+        // periodic rebuild exists ONLY to catch a VANILLA filter/category edit on a managed unit,
+        // which does not route through those. Set by the StorageSettings.TryNotifyChanged postfix
+        // (the filter-edit seam) and cleared by any PscAdmissionIndex.Rebuild, so a static colony does
+        // zero rebuilds per 250-tick window instead of one full rebuild every window. The count-cache
+        // resync that shares the 250-tick block is a SEPARATE mechanism and still runs unconditionally.
+        internal bool admitIndexDirty;
+        internal void MarkAdmitIndexDirty() { if (anyPscActive) admitIndexDirty = true; }
+
         // Defs carrying a non-default per-def limit on ANY tracked unit (store-search rewrite, Phase 3b §5):
         // the policy-keyed term that tells the engine a cap/hysteresis/over-cap-drain could fire for this def.
         // Built from data.limits (NOT the filter) in PscAdmissionIndex.Rebuild over ALL tracked units, so it is
@@ -445,9 +455,11 @@ namespace PrecisionStockpileControl
             if (tick % ResyncInterval != 0) return;
             // Soft staleness backstop for the def->units prefilter: catches changes that don't route through
             // UpdateTracking, most importantly a vanilla filter / category toggle on a managed unit. Bounded
-            // by managed-unit count; runs once per ResyncInterval. (Filter-allows correctness never depends on
-            // this: the live delegated AllowedToAccept enforces it. This only refreshes the soft prefilter.)
-            PscAdmissionIndex.Rebuild(this);
+            // by managed-unit count. (Filter-allows correctness never depends on this: the live delegated
+            // AllowedToAccept enforces it. This only refreshes the soft prefilter.) Phase 1 (1C): dirty-gated
+            // — rebuilds only when a filter edit marked it (TryNotifyChanged postfix), instead of every window.
+            // Rebuild clears the flag. The count-cache drift backstop below is SEPARATE and runs every window.
+            if (admitIndexDirty) PscAdmissionIndex.Rebuild(this);
             resyncSnapshot.Clear();
             resyncSnapshot.AddRange(tracked);
             if (resyncSnapshot.Count == 0) return;

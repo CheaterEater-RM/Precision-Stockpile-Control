@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using HarmonyLib;
 using RimWorld;
 using Verse;
@@ -53,6 +54,28 @@ namespace PrecisionStockpileControl
             if (PscAdmissionIndex.HardReject(__instance, t, unit, source, sourceData, sourceIsTarget,
                     planning: PscEngineScope.VanillaFallbackPlanning, out _))
                 __result = false;
+        }
+    }
+
+    // Filter-edit seam (store-search rewrite, Phase 1 1C). Vanilla wires the storage filter's change
+    // callback to the PRIVATE StorageSettings.TryNotifyChanged (filter = new ThingFilter(TryNotifyChanged),
+    // RimWorld/StorageSettings.cs), which fires on every player category/filter toggle. PSC's soft
+    // def->units prefilter (PscMapComponent.admitIndex) is the one piece of state a vanilla filter edit
+    // can stale WITHOUT routing through PSC's own NotifyPolicyChanged, so mark the owning map's index
+    // dirty here; MapComponentTick then rebuilds it lazily (<=250 ticks) instead of unconditionally every
+    // window. PSC's own edits call owner.Notify_SettingsChanged() directly (NOT TryNotifyChanged), so this
+    // never self-triggers. Private target -> explicit TargetMethod. Cheap: filter edits are a rare UI event.
+    [HarmonyPatch]
+    public static class StorageSettings_TryNotifyChanged_AdmitIndexPatch
+    {
+        static MethodBase TargetMethod() => AccessTools.Method(typeof(StorageSettings), "TryNotifyChanged");
+
+        public static void Postfix(StorageSettings __instance)
+        {
+            if (PscStorageDataStore.IsEmpty) return;     // no PSC policy anywhere -> nothing to refresh
+            var unit = PscHaulUnit.ResolveSettings(__instance);
+            if (!unit.IsValid) return;
+            PscMapComponent.For(unit.Map)?.MarkAdmitIndexDirty();
         }
     }
 

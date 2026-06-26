@@ -172,6 +172,11 @@ namespace PrecisionStockpileControl
             // drop the id cache so dead group objects don't linger as keys. Rebuilt lazily and cheaply;
             // prune is a rare UI/lifecycle event, never on the haul hot path.
             PscHaulUnit.ClearIdCache();
+            // The reference-keyed feeder-decision memo (Phase 1 S2) pins canonical group objects as keys,
+            // so clear it here too — a despawned unit's group must not linger. RebuildTrackingFromStore
+            // above already bumped selectionGen (and a real edge removal bumped the feeder generation), so
+            // the memo would flush on its next query regardless; this just drops the dead refs immediately.
+            owner.FeederDecisions.Clear();
         }
 
         private void ClearOrphanedFeederFlags(HashSet<string> liveIds)
