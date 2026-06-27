@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using RimWorld;
 using Verse;
 
@@ -16,10 +15,8 @@ namespace PrecisionStockpileControl
     //     mechanism. (If the bypass flag also carried the count, the engine's hard-admit -- which runs BEFORE
     //     the cell probe -- would read physical and lose reserved-inbound; widening the flag to cover
     //     hard-admit would re-introduce the nested-source bypass bug. Hence the split.)
-    //   - ExcludedCells is the cell-exclusion set for the bulk adapters (PUAH skipCells, Phase 4). The
-    //     engine holds it across the per-group CELL SCAN (a window SEPARATE from the narrow AllowedToAccept
-    //     bypass above) so the Phase 4 IsGoodStoreCell postfix can read it. DELIBERATELY UNWIRED: that postfix
-    //     is deferred to Phase 4, so today nothing reads it and the vanilla path passes null / empty.
+    //   - (Excluded cells for the bulk adapters are NOT a scope: PUAH's skipCells ride PscSearchOptions.ExcludedCells
+    //     and the engine drops them inline in its own cell scan, so no thread-static / no global IsGoodStoreCell postfix.)
     //   - IntendedUnitGroup is the canonical group the engine selected for this search. The HD re-validation
     //     postfix reads it (after HD's haul-to-stack postfix may have re-pointed the cell into a different
     //     same-priority unit) to confirm "PSC owns which unit"; the engine prefix's Finalizer clears it.
@@ -39,7 +36,6 @@ namespace PrecisionStockpileControl
     internal static class PscEngineScope
     {
         [System.ThreadStatic] public static bool BypassAdmissionBackstop;
-        [System.ThreadStatic] public static HashSet<IntVec3> ExcludedCells;
         [System.ThreadStatic] public static ISlotGroup IntendedUnitGroup;
         [System.ThreadStatic] public static bool VanillaFallbackPlanning;
     }

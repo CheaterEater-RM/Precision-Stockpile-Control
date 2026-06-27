@@ -257,10 +257,11 @@ namespace PrecisionStockpileControl
                 // (AGENTS.md "never retain StorageGroup.CellsList"). So copy a StorageGroup's cells into a reused
                 // per-search buffer first; a plain SlotGroup's CellsList is a stable per-parent list (shelf
                 // cachedOccupiedCells / zone cells), iterated directly so vanilla shelves/zones pay no copy.
-                // ExcludedCells (PUAH skipCells, the Phase 4 bulk adapters) is held across the scan so the
-                // Phase 4 IsGoodStoreCell postfix sees it; the engine clears it in finally, so the option is
-                // honored without relying on the Harmony Finalizer (which also clears it, defensively). null /
-                // empty on the vanilla path.
+                // ExcludedCells (PUAH skipCells, the Phase 4 bulk adapters): cells the bulk caller has already
+                // allocated to. Checked INLINE in this scan -- the only place that needs it, since the PUAH
+                // extra-item adapter replaces PUAH's own body -- rather than via a global IsGoodStoreCell postfix
+                // that would pay a dispatch on every cell scan game-wide. null / empty on the ordinary vanilla
+                // path, so that path pays one local read and no Contains.
                 List<IntVec3> cells;
                 if (canon is StorageGroup)
                 {
@@ -275,25 +276,22 @@ namespace PrecisionStockpileControl
                 }
                 int count = cells.Count;
                 int num = options.NeedAccurateResult ? Mathf.FloorToInt(count * Rand.Range(0.005f, 0.018f)) : 0;
-                PscEngineScope.ExcludedCells = options.ExcludedCells;
-                try
+                var excluded = options.ExcludedCells;
+                for (int i = 0; i < count; i++)
                 {
-                    for (int i = 0; i < count; i++)
+                    IntVec3 c = cells[i];
+                    if (excluded != null && excluded.Contains(c)) continue;
+                    float d = itemPos.IsValid ? (itemPos - c).LengthHorizontalSquared : 0f;
+                    if (!(d > bestDist) && StoreUtility.IsGoodStoreCell(c, map, t, carrier, faction))
                     {
-                        IntVec3 c = cells[i];
-                        float d = itemPos.IsValid ? (itemPos - c).LengthHorizontalSquared : 0f;
-                        if (!(d > bestDist) && StoreUtility.IsGoodStoreCell(c, map, t, carrier, faction))
-                        {
-                            bestCell = c;
-                            bestDist = d;
-                            bestBand = cb;
-                            bestRank = rank;
-                            chosenGroup = canon;
-                            if (i >= num) break;
-                        }
+                        bestCell = c;
+                        bestDist = d;
+                        bestBand = cb;
+                        bestRank = rank;
+                        chosenGroup = canon;
+                        if (i >= num) break;
                     }
                 }
-                finally { PscEngineScope.ExcludedCells = null; }
             }
 
             if (bestCell.IsValid)
@@ -324,6 +322,20 @@ namespace PrecisionStockpileControl
         {
             seenCanon?.Clear();
             cellBuffer?.Clear();
+        }
+
+        // Full per-search teardown: the engine scopes + the per-search context + the thread-static buffers.
+        // The vanilla-prefix path runs this via StoreUtility_Engine_Patch.Finalizer; a DIRECT engine caller (the
+        // Phase 4 PUAH extra-item adapter calls TryFindBestStoreCell outside that Harmony method, so its
+        // Finalizer never fires) must call this itself in a finally, or VanillaFallbackPlanning / the carrier
+        // memo / the candidate buffers would leak into the next search on this thread. Idempotent.
+        public static void ResetSearchState()
+        {
+            PscEngineScope.BypassAdmissionBackstop = false;
+            PscEngineScope.IntendedUnitGroup = null;
+            PscEngineScope.VanillaFallbackPlanning = false;
+            ClearThreadStaticState();
+            PscSearchContext.Clear();
         }
     }
 }

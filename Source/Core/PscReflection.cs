@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
 using RimWorld;
@@ -25,6 +26,8 @@ namespace PrecisionStockpileControl
     //   Widgets.CheckboxMulti(Rect,MultiCheckboxState,bool)                       (overload)
     //   PickUpAndHaul.WorkGiver_HaulToInventory:CapacityAt(Thing,IntVec3,Map)     (soft dependency)
     //   PickUpAndHaul.JobDriver_HaulToInventory:TryMakePreToilReservations(bool)  (soft dep, capture seam)
+    //   PickUpAndHaul.WorkGiver_HaulToInventory:TryFindBestBetterStoreCellFor(...) (soft dep, bulk-adapter seam)
+    //   PickUpAndHaul.WorkGiver_HaulToInventory:skipCells           (soft dep, private static field)
     //   HaulersDream.BulkHaul:StorageSpaceForDef(Pawn,Thing,IntVec3,Map)          (soft dep, private)
     //   HaulDestinationManager.map            (private field)   — owning map for the selection-gen chokepoint
     internal static class PscReflection
@@ -141,6 +144,37 @@ namespace PrecisionStockpileControl
 
         public static MethodBase PuahHaulToInventoryReserve()
             => AccessTools.Method(PuahHaulToInventoryReserveId, new[] { typeof(bool) });
+
+        // PUAH's PRIVATE extra-item destination search (WorkGiver_HaulToInventory.TryFindBestBetterStoreCellFor).
+        // It gates on `slotGroup.Settings.Priority <= currentPriority` (a STRICTLY-higher vanilla-band test), so it
+        // is blind to PSC's same-band fine-order feeder routing and never plans a same-band chain hop during a bulk
+        // gather. PSC prefixes it to delegate the choice to the engine (PickUpAndHaul_Patch), restoring bulk hauls
+        // into the chain. Distinct from the vanilla StoreUtility method of the same name: this is PUAH's own static.
+        public const string PuahExtraItemStoreCellId = "PickUpAndHaul.WorkGiver_HaulToInventory:TryFindBestBetterStoreCellFor";
+
+        public static MethodBase PuahExtraItemStoreCell()
+            => AccessTools.Method(PuahExtraItemStoreCellId,
+                new[] { typeof(Thing), typeof(Pawn), typeof(Map), typeof(StoragePriority), typeof(Faction), typeof(IntVec3).MakeByRefType() });
+
+        // PUAH's static `skipCells` set (cells already allocated this gather). The adapter reads it to (a) feed the
+        // engine as ExcludedCells and (b) add its chosen cell back, replicating PUAH's own skip so its loop advances.
+        // Null between gathers (PUAH sets it to a fresh set in JobOnThing and nulls it after); the adapter null-checks.
+        private static readonly AccessTools.FieldRef<HashSet<IntVec3>> PuahSkipCellsRef = ResolvePuahSkipCells();
+
+        public static HashSet<IntVec3> PuahSkipCells() => PuahSkipCellsRef != null ? PuahSkipCellsRef() : null;
+
+        private static AccessTools.FieldRef<HashSet<IntVec3>> ResolvePuahSkipCells()
+        {
+            // PUAH absent -> TypeByName/Field returns null (the normal soft-dependency case) and the adapter no-ops;
+            // only a genuine load fault reaches the catch and logs once, per AGENTS.md (no silent swallow).
+            try
+            {
+                var fi = AccessTools.Field("PickUpAndHaul.WorkGiver_HaulToInventory:skipCells");
+                if (fi == null) return null;
+                return AccessTools.StaticFieldRefAccess<HashSet<IntVec3>>(fi);
+            }
+            catch (Exception ex) { LogMissing("PickUpAndHaul.WorkGiver_HaulToInventory.skipCells", ex); return null; }
+        }
 
         // ---- Hauler's Dream (soft dependency — no compile/load-time reference) ----------------------
         // BulkHaul.StorageSpaceForDef is HD's per-destination capacity probe (the analogue of PUAH's

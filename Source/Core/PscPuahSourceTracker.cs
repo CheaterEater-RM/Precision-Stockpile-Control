@@ -39,6 +39,14 @@ namespace PrecisionStockpileControl
         private static readonly Dictionary<Pawn, Dictionary<ThingDef, List<Segment>>> byPawn =
             new Dictionary<Pawn, Dictionary<ThingDef, List<Segment>>>();
 
+        // pawn -> the loadID of the last PUAH gather job we captured. PUAH's TryMakePreToilReservations is NOT
+        // a one-shot seam (it can fire more than once for the same job), and each fire re-walks the whole
+        // targetQueueA; without this guard the same pickup is recorded as several segments. Reconcile keeps the
+        // COUNTS honest regardless, but the duplicates inflate the FIFO list and the log, and can skew which
+        // source the oldest-segment lookup returns when stacks from two sources interleave. Capped (a lost
+        // marker only permits a harmless re-capture); cleaned alongside byPawn.
+        private static readonly Dictionary<Pawn, int> lastCapturedJob = new Dictionary<Pawn, int>();
+
         private const int MaxRecordAgeTicks = 120_000;   // ~2 in-game days: a bulk haul completes in minutes
         private const int SweepIntervalTicks = 1000;     // periodic reconcile/age-prune cadence
         private static int lastSweepTick = -1;
@@ -48,7 +56,19 @@ namespace PrecisionStockpileControl
         public static bool IsEmpty => byPawn.Count == 0;
 
         // Cleared on every new-game / load by PscGameComponent's ctor, mirroring PscFeederHaulContext.
-        public static void ClearAll() { byPawn.Clear(); lastSweepTick = -1; }
+        public static void ClearAll() { byPawn.Clear(); lastCapturedJob.Clear(); lastSweepTick = -1; }
+
+        // True when this pawn's gather job was already captured (a re-fired TryMakePreToilReservations), so the
+        // caller skips re-recording it. Records the job otherwise. Bounded clear: dropping a marker only allows
+        // a harmless re-capture, never a wrong count (reconcile trims to live inventory).
+        public static bool AlreadyCapturedJob(Pawn pawn, int jobLoadId)
+        {
+            if (pawn == null) return false;
+            if (lastCapturedJob.TryGetValue(pawn, out var prev) && prev == jobLoadId) return true;
+            if (lastCapturedJob.Count > 256) lastCapturedJob.Clear();
+            lastCapturedJob[pawn] = jobLoadId;
+            return false;
+        }
 
         // Record `count` items of `def` headed out of feeder source `sourceId` into the pawn's inventory.
         // Appends a FIFO segment. Strictness is intentionally NOT snapshotted (read live at restore).
@@ -139,7 +159,7 @@ namespace PrecisionStockpileControl
                 if (byDef.Count == 0) (deadPawns ??= new List<Pawn>()).Add(pawn);
             }
             if (deadPawns != null)
-                foreach (var p in deadPawns) byPawn.Remove(p);
+                foreach (var p in deadPawns) { byPawn.Remove(p); lastCapturedJob.Remove(p); }
         }
 
         // Trim the captured total down to what the pawn actually still carries, oldest-first: anything beyond
