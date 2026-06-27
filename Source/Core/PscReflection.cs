@@ -29,6 +29,7 @@ namespace PrecisionStockpileControl
     //   PickUpAndHaul.WorkGiver_HaulToInventory:TryFindBestBetterStoreCellFor(...) (soft dep, bulk-adapter seam)
     //   PickUpAndHaul.WorkGiver_HaulToInventory:skipCells           (soft dep, private static field)
     //   HaulersDream.BulkHaul:StorageSpaceForDef(Pawn,Thing,IntVec3,Map)          (soft dep, private)
+    //   HaulersDream.JobDriver_BulkHaul:TryMakePreToilReservations(bool)          (soft dep, capture seam)
     //   HaulDestinationManager.map            (private field)   — owning map for the selection-gen chokepoint
     internal static class PscReflection
     {
@@ -191,6 +192,17 @@ namespace PrecisionStockpileControl
 
         public static MethodBase HaulersDreamStorageSpaceForDef()
             => AccessTools.Method(HaulersDreamStorageSpaceForDefId, new[] { typeof(Pawn), typeof(Thing), typeof(IntVec3), typeof(Map) });
+
+        // HD's bulk-gather job driver's reservation seam — the analogue of PUAH's HaulToInventory reserve seam.
+        // At TryMakePreToilReservations the queued pickup targets (JobDriver_BulkHaul keeps them in targetQueueB)
+        // are still spawned in their source, so PSC can snapshot feeder-source provenance before the take toil's
+        // SplitOff + inventory merge severs it. HD overrides this method, so resolving by member id targets HD's
+        // own override (not base JobDriver). Private-method coupling: a future HD rename makes Prepare() return
+        // null and the capture silently degrades (carried items shake out via normal hauling), never crashing.
+        public const string HaulersDreamBulkHaulReserveId = "HaulersDream.JobDriver_BulkHaul:TryMakePreToilReservations";
+
+        public static MethodBase HaulersDreamBulkHaulReserve()
+            => AccessTools.Method(HaulersDreamBulkHaulReserveId, new[] { typeof(bool) });
 
         // ---- LWM Deep Storage detection (soft dependency — no compile/load-time reference) ----------
         // The CompDeepStorage type, resolved once (null when LWM is absent). The store-search engine uses it

@@ -272,15 +272,16 @@ namespace PrecisionStockpileControl
                 && PscFeederHaulContext.TryGet(t, out carriedRoute)
                 && carriedRoute.map == unit.Map;
 
-            // PUAH carried-item provenance (restored source). A bulk-hauled item has no live source and no
-            // per-Thing route, but its origin feeder source may be remembered per (carrier, def). Resolve once
-            // per item (memoised): restoredSourceId enables entry into a downstream onlyFromSource node, and
-            // restoredHoldBack (origin onlyToDestinations AND still allows the def) keeps the item OUT of the
-            // unconstrained overflow -- as if it were still spawned in its source. This is fed ONLY into the
-            // feeder gate; the cap/batch/mode gates in HardReject still see the (invalid) live source (D-codex).
+            // Bulk-hauler carried-item provenance (restored source; PUAH / Hauler's Dream). A bulk-hauled item
+            // has no live source and no per-Thing route, but its origin feeder source may be remembered per
+            // (carrier, def). Resolve once per item (memoised): restoredSourceId enables entry into a downstream
+            // onlyFromSource node, and restoredHoldBack (origin onlyToDestinations AND still allows the def)
+            // keeps the item OUT of the unconstrained overflow -- as if it were still spawned in its source.
+            // This is fed ONLY into the feeder gate; the cap/batch/mode gates in HardReject still see the
+            // (invalid) live source (D-codex).
             string restoredSourceId = null;
             bool restoredHoldBack = false;
-            if (!source.IsValid && !carriedCase && !PscPuahSourceTracker.IsEmpty)
+            if (!source.IsValid && !carriedCase && !PscCarriedSourceTracker.IsEmpty)
                 ResolveRestoredSource(psc, t, unit, out restoredSourceId, out restoredHoldBack);
             bool restoredCase = restoredSourceId != null;
 
@@ -317,14 +318,15 @@ namespace PrecisionStockpileControl
             {
                 hasFunctionalEdge = true;
             }
-            // Restored-source exemption (PUAH): a carried item may flow to ANY functional destination of its
-            // remembered origin (not a single planned dest), so it can still enter the chain after the merge.
+            // Restored-source exemption (bulk inventory haul): a carried item may flow to ANY functional
+            // destination of its remembered origin (not a single planned dest), so it can still enter the chain
+            // after the merge.
             if (!hasFunctionalEdge && restoredCase && psc.FeederAllows(restoredSourceId, unit))
             {
                 hasFunctionalEdge = true;
                 if (PscLog.Enabled)
-                    PscLog.MsgThrottled($"feeder:puahok:{t.def?.defName}:{unit.UniqueLoadID}",
-                        $"feeder: carried(puah) {t.def?.defName} -> {unit.UniqueLoadID} admitted via restored origin {restoredSourceId}");
+                    PscLog.MsgThrottled($"feeder:bulkok:{t.def?.defName}:{unit.UniqueLoadID}",
+                        $"feeder: carried(bulk) {t.def?.defName} -> {unit.UniqueLoadID} admitted via restored origin {restoredSourceId}");
             }
             // Loose-item skip (feederSkipLooseItems): a genuinely loose ground item (no source unit AND no
             // active route) may enter a chain with an open mouth and skip straight to this node.
@@ -356,9 +358,9 @@ namespace PrecisionStockpileControl
             }
             else if (restoredCase && restoredHoldBack)
             {
-                // Carried (PUAH) item from an onlyToDestinations origin, candidate is not a functional dest:
-                // hold it back from the unconstrained overflow, just as the live source would.
-                LogFeederReject(psc, t, restoredSourceId, unit, "puahOnlyToDestinations", "carried(puah) origin onlyToDestinations");
+                // Carried (bulk-hauled) item from an onlyToDestinations origin, candidate is not a functional
+                // dest: hold it back from the unconstrained overflow, just as the live source would.
+                LogFeederReject(psc, t, restoredSourceId, unit, "bulkOnlyToDestinations", "carried(bulk) origin onlyToDestinations");
                 return true;
             }
 
@@ -380,8 +382,8 @@ namespace PrecisionStockpileControl
         private static bool SourceAcceptsItem(PscHaulUnit source, Thing t, bool planning)
             => planning ? PscSearchContext.SourceAcceptsItem(t) : source.Settings.AllowedToAccept(t);
 
-        // Resolve (once per item, memoised in PscSearchContext) the captured feeder source for a PUAH-carried
-        // item with no live source. `holdBack` folds the two hold-back conditions -- origin onlyToDestinations
+        // Resolve (once per item, memoised in PscSearchContext) the captured feeder source for a bulk-hauled
+        // carried item with no live source. `holdBack` folds the two hold-back conditions -- origin onlyToDestinations
         // AND the origin still accepts this item -- so the per-candidate rejection never re-evaluates them.
         // The tracker stores only the source id; the strict flags are read LIVE here, so a mid-haul link break
         // or onlyToDestinations toggle stops holding the item back on the next search (codex review).
@@ -393,7 +395,7 @@ namespace PrecisionStockpileControl
             if (probed) { sourceId = null; holdBack = false; return; }    // memo: none
 
             var carrier = PscSearchContext.Carrier;
-            if (carrier != null && PscPuahSourceTracker.TryGetSource(carrier, t.def, unit.Map, out sourceId))
+            if (carrier != null && PscCarriedSourceTracker.TryGetSource(carrier, t.def, unit.Map, out sourceId))
                 holdBack = RestoredOriginHoldsBack(psc, sourceId, t);
             else
             {

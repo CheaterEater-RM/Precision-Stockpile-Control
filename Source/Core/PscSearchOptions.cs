@@ -30,5 +30,7 @@ namespace PrecisionStockpileControl
             => new PscSearchOptions(null, needAccurateResult, PscSearchCaller.VanillaPrefix);
     }
 
-    public enum PscSearchCaller { VanillaPrefix, PuahExtraItem, HdAdapter }
+    // HD needs no adapter value: it routes through vanilla store-search (which PSC's engine already owns), unlike
+    // PUAH's own private picker. So there is no HdAdapter caller -- only the vanilla prefix and the PUAH adapter.
+    public enum PscSearchCaller { VanillaPrefix, PuahExtraItem }
 }

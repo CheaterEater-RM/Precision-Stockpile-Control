@@ -3,17 +3,17 @@ using Verse;
 
 namespace PrecisionStockpileControl
 {
-    // Runtime-only feeder-source provenance for items a bulk inventory-hauler (Pick Up And Haul) has
-    // gathered into a pawn's inventory. PUAH gathers via Thing.SplitOff + inventory.TryAdd(merge), which
-    // (a) never touches Pawn_CarryTracker.TryStartCarry, so PscFeederHaulContext's per-Thing route never
+    // Runtime-only feeder-source provenance for items a bulk inventory-hauler (Pick Up And Haul or Hauler's
+    // Dream) has gathered into a pawn's inventory. Both gather via Thing.SplitOff + inventory.TryAdd(merge),
+    // which (a) never touches Pawn_CarryTracker.TryStartCarry, so PscFeederHaulContext's per-Thing route never
     // transfers, and (b) MERGES same-def stacks, so per-Thing identity is destroyed. By unload the item is
     // unspawned with no source, and the feeder gate can neither admit it into an onlyFromSource chain node
-    // nor hold it out of an unconstrained overflow (DESIGN: PUAH bulk inventory hauls are a soft edge).
+    // nor hold it out of an unconstrained overflow (DESIGN: bulk inventory hauls are a soft edge).
     //
     // This restores that provenance at a COARSE granularity the merge can't defeat: per (pawn, def) COUNT
     // SEGMENTS, each remembering only the origin's id (everything strict is re-read LIVE at restore, so a
-    // mid-haul link break or flag toggle is respected). Captured at PUAH job commit while the items are still
-    // spawned in their source; consumed by reconciling each segment's remaining count against the pawn's LIVE
+    // mid-haul link break or flag toggle is respected). Captured at the bulk-hauler's job commit while the
+    // items are still spawned in their source; consumed by reconciling each segment's remaining count against the pawn's LIVE
     // inventory count of that def, so it drains across every unload exit (cell place, container deposit,
     // drop-on-ground) without a fragile per-placement hook. Imperfect by design (a merged stack carries one
     // source per placement; leftovers shake out via normal hauling), the accepted trade for keeping bulk.
@@ -23,7 +23,7 @@ namespace PrecisionStockpileControl
     // inventory and drop emptied/dead entries even when no further store search looks the def up again. The
     // pin is harmless: entries exist only during an active feeder haul (minutes) and the sweep + clear-on-load
     // bound it.
-    public static class PscPuahSourceTracker
+    public static class PscCarriedSourceTracker
     {
         // One captured run of `remaining` items of a def, gathered from feeder source `sourceId`. FIFO:
         // oldest segment drains first. No strictness snapshot — the restore reads the origin's live flags.
@@ -39,9 +39,9 @@ namespace PrecisionStockpileControl
         private static readonly Dictionary<Pawn, Dictionary<ThingDef, List<Segment>>> byPawn =
             new Dictionary<Pawn, Dictionary<ThingDef, List<Segment>>>();
 
-        // pawn -> the loadID of the last PUAH gather job we captured. PUAH's TryMakePreToilReservations is NOT
-        // a one-shot seam (it can fire more than once for the same job), and each fire re-walks the whole
-        // targetQueueA; without this guard the same pickup is recorded as several segments. Reconcile keeps the
+        // pawn -> the loadID of the last bulk-gather job we captured. The hauler's TryMakePreToilReservations is
+        // NOT a one-shot seam (it can fire more than once for the same job), and each fire re-walks the whole
+        // pickup queue; without this guard the same pickup is recorded as several segments. Reconcile keeps the
         // COUNTS honest regardless, but the duplicates inflate the FIFO list and the log, and can skew which
         // source the oldest-segment lookup returns when stacks from two sources interleave. Capped (a lost
         // marker only permits a harmless re-capture); cleaned alongside byPawn.
@@ -84,7 +84,7 @@ namespace PrecisionStockpileControl
 
             segs.Add(new Segment { map = map, sourceId = sourceId, remaining = count, createdTick = tick });
             if (PscLog.Enabled)
-                PscLog.Msg($"feeder: puah-ctx capture {def.defName} x{count} from {sourceId} for {pawn.LabelShort}");
+                PscLog.Msg($"feeder: bulk-ctx capture {def.defName} x{count} from {sourceId} for {pawn.LabelShort}");
         }
 
         // Resolve the effective feeder source id for a carried item of `def` in `carrier`'s inventory on

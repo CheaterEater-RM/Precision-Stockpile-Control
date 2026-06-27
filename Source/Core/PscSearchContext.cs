@@ -50,12 +50,12 @@ namespace PrecisionStockpileControl
         [System.ThreadStatic] private static bool feederTargetAllows;
 
         // The hauling pawn for this search (carrier), set by the engine entry. Per SEARCH, not per item, so it
-        // is reset only in Clear (not EnsureFor). The carried-item feeder restore (PscPuahSourceTracker) needs
+        // is reset only in Clear (not EnsureFor). The carried-item feeder restore (PscCarriedSourceTracker) needs
         // it to look up (carrier, def) provenance; non-engine callers (the AllowedToAccept backstop) leave it
         // null and so never restore.
         [System.ThreadStatic] private static Pawn carrier;
 
-        // Restored carried-source memo (PUAH bulk haul): for an item with no live source, the captured feeder
+        // Restored carried-source memo (bulk inventory haul): for an item with no live source, the captured feeder
         // source for (carrier, def), resolved once per item. 0 = unprobed, 1 = found, 2 = none. `restoredHoldBack`
         // is precomputed at probe time (source onlyToDestinations AND still allows the def) so the hold-back
         // decision never re-enters AllowedToAccept per candidate. Per ITEM, so reset in EnsureFor and Clear.
