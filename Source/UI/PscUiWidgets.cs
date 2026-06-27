@@ -109,17 +109,34 @@ namespace PrecisionStockpileControl
             return lo + "-" + hi;
         }
 
-        // Compact group row label: "A: 100-125" (items) or "A: 6-8 stacks" (stacks mode) — the letter plus
-        // the shared limit in the group's count unit. Per-def stack-count parens are never shown for a
-        // group (the value already IS the chosen unit; in stacks mode the suffix names it).
+        // Compact group row label: "Meats: 6-8 stacks" / "A: 100-125" — the group's NAME when set (else its
+        // letter) plus the shared limit in the group's count unit. Per-def stack-count parens are never
+        // shown for a group (the value already IS the chosen unit; in stacks mode the suffix names it). The
+        // name is truncated to fit the row so the limit numbers are never the bit that gets cut.
         public static string CompactGroupLimit(PscLimitGroup g)
         {
             if (g == null) return "";
             string lo = g.limit != null && g.limit.Lower.HasValue ? g.limit.Lower.Value.ToString() : "";
             string hi = g.limit != null && g.limit.Upper.HasValue ? g.limit.Upper.Value.ToString() : "";
-            string prefix = string.IsNullOrEmpty(g.letter) ? "" : g.letter + ": ";
             string suffix = g.countMode == PscGroupCountMode.Stacks ? " " + "PSC_ModeStacks".Translate() : "";
-            return prefix + lo + "-" + hi + suffix;
+            string idPart = !string.IsNullOrEmpty(g.name) ? g.name : (g.letter ?? "");
+            return FitRowPrefix(idPart, ": " + lo + "-" + hi + suffix, PscUiTheme.RowLabelWidth - 6f);
+        }
+
+        // Fit `idPart` + `fixedPart` into `maxWidth` at the row font (GameFont.Tiny), truncating ONLY
+        // `idPart` with an ellipsis so the fixed part (the limit numbers) is always preserved. Measures the
+        // actual rendered width (no fixed char count) so it is translation- and font-safe.
+        private static string FitRowPrefix(string idPart, string fixedPart, float maxWidth)
+        {
+            if (string.IsNullOrEmpty(idPart)) return fixedPart.TrimStart(':', ' ');
+            var prevFont = Text.Font;
+            Text.Font = GameFont.Tiny;
+            float budget = maxWidth - Text.CalcSize(fixedPart).x;
+            string fitted = idPart;
+            if (budget <= 0f) fitted = "";
+            else if (Text.CalcSize(idPart).x > budget) fitted = idPart.Truncate(budget);
+            Text.Font = prevFont;
+            return fitted + fixedPart;
         }
 
         // Format one group limit value in the group's unit ("6 stacks" / "100"); unitless in items mode so

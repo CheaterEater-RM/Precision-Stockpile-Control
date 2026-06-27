@@ -123,6 +123,12 @@ namespace PrecisionStockpileControl
         // ---- Runtime cache (never scribed; rebuilt from HeldThings) ----
         // Hysteresis state is NOT here anymore — it is persisted on each PscDefLimit (lim.refill).
         private readonly Dictionary<ThingDef, int> counts = new Dictionary<ThingDef, int>();
+        // Diagnostics-only: physical occupied-stack count per def (the number of Thing instances of that
+        // def in the unit), populated in the SAME HeldThings walk as `counts` so it costs one extra dict
+        // op per Thing. NOT used for enforcement — packed stack-equivalents (StacksOf) stay the enforced
+        // unit. Surfaced in the dev logs and the group editor read-out so the packed-vs-physical
+        // divergence (e.g. two un-consolidated stacks of one def in a shelf) is observable.
+        private readonly Dictionary<ThingDef, int> physicalStackCounts = new Dictionary<ThingDef, int>();
         private readonly HashSet<ThingDef> dirtyDefs = new HashSet<ThingDef>();
         private bool allDirty = true;
 
@@ -404,6 +410,33 @@ namespace PrecisionStockpileControl
         private static int StacksOf(ThingDef d, int items)
             => items <= 0 ? 0 : Mathf.CeilToInt(items / (float)Mathf.Max(1, d.stackLimit));
 
+        // Diagnostics-only physical occupied-stack count for `def` (number of Thing instances in the
+        // unit). NOT enforcement — see physicalStackCounts. Recompute-safe (same lazy path as GetCount).
+        public int GetPhysicalStackCount(ThingDef def, PscHaulUnit unit)
+        {
+            if (def == null) return 0;
+            if (allDirty) RecomputeAll(unit);
+            else if (dirtyDefs.Contains(def)) RecomputeDef(def, unit);
+            return physicalStackCounts.TryGetValue(def, out var c) ? c : 0;
+        }
+
+        // Diagnostics-only: a group's combined PHYSICAL occupied-stack count (Σ member physical stacks),
+        // for the editor read-out and dev logs. Compare against the enforced packed GroupCount to see the
+        // divergence (un-consolidated / deep-storage cases).
+        public int GetGroupPhysicalStackCount(PscLimitGroup g, PscHaulUnit unit)
+        {
+            if (g == null) return 0;
+            int sum = 0;
+            var ms = g.members;
+            for (int i = 0; i < ms.Count; i++)
+                if (ms[i] != null) sum += GetPhysicalStackCount(ms[i], unit);
+            return sum;
+        }
+
+        // Public read of a group's enforced (mode-aware) combined count — packed stacks in Stacks mode,
+        // item sum in Items mode. Used by the editor read-out and the decision-time diagnostic log.
+        public int GroupEnforcedCount(PscLimitGroup g, PscHaulUnit unit) => GroupCount(g, unit);
+
         // Group's combined count in its OWN unit (items or packed stacks). Public: may recompute via
         // GetCount, so it is only ever called from enforcement / room / edit-seed paths, never from a
         // recompute (the refill recompute uses GroupModeSumFromCounts, which does not re-enter GetCount).
@@ -478,27 +511,19 @@ namespace PrecisionStockpileControl
             return Mathf.Max(0, upper - n);
         }
 
-        // Items of `def` admissible before a STACKS-mode group hits `upperStacks`. Adding to `def` only
-        // raises the group's packed-stack count when it crosses a multiple of def.stackLimit: the first
-        // PartialTopOff items fill def's existing partial stack (zero new stacks), then each further block
-        // of stackLimit adds one. So the budget is top-off + freeStacks*stackLimit, member-specific via
-        // both def.stackLimit and def's own partial remainder. freeStacks<=0 -> only top-off fits (may be 0).
+        // Items of `def` admissible before a STACKS-mode group hits `upperStacks`. Grants only WHOLE free
+        // stacks: freeStacks * def.stackLimit. It deliberately does NOT add a partial top-off allowance,
+        // because the destination CELL is chosen by vanilla, not PSC — a unit-level "top off the partial"
+        // budget could land in a fresh empty cell and create a NEW occupied stack, overshooting the cap
+        // (the iter-2 churn / "two stacks of one item" bug). freeStacks whole stacks is safe no matter
+        // which cell vanilla picks; at cap (freeStacks<=0) room is 0. An existing partial still gets
+        // consolidated by vanilla's own within-unit hauling (sourceIsTarget is never rejected), so this
+        // costs nothing real — it only refuses NEW external intake once the group is full.
         private int StacksModeItemRoom(PscLimitGroup g, ThingDef def, PscHaulUnit unit, int upperStacks, bool incl)
         {
             int usedStacks = incl ? GroupEffectiveCount(g, unit) : GroupCount(g, unit);
             int freeStacks = upperStacks - usedStacks;
-            int top = PartialTopOff(def, unit, incl);
-            return freeStacks <= 0 ? top : top + freeStacks * Mathf.Max(1, def.stackLimit);
-        }
-
-        // Items that fill `def`'s current partial top stack without adding a new packed stack (0 if its
-        // count is an exact multiple of stackLimit, i.e. no partial).
-        private int PartialTopOff(ThingDef def, PscHaulUnit unit, bool incl)
-        {
-            int s = Mathf.Max(1, def.stackLimit);
-            int cur = incl ? GetEffectiveCount(def, unit) : GetCount(def, unit);
-            int rem = cur % s;
-            return rem == 0 ? 0 : (s - rem);
+            return freeStacks <= 0 ? 0 : freeStacks * Mathf.Max(1, def.stackLimit);
         }
 
         // Over-cap drain budget for `def` in `unit` (physical). Ungrouped: count - per-def upper.
@@ -595,6 +620,7 @@ namespace PrecisionStockpileControl
         private void RecomputeAll(PscHaulUnit unit)
         {
             counts.Clear();
+            physicalStackCounts.Clear();
             if (unit.IsValid)
             {
                 var held = unit.HeldThings;
@@ -605,6 +631,8 @@ namespace PrecisionStockpileControl
                         if (t == null) continue;
                         counts.TryGetValue(t.def, out var c);
                         counts[t.def] = c + t.stackCount;
+                        physicalStackCounts.TryGetValue(t.def, out var sc);
+                        physicalStackCounts[t.def] = sc + 1;   // diagnostics: one Thing = one physical stack
                     }
                 }
             }
@@ -645,6 +673,7 @@ namespace PrecisionStockpileControl
         private void RecountDef(ThingDef def, PscHaulUnit unit)
         {
             int sum = 0;
+            int stacks = 0;
             if (unit.IsValid)
             {
                 var held = unit.HeldThings;
@@ -652,11 +681,12 @@ namespace PrecisionStockpileControl
                 {
                     foreach (var t in held)
                     {
-                        if (t != null && t.def == def) sum += t.stackCount;
+                        if (t != null && t.def == def) { sum += t.stackCount; stacks++; }
                     }
                 }
             }
             counts[def] = sum;
+            physicalStackCounts[def] = stacks;   // diagnostics: physical occupied stacks of this def
             dirtyDefs.Remove(def);
         }
 

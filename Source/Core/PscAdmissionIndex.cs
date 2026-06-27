@@ -66,6 +66,7 @@ namespace PrecisionStockpileControl
             // engine could read it off-main only under a threading caller (vanilla 1.6 is main-thread; PHASE4
             // §6.1), so the live set is published copy-on-write and never mutated in place).
             var restricted = new HashSet<ThingDef>();
+            int groupedMembers = 0;   // diagnostics: grouped member defs folded into restrictedDefs
             foreach (var s in psc.tracked)
             {
                 var data = PscStorageDataStore.TryGet(s);
@@ -81,7 +82,7 @@ namespace PrecisionStockpileControl
                         var g = data.limitGroups[gi];
                         if (g == null || g.limit == null || g.limit.IsDefault) continue;
                         for (int mi = 0; mi < g.members.Count; mi++)
-                            if (g.members[mi] != null) restricted.Add(g.members[mi]);
+                            if (g.members[mi] != null && restricted.Add(g.members[mi])) groupedMembers++;
                     }
                 // Off / RetrieveOnly block haul-in: such a unit can never be an intake candidate (admitIndex only).
                 if (data.mode != PscStorageMode.Normal && data.mode != PscStorageMode.AcceptOnly) continue;
@@ -101,7 +102,7 @@ namespace PrecisionStockpileControl
             psc.SetRestrictedDefs(restricted);
             psc.admitIndexDirty = false;   // Phase 1 (1C): any rebuild makes admitIndex fresh; clear the gate.
             if (PscLog.Enabled)
-                PscLog.Msg($"index: rebuilt map={psc.map.uniqueID} units={psc.tracked.Count} defs={index.Count} restricted={restricted.Count}");
+                PscLog.Msg($"index: rebuilt map={psc.map.uniqueID} units={psc.tracked.Count} defs={index.Count} restricted={restricted.Count} groupedMembers={groupedMembers}");
         }
 
         // ── Selection-level hard-admit predicate (store-search rewrite, Phase 2) ──────────────────────
@@ -195,6 +196,22 @@ namespace PrecisionStockpileControl
                 // concurrent haulers don't all admit against the same stale physical count and overshoot the
                 // cap; physical for every other (recheck) caller. No-op when reservation counting is off.
                 int n = planning ? data.GetGroupAwareEffectiveCount(t.def, unit) : data.GetGroupAwareCount(t.def, unit);
+
+                // Decision-time group diagnostics: the one line that disambiguates a real enforcement defect
+                // from the packed-vs-physical gap. Shows the enforced count, the actual physical cell count,
+                // the cap/refill state, and the resolved item-room. Throttled per (def, unit); behind Enabled
+                // so it costs nothing in normal play.
+                if (PscLog.Enabled && data.GroupOf(t.def) is PscLimitGroup dg)
+                {
+                    int physical = data.GetGroupPhysicalStackCount(dg, unit);
+                    string roomStr = lim.Upper.HasValue
+                        ? data.GroupAwareItemRoom(t.def, unit, lim.Upper.Value, planning).ToString() : "-";
+                    PscLog.MsgThrottled($"grp:{t.def.defName}:{unit.UniqueLoadID}",
+                        $"group {dg.letter} {t.def.defName} -> {unit.UniqueLoadID}: mode={dg.countMode} n={n} "
+                        + $"physicalStacks={physical} upper={(lim.Upper.HasValue ? lim.Upper.Value.ToString() : "-")} "
+                        + $"lower={(lim.Lower.HasValue ? lim.Lower.Value.ToString() : "-")} "
+                        + $"refilling={data.IsRefillingEffective(t.def)} roomItems={roomStr} planning={planning}");
+                }
 
                 // Upper — the maximum (M2 makes this a hard cap at drop time via HardCap_Patches).
                 if (lim.Upper.HasValue && n >= lim.Upper.Value)

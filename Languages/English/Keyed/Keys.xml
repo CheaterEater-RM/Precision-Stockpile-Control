@@ -196,6 +196,7 @@
   <PSC_GroupName>Name (optional)</PSC_GroupName>
   <PSC_GroupMembersHeader>Members ({0})</PSC_GroupMembersHeader>
   <PSC_GroupOneMemberHint>Add more items to share this limit.</PSC_GroupOneMemberHint>
+  <PSC_GroupNow>now: {0} / {1} {2}</PSC_GroupNow>
   <PSC_GroupAddMatching>Add:</PSC_GroupAddMatching>
   <PSC_GroupAddHeader>Add an item (type to search):</PSC_GroupAddHeader>
   <PSC_GroupUngroup>Ungroup</PSC_GroupUngroup>
@@ -211,6 +212,8 @@
   <PSC_GroupTitleNamed>Limit group {0}: {1}</PSC_GroupTitleNamed>
   <PSC_GroupCombinedRange>Combined total across {2} item type(s), kept between {0} and {1}.</PSC_GroupCombinedRange>
   <PSC_GroupMembers>Members:</PSC_GroupMembers>
+  <PSC_GroupPartialMark>(+)</PSC_GroupPartialMark>
+  <PSC_GroupCategoryPartial>Some allowed items in this category are not in this group.</PSC_GroupCategoryPartial>
 
   <!-- Stockpile alarm (gizmo + dialog): alert when a storage gets too full or too empty -->
   <PSC_Alarm_GizmoLabel>Stockpile alarm</PSC_Alarm_GizmoLabel>

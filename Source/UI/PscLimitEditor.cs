@@ -9,6 +9,7 @@ namespace PrecisionStockpileControl
         public ThingDef exactDef;
         public int? sharedStackLimit;
         public int? firstStackLimit;
+        public int maxStackLimit = 1;   // largest member stackLimit (for the pooled-items slider ceiling)
         public bool mixedStackLimits;
 
         public bool HasStackContext => exactDef != null || sharedStackLimit.HasValue || firstStackLimit.HasValue;
@@ -26,6 +27,7 @@ namespace PrecisionStockpileControl
                 count++;
                 int stack = Mathf.Max(1, d.stackLimit);
                 if (!ctx.firstStackLimit.HasValue) ctx.firstStackLimit = stack;
+                if (stack > ctx.maxStackLimit) ctx.maxStackLimit = stack;
                 if (shared < 0) shared = stack;
                 else if (shared != stack) ctx.mixedStackLimits = true;
                 if (count == 1) ctx.exactDef = d;
@@ -271,7 +273,12 @@ namespace PrecisionStockpileControl
         private int SliderMax(PscHaulUnit unit, PscLimitEditorTarget target)
         {
             int slots = StackSlots(unit);
-            if (pooled) return stacksMode ? Mathf.Max(1, slots) : GenericItemMax;   // stacks: unit slot cap; items: free text
+            // Pooled (group): stacks -> the unit's slot cap; items -> slots * the largest member stackLimit.
+            // The items ceiling is a GENEROUS UI bound (not a precise mixed-capacity proof — a mixed-size
+            // group can still express a number impossible for some compositions), but it keeps the slider in
+            // a sane range and makes the items-mode ticks land on stack boundaries (so the tick count
+            // matches stacks mode instead of comb-striding a 0-5000 range).
+            if (pooled) return stacksMode ? Mathf.Max(1, slots) : Mathf.Max(1, slots * target.maxStackLimit);
             if (stacksMode) return Mathf.Max(1, slots);
             if (target.HasStackContext) return Mathf.Max(1, slots * target.StackLimit);
             return GenericItemMax;

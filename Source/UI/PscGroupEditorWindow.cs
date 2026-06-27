@@ -22,7 +22,7 @@ namespace PrecisionStockpileControl
         private Vector2 memberScroll;
         private Vector2 addScroll;
 
-        public override Vector2 InitialSize => new Vector2(560f, 600f);
+        public override Vector2 InitialSize => new Vector2(720f, 600f);
 
         public PscGroupEditorWindow(StorageSettings settings, PscHaulUnit unit, PscLimitGroup group)
         {
@@ -86,6 +86,7 @@ namespace PrecisionStockpileControl
 
             list.Gap(6f);
             list.Label("PSC_Preview".Translate(editor.PreviewString(target)));
+            DrawNowLine(list, data);
             list.GapLine();
 
             if (group.members.Count == 1)
@@ -97,31 +98,37 @@ namespace PrecisionStockpileControl
                 Text.Font = GameFont.Small;
             }
 
-            list.Label("PSC_GroupMembersHeader".Translate(group.members.Count));
-
-            // Unified search: filters members AND surfaces matching non-members to add.
+            // Unified search on top: filters the member list AND surfaces matching non-members to add.
             var searchRow = list.GetRect(28f);
             searchBuf = Widgets.TextField(searchRow, searchBuf ?? "");
             searchFilter.Text = searchBuf;
             bool searching = searchFilter.Active;
 
-            // Split the remaining vertical space so the buttons always sit at the bottom (no overflow —
-            // the old layout ran the add box off the window). GetRect(0) reports the cursor without
-            // consuming space. Listing.Begin does BeginGroup(inRect), so curY is 0-based and the usable
-            // bottom is inRect.height (NOT inRect.yMax).
+            list.Gap(4f);
+
+            // One content band, buttons pinned at the bottom. GetRect(0) reports the cursor without
+            // consuming space; Listing.Begin did BeginGroup(inRect), so curY is 0-based and the usable
+            // bottom is inRect.height (NOT inRect.yMax). When searching, members (left) and add (right) sit
+            // SIDE BY SIDE so adding an item never shrinks the member list.
             float curY = list.GetRect(0f).y;
             float reserved = 8f + 30f;                       // gap + button row
-            float avail = Mathf.Max(80f, inRect.height - curY - reserved);
-            float addH = searching ? Mathf.Min(140f, avail * 0.42f) : 0f;
-            float addHeaderH = searching ? Text.LineHeight : 0f;
-            float membersH = avail - addH - addHeaderH;
-
-            DrawMemberList(list.GetRect(membersH), searching);
+            float bandH = Mathf.Max(80f, inRect.height - curY - reserved);
+            var band = list.GetRect(bandH);
+            float headerH = Text.LineHeight;
 
             if (searching)
             {
-                list.Label("PSC_GroupAddMatching".Translate());
-                DrawAddCandidates(list.GetRect(addH), data);
+                float gap = 8f;
+                float colW = (band.width - gap) / 2f;
+                DrawColumn(new Rect(band.x, band.y, colW, band.height), headerH,
+                    "PSC_GroupMembersHeader".Translate(group.members.Count), r => DrawMemberList(r, true));
+                DrawColumn(new Rect(band.x + colW + gap, band.y, colW, band.height), headerH,
+                    "PSC_GroupAddMatching".Translate(), r => DrawAddCandidates(r, data));
+            }
+            else
+            {
+                DrawColumn(band, headerH, "PSC_GroupMembersHeader".Translate(group.members.Count),
+                    r => DrawMemberList(r, false));
             }
 
             list.Gap(8f);
@@ -142,6 +149,31 @@ namespace PrecisionStockpileControl
         }
 
         private string LetterOf() => string.IsNullOrEmpty(group.letter) ? "?" : group.letter;
+
+        // A header label at the top of `outer`, then `body` on the rect below it. Used for the
+        // side-by-side Members / Add columns (and the single full-width member column when not searching).
+        private static void DrawColumn(Rect outer, float headerH, string header, System.Action<Rect> body)
+        {
+            Widgets.Label(new Rect(outer.x, outer.y, outer.width, headerH), header);
+            body(new Rect(outer.x, outer.y + headerH, outer.width, outer.height - headerH));
+        }
+
+        // Live "now: N / cap unit" read-out: the enforced (mode-aware) current count vs the upper cap, so
+        // a full group's "no more intake" state is visible. Uses the same enforced count the admission
+        // gate reads (packed stacks in Stacks mode, item sum in Items mode).
+        private void DrawNowLine(Listing_Standard list, PscStorageData data)
+        {
+            int now = data.GroupEnforcedCount(group, unit);
+            string unitWord = (group.countMode == PscGroupCountMode.Stacks
+                ? "PSC_ModeStacks" : "PSC_ModeItems").Translate();
+            string cap = group.limit != null && group.limit.Upper.HasValue
+                ? group.limit.Upper.Value.ToString() : "PSC_Maximum".Translate().ToString();
+            Text.Font = GameFont.Tiny;
+            GUI.color = PscUiTheme.NoteText;
+            list.Label("PSC_GroupNow".Translate(now, cap, unitWord));
+            GUI.color = Color.white;
+            Text.Font = GameFont.Small;
+        }
 
         private void DrawMemberList(Rect outer, bool searching)
         {

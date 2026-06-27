@@ -73,6 +73,7 @@ namespace PrecisionStockpileControl
             data.NormalizeGroups();                 // assign letter, strip per-def limits on members, rebuild index
             data.Notify_GroupLimitSet(g, unit);
             PscMapComponent.NotifyPolicyChanged(settings);
+            if (PscLog.Enabled) PscLog.Msg("group: created " + Describe(g));
             return g;
         }
 
@@ -92,16 +93,22 @@ namespace PrecisionStockpileControl
             data.NormalizeGroups();
             data.Notify_GroupLimitSet(g, unit);
             PscMapComponent.NotifyPolicyChanged(settings);
+            if (PscLog.Enabled) PscLog.Msg("group: added " + def.defName + " -> " + Describe(g));
         }
 
         // Remove `def` from its group (dissolving the group only if it drops to zero members; a 1-member
-        // group is still a valid draft). The def reverts to NO limit.
+        // group is still a valid draft). The def is left UNALLOWED in the filter — "remove from group"
+        // takes the item out of the storage entirely, rather than silently leaving it as plain allowed
+        // storage. (ClearLimit handles the keep-allowed case via its own SetAllow.)
         public static void RemoveFromGroup(StorageSettings settings, ThingDef def)
         {
             var data = PscStorageDataStore.TryGet(settings);
-            if (data == null) return;
+            if (data == null || def == null) return;
+            if (data.GroupOf(def) == null) return;          // not grouped: nothing to remove
             RemoveFromGroupInternal(data, def);
+            settings.filter.SetAllow(def, false);           // leave the def unallowed (removed from storage)
             PscMapComponent.NotifyPolicyChanged(settings);
+            if (PscLog.Enabled) PscLog.Msg("group: removed " + def.defName + " (now unallowed)");
         }
 
         private static void RemoveFromGroupInternal(PscStorageData data, ThingDef def)
@@ -118,6 +125,7 @@ namespace PrecisionStockpileControl
         {
             var data = PscStorageDataStore.TryGet(settings);
             if (data == null || g == null) return;
+            if (PscLog.Enabled) PscLog.Msg("group: dissolved " + Describe(g));
             data.limitGroups.Remove(g);
             data.RebuildGroupIndex();
             PscMapComponent.NotifyPolicyChanged(settings);
@@ -135,6 +143,20 @@ namespace PrecisionStockpileControl
             g.countMode = mode;
             data.Notify_GroupLimitSet(g, unit);
             PscMapComponent.NotifyPolicyChanged(settings);
+            if (PscLog.Enabled) PscLog.Msg("group: limit set " + Describe(g));
+        }
+
+        // One-line dev-log summary of a group: letter, optional name, count mode, limit, and members.
+        // Only called under PscLog.Enabled, so the string build is paid only when diagnostics are on.
+        private static string Describe(PscLimitGroup g)
+        {
+            if (g == null) return "<null group>";
+            string lo = g.limit != null && g.limit.Lower.HasValue ? g.limit.Lower.Value.ToString() : "-";
+            string hi = g.limit != null && g.limit.Upper.HasValue ? g.limit.Upper.Value.ToString() : "-";
+            string members = g.memberNames != null ? string.Join(",", g.memberNames) : "";
+            return $"[{g.letter}{(string.IsNullOrEmpty(g.name) ? "" : ":" + g.name)}] mode={g.countMode} "
+                + $"limit={lo}..{hi} refill={(g.limit != null ? g.limit.refill.ToString() : "-")} "
+                + $"members({g.members?.Count ?? 0})={members}";
         }
     }
 }

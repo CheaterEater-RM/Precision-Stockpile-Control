@@ -73,7 +73,7 @@ namespace PrecisionStockpileControl
                     }
                 }
 
-                var catGroup = TryGetCategoryGroup(node.catDef);
+                var catGroup = TryGetCategoryGroup(node.catDef, out bool catGroupPartial);
                 bool hasPerDef = TryGetCategoryLimitState(node.catDef, out var shared, out bool mixed, out int? sharedStackLimit);
                 if (catGroup == null && !hasPerDef) return;
 
@@ -97,8 +97,17 @@ namespace PrecisionStockpileControl
 
                 if (catGroup != null)
                 {
-                    PscFilterRow.DrawLimitLabel(iconRect, __state, lh,
-                        PscUiWidgets.CompactGroupLimit(catGroup), PscUiWidgets.FullGroupLimit(catGroup));
+                    // Fully-covered category -> clean group label. Partly-grouped (some allowed descendants
+                    // ungrouped) -> append a distinct marker + a tooltip note, so it never reads as wholly
+                    // group-governed.
+                    string compact = PscUiWidgets.CompactGroupLimit(catGroup);
+                    string tip = PscUiWidgets.FullGroupLimit(catGroup);
+                    if (catGroupPartial)
+                    {
+                        compact += " " + "PSC_GroupPartialMark".Translate();
+                        tip += "\n" + "PSC_GroupCategoryPartial".Translate();
+                    }
+                    PscFilterRow.DrawLimitLabel(iconRect, __state, lh, compact, tip);
                 }
                 else if (!mixed)
                 {
@@ -179,18 +188,27 @@ namespace PrecisionStockpileControl
             return true;
         }
 
-        // Returns the single limit group shared by EVERY allowed storable descendant of `cat`, or null
-        // if any allowed descendant is ungrouped or belongs to a different group. Lets a category row
-        // show "A: 100-125" when the whole category is one group.
-        private static PscLimitGroup TryGetCategoryGroup(ThingCategoryDef cat)
+        private static PscLimitGroup TryGetCategoryGroup(ThingCategoryDef cat) => TryGetCategoryGroup(cat, out _);
+
+        // Returns the single limit group covering the category's GROUPED allowed descendants, or null when
+        // there is no group, the category spans more than one group, or an ungrouped allowed descendant
+        // carries its own per-def limit (a group label would then be misleading — let the per-def path
+        // handle it). `partial` is set true when that single group does NOT cover every allowed descendant
+        // (some are ungrouped-and-unlimited): the caller then draws a distinct "partial" marker rather than
+        // a clean label, so a partly-grouped category is never painted as wholly group-governed. This is the
+        // safe relaxation of the old "every descendant must be in the group" rule (which hid the label
+        // whenever a stray allowed-but-ungrouped descendant existed, e.g. a generated meat def the grouping
+        // pass skipped).
+        private static PscLimitGroup TryGetCategoryGroup(ThingCategoryDef cat, out bool partial)
         {
+            partial = false;
             var data = PscUiContext.Data;
             var filter = PscUiContext.Settings?.filter;
             var parentFilter = PscUiContext.Settings?.owner?.GetParentStoreSettings()?.filter;
             if (data == null || filter == null) return null;
 
             PscLimitGroup group = null;
-            bool any = false;
+            bool any = false, anyUngrouped = false;
             foreach (var d in cat.DescendantThingDefs)
             {
                 if (d == null || !d.EverStorable(false)) continue;
@@ -198,11 +216,18 @@ namespace PrecisionStockpileControl
                 if (!filter.Allows(d)) continue;
                 any = true;
                 var g = data.GroupOf(d);
-                if (g == null) return null;             // an ungrouped allowed descendant -> not single-group
+                if (g == null)
+                {
+                    anyUngrouped = true;
+                    if (data.HasLimit(d)) return null;  // ungrouped + own limit -> a group label would mislead
+                    continue;
+                }
                 if (group == null) group = g;
                 else if (group != g) return null;       // spans multiple groups
             }
-            return any && group != null && !group.IsDefault ? group : null;
+            if (!any || group == null || group.IsDefault) return null;
+            partial = anyUngrouped;
+            return group;
         }
 
         // Storable descendant defs of a category that the parent store settings permit. Shared by the
