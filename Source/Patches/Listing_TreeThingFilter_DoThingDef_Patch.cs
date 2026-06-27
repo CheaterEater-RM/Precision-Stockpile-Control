@@ -45,7 +45,7 @@ namespace PrecisionStockpileControl
             var opts = new List<FloatMenuOption>();
 
             if (group != null)
-                opts.Add(new FloatMenuOption("PSC_EditGroupLimit".Translate(group.letter), () => OpenGroupEditor(settings, unit, group)));
+                opts.Add(new FloatMenuOption("PSC_EditGroupLimit".Translate(PscUiWidgets.GroupMenuLabel(group)), () => OpenGroupEditor(settings, unit, group)));
             else
                 opts.Add(new FloatMenuOption("PSC_EditItemLimit".Translate(), () => OpenItemMenu(settings, unit, tDef)));
 
@@ -55,7 +55,7 @@ namespace PrecisionStockpileControl
                 {
                     var g = data.limitGroups[i];
                     if (g == null || g == group) continue;
-                    opts.Add(new FloatMenuOption("PSC_AddToGroupX".Translate(g.letter),
+                    opts.Add(new FloatMenuOption("PSC_AddToGroupX".Translate(PscUiWidgets.GroupMenuLabel(g)),
                         () => PscEdit.AddToGroup(settings, unit, g, tDef)));
                 }
             }

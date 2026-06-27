@@ -305,12 +305,13 @@ namespace PrecisionStockpileControl
             return target.HasStackContext ? PscUiWidgets.FormatItemsStacks(value, target.StackLimit) : value.ToString();
         }
 
-        // "N stacks", plus the items equivalent for a uniform-stack pooled group ("N stacks (M items)").
+        // "N stacks" — occupied stacks (cells) for a group. For a uniform-stack pooled group, also show the
+        // max items those stacks can hold ("N stacks (up to M items)"), since a cell can be partly filled.
         private string StacksPreview(int stacks, PscLimitEditorTarget target)
         {
             string s = stacks + " " + "PSC_ModeStacks".Translate();
             if (pooled && target.HasStackContext && !target.mixedStackLimits)
-                s += " (" + (stacks * target.StackLimit) + " " + "PSC_ModeItems".Translate() + ")";
+                s += " (" + "PSC_StacksAsItems".Translate(stacks * target.StackLimit) + ")";
             return s;
         }
     }

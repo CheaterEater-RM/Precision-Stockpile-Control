@@ -213,13 +213,32 @@ namespace PrecisionStockpileControl
                         + $"refilling={data.IsRefillingEffective(t.def)} roomItems={roomStr} planning={planning}");
                 }
 
-                // Upper — the maximum (M2 makes this a hard cap at drop time via HardCap_Patches).
-                if (lim.Upper.HasValue && n >= lim.Upper.Value)
+                // Upper — the maximum (M2 makes this a hard cap at drop time via HardCap_Patches). For a
+                // CELL-cap (Stacks) group the cap is in occupied cells: reject only when the group is OVER
+                // its cell cap, or exactly AT it with no partial of `def` to top off (a new haul would have
+                // to open a new cell). At cap WITH a toppable partial we admit, and the cell-aware seam
+                // (PscGroupCells: NoStorageBlockersIn steer + the cell clamp) routes the merge.
+                if (lim.Upper.HasValue)
                 {
-                    reason = "overCap";
-                    if (PscLog.Enabled) LogReject(t, unit, reason,
-                        $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (at/over cap {n}/{lim.Upper.Value})");
-                    return true;
+                    var grp = data.GroupOf(t.def);
+                    bool overCap;
+                    if (grp != null && grp.countMode == PscGroupCountMode.Stacks)
+                    {
+                        int cells = data.GetGroupPhysicalStackCount(grp, unit);
+                        overCap = cells > lim.Upper.Value
+                            || (cells == lim.Upper.Value && !data.GroupDefHasMergeRoom(t.def, unit));
+                    }
+                    else
+                    {
+                        overCap = n >= lim.Upper.Value;
+                    }
+                    if (overCap)
+                    {
+                        reason = "overCap";
+                        if (PscLog.Enabled) LogReject(t, unit, reason,
+                            $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (at/over cap {n}/{lim.Upper.Value})");
+                        return true;
+                    }
                 }
 
                 // Lower / hysteresis (D15): lower unset => always refill; otherwise require refill state.

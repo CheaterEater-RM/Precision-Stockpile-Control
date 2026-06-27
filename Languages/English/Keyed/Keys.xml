@@ -145,7 +145,8 @@
   <PSC_Maximum>maximum</PSC_Maximum>
   <PSC_MaxHelp>Pawns won't haul in past this count.</PSC_MaxHelp>
   <PSC_RefillHelp>Pawns ignore this storage until its count drops to here, then refill up to Maximum. Stops constant topping-up.</PSC_RefillHelp>
-  <PSC_CountByTip>Count limits by individual items, or by full stacks (one stack = this item's max stack size).</PSC_CountByTip>
+  <PSC_CountByTip>Count limits by individual items, or by stacks. For a group, "stacks" means occupied stacks (filled cells): at the cap, items top off existing stacks but no new stack is started.</PSC_CountByTip>
+  <PSC_StacksAsItems>up to {0} items</PSC_StacksAsItems>
   <PSC_BatchFill>Batch fill</PSC_BatchFill>
   <PSC_BatchFillTip>Minimum items per haul-in trip. Pawns wait for this many to pile up at the source before fetching. 0 = no minimum.</PSC_BatchFillTip>
   <PSC_BatchEmpty>Batch empty</PSC_BatchEmpty>
@@ -187,9 +188,9 @@
   <PSC_GroupNeedsTwo>A group needs at least two item types.</PSC_GroupNeedsTwo>
   <PSC_GroupNeedsOne>Select at least one item to group.</PSC_GroupNeedsOne>
   <PSC_GroupCombinedNote>This limit is the COMBINED total across all items in the group.</PSC_GroupCombinedNote>
-  <PSC_GroupMixedStacksNote>These items have different stack sizes, so the limit counts whole stacks.</PSC_GroupMixedStacksNote>
+  <PSC_GroupMixedStacksNote>"Stacks" counts occupied stacks (filled cells) — one per item type per cell — so different stack sizes are fine.</PSC_GroupMixedStacksNote>
   <PSC_SliderHintGroup>Leave an end blank for: always refill / fill to maximum. The value is the combined item total across the whole group.</PSC_SliderHintGroup>
-  <PSC_SliderHintGroupStacks>Leave an end blank for: always refill / fill to maximum. The value is the combined stack count across the whole group.</PSC_SliderHintGroupStacks>
+  <PSC_SliderHintGroupStacks>Leave an end blank for: always refill / fill to maximum. The value is how many occupied stacks (filled cells) the whole group may use.</PSC_SliderHintGroupStacks>
   <PSC_NewGroup>New group…</PSC_NewGroup>
   <!-- Group editor window -->
   <PSC_GroupEditorTitle>Limit group {0}</PSC_GroupEditorTitle>

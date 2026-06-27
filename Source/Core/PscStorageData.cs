@@ -123,11 +123,10 @@ namespace PrecisionStockpileControl
         // ---- Runtime cache (never scribed; rebuilt from HeldThings) ----
         // Hysteresis state is NOT here anymore — it is persisted on each PscDefLimit (lim.refill).
         private readonly Dictionary<ThingDef, int> counts = new Dictionary<ThingDef, int>();
-        // Diagnostics-only: physical occupied-stack count per def (the number of Thing instances of that
-        // def in the unit), populated in the SAME HeldThings walk as `counts` so it costs one extra dict
-        // op per Thing. NOT used for enforcement — packed stack-equivalents (StacksOf) stay the enforced
-        // unit. Surfaced in the dev logs and the group editor read-out so the packed-vs-physical
-        // divergence (e.g. two un-consolidated stacks of one def in a shelf) is observable.
+        // Physical occupied-CELL count per def (the number of Thing instances of that def in the unit =
+        // occupied cells in vanilla), populated in the SAME HeldThings walk as `counts` so it costs one
+        // extra dict op per Thing. This IS the enforced unit for a Stacks-mode limit group ("count the
+        // stacks you see") and also feeds the editor read-out / dev logs.
         private readonly Dictionary<ThingDef, int> physicalStackCounts = new Dictionary<ThingDef, int>();
         private readonly HashSet<ThingDef> dirtyDefs = new HashSet<ThingDef>();
         private bool allDirty = true;
@@ -168,6 +167,23 @@ namespace PrecisionStockpileControl
                 {
                     var g = limitGroups[i];
                     if (g != null && g.limit != null && !g.limit.IsDefault) return true;
+                }
+                return false;
+            }
+        }
+
+        // True when any non-default group counts in Stacks (occupied-cell) mode. Gates the cell-aware
+        // group seam (PscGroupCells) so a colony with no cell-mode group skips it on the store-search path.
+        public bool HasAnyStacksGroup
+        {
+            get
+            {
+                if (limitGroups == null) return false;
+                for (int i = 0; i < limitGroups.Count; i++)
+                {
+                    var g = limitGroups[i];
+                    if (g != null && g.countMode == PscGroupCountMode.Stacks
+                        && g.limit != null && !g.limit.IsDefault) return true;
                 }
                 return false;
             }
@@ -406,12 +422,9 @@ namespace PrecisionStockpileControl
             return GetEffectiveCount(def, unit);
         }
 
-        // Packed stack-equivalents of `items` for one def: ceil(items / stackLimit). See PscGroupCountMode.
-        private static int StacksOf(ThingDef d, int items)
-            => items <= 0 ? 0 : Mathf.CeilToInt(items / (float)Mathf.Max(1, d.stackLimit));
-
-        // Diagnostics-only physical occupied-stack count for `def` (number of Thing instances in the
-        // unit). NOT enforcement — see physicalStackCounts. Recompute-safe (same lazy path as GetCount).
+        // Physical occupied-cell count for `def` (number of Thing instances in the unit = occupied cells
+        // in vanilla). In Stacks mode this IS the enforced group unit ("stacks you see"); also feeds the
+        // editor read-out / dev logs. Recompute-safe (same lazy path as GetCount).
         public int GetPhysicalStackCount(ThingDef def, PscHaulUnit unit)
         {
             if (def == null) return 0;
@@ -420,9 +433,8 @@ namespace PrecisionStockpileControl
             return physicalStackCounts.TryGetValue(def, out var c) ? c : 0;
         }
 
-        // Diagnostics-only: a group's combined PHYSICAL occupied-stack count (Σ member physical stacks),
-        // for the editor read-out and dev logs. Compare against the enforced packed GroupCount to see the
-        // divergence (un-consolidated / deep-storage cases).
+        // A group's combined PHYSICAL occupied-cell count (Σ member occupied cells). In Stacks mode this
+        // is the enforced group count; also feeds the editor read-out and dev logs.
         public int GetGroupPhysicalStackCount(PscLimitGroup g, PscHaulUnit unit)
         {
             if (g == null) return 0;
@@ -433,77 +445,104 @@ namespace PrecisionStockpileControl
             return sum;
         }
 
-        // Public read of a group's enforced (mode-aware) combined count — packed stacks in Stacks mode,
-        // item sum in Items mode. Used by the editor read-out and the decision-time diagnostic log.
+        // Public read of a group's enforced (mode-aware) combined count — occupied CELLS in Stacks mode
+        // (the player's "stacks you see"), item sum in Items mode. Used by the editor read-out and the
+        // decision-time diagnostic log.
         public int GroupEnforcedCount(PscLimitGroup g, PscHaulUnit unit) => GroupCount(g, unit);
 
-        // Group's combined count in its OWN unit (items or packed stacks). Public: may recompute via
-        // GetCount, so it is only ever called from enforcement / room / edit-seed paths, never from a
-        // recompute (the refill recompute uses GroupModeSumFromCounts, which does not re-enter GetCount).
+        // True when `def` has slack in an EXISTING cell it occupies (a partial that can be topped off
+        // without opening a new cell): its cells*stackLimit exceeds its item total. Recompute-safe.
+        public bool GroupDefHasMergeRoom(ThingDef def, PscHaulUnit unit)
+        {
+            if (def == null) return false;
+            int cells = GetPhysicalStackCount(def, unit);
+            if (cells <= 0) return false;
+            return cells * Mathf.Max(1, def.stackLimit) > GetCount(def, unit);
+        }
+
+        // Any member of `g` has merge room (a toppable partial cell). Recompute-safe; used by the edit-time
+        // refill seeder and the admission "at cap but still toppable" gate.
+        public bool GroupAnyMergeRoom(PscLimitGroup g, PscHaulUnit unit)
+        {
+            if (g == null) return false;
+            var ms = g.members;
+            for (int i = 0; i < ms.Count; i++)
+                if (ms[i] != null && GroupDefHasMergeRoom(ms[i], unit)) return true;
+            return false;
+        }
+
+        // Group's combined count in its OWN unit: occupied CELLS (Stacks mode) or item sum (Items mode).
+        // Public: may recompute, so it is only ever called from enforcement / room / edit-seed paths,
+        // never from a recompute (the refill recompute uses the *FromCounts helpers, which don't re-enter).
         private int GroupCount(PscLimitGroup g, PscHaulUnit unit)
         {
-            bool stacks = g.countMode == PscGroupCountMode.Stacks;
+            if (g.countMode == PscGroupCountMode.Stacks) return GetGroupPhysicalStackCount(g, unit);
             int sum = 0;
             var ms = g.members;
             for (int i = 0; i < ms.Count; i++)
-            {
-                var d = ms[i];
-                if (d == null) continue;
-                int c = GetCount(d, unit);
-                sum += stacks ? StacksOf(d, c) : c;
-            }
+                if (ms[i] != null) sum += GetCount(ms[i], unit);
             return sum;
         }
 
+        // Items mode adds reserved-inbound; Stacks (cell) mode is PHYSICAL-ONLY — counting future cells
+        // is fuzzy, so concurrent overshoot is left to the over-cap drain to trim (mirrors per-tile).
         private int GroupEffectiveCount(PscLimitGroup g, PscHaulUnit unit)
         {
-            bool stacks = g.countMode == PscGroupCountMode.Stacks;
+            if (g.countMode == PscGroupCountMode.Stacks) return GetGroupPhysicalStackCount(g, unit);
             int sum = 0;
             var ms = g.members;
             for (int i = 0; i < ms.Count; i++)
-            {
-                var d = ms[i];
-                if (d == null) continue;
-                int c = GetEffectiveCount(d, unit);
-                // Effective stacks = ceil((physical+reserved)/stackLimit) per member; reservedInbound stays
-                // per-member items and rolls up here, so it needs no unit change.
-                sum += stacks ? StacksOf(d, c) : c;
-            }
+                if (ms[i] != null) sum += GetEffectiveCount(ms[i], unit);
             return sum;
         }
 
-        // No-reentry mode-aware member sum, read straight from the `counts` cache (NOT GetCount). Used by
-        // the refill recompute paths, which have already forced dirty siblings fresh via RecountDef — so
-        // this must never call GetCount/GroupCount (that re-enters RecomputeDef).
+        // No-reentry mode-aware member sum, read straight from the cache (NOT GetCount): items from
+        // `counts`, cells from `physicalStackCounts`. Used by the refill recompute paths, which have
+        // already forced dirty siblings fresh via RecountDef.
         private int GroupModeSumFromCounts(PscLimitGroup g)
         {
-            bool stacks = g.countMode == PscGroupCountMode.Stacks;
+            bool cells = g.countMode == PscGroupCountMode.Stacks;
             int sum = 0;
             var ms = g.members;
             for (int i = 0; i < ms.Count; i++)
             {
                 var d = ms[i];
                 if (d == null) continue;
-                counts.TryGetValue(d, out var c);
-                sum += stacks ? StacksOf(d, c) : c;
+                if (cells) { physicalStackCounts.TryGetValue(d, out var sc); sum += sc; }
+                else { counts.TryGetValue(d, out var c); sum += c; }
             }
             return sum;
         }
 
-        // Max additional ITEMS of `def` admissible before the group (or per-def limit) reaches `upper`.
-        // This is the single seam that keeps a haul-trip clamp in items even when the group counts in
-        // stacks: an item budget, never a stack count. Three cases:
-        //   ungrouped         -> upper - effective/physical items (the original room math)
+        // No-reentry "any member toppable" check (reads the caches directly) for the cell-mode refill edge.
+        private bool GroupHasMergeRoomFromCounts(PscLimitGroup g)
+        {
+            var ms = g.members;
+            for (int i = 0; i < ms.Count; i++)
+            {
+                var d = ms[i];
+                if (d == null) continue;
+                physicalStackCounts.TryGetValue(d, out var sc);
+                if (sc <= 0) continue;
+                counts.TryGetValue(d, out var c);
+                if (sc * Mathf.Max(1, d.stackLimit) > c) return true;
+            }
+            return false;
+        }
+
+        // A coarse upper-bound on ITEMS of `def` admissible before the group (or per-def limit) is full.
+        //   ungrouped         -> upper - effective/physical items
         //   grouped, Items    -> upper - group item-sum
-        //   grouped, Stacks   -> member-specific stacks->items conversion (StacksModeItemRoom)
-        // `upper` is in the group's unit (items or stacks). All callers that previously did
-        // `upper - GetGroupAware*Count` route through here so room is always items.
+        //   grouped, Stacks   -> CELL room converted to items (CellsModeItemRoom)
+        // Used by the batch destination-room gate. The precise per-cell enforcement for a Stacks (cell)
+        // group lives in the cell-aware seams (PscGroupCells: the NoStorageBlockersIn steer + the drop /
+        // haul-count cell clamp); this is only the coarse "could a batch ever fit" bound.
         public int GroupAwareItemRoom(ThingDef def, PscHaulUnit unit, int upper, bool includeReserved)
         {
             if (def != null && defToGroup.TryGetValue(def, out var g))
             {
                 if (g.countMode == PscGroupCountMode.Stacks)
-                    return StacksModeItemRoom(g, def, unit, upper, includeReserved);
+                    return CellsModeItemRoom(g, def, unit, upper);
                 int used = includeReserved ? GroupEffectiveCount(g, unit) : GroupCount(g, unit);
                 return Mathf.Max(0, upper - used);
             }
@@ -511,19 +550,16 @@ namespace PrecisionStockpileControl
             return Mathf.Max(0, upper - n);
         }
 
-        // Items of `def` admissible before a STACKS-mode group hits `upperStacks`. Grants only WHOLE free
-        // stacks: freeStacks * def.stackLimit. It deliberately does NOT add a partial top-off allowance,
-        // because the destination CELL is chosen by vanilla, not PSC — a unit-level "top off the partial"
-        // budget could land in a fresh empty cell and create a NEW occupied stack, overshooting the cap
-        // (the iter-2 churn / "two stacks of one item" bug). freeStacks whole stacks is safe no matter
-        // which cell vanilla picks; at cap (freeStacks<=0) room is 0. An existing partial still gets
-        // consolidated by vanilla's own within-unit hauling (sourceIsTarget is never rejected), so this
-        // costs nothing real — it only refuses NEW external intake once the group is full.
-        private int StacksModeItemRoom(PscLimitGroup g, ThingDef def, PscHaulUnit unit, int upperStacks, bool incl)
+        // Coarse item room for a CELL-cap (Stacks) group: free cells worth of `def` plus the slack in
+        // `def`'s existing partial cells. Over cap -> 0 (drain only). At cap -> only the partial slack
+        // (top off existing cells, no new cell). Below cap -> partial slack + freeCells*stackLimit.
+        private int CellsModeItemRoom(PscLimitGroup g, ThingDef def, PscHaulUnit unit, int upperCells)
         {
-            int usedStacks = incl ? GroupEffectiveCount(g, unit) : GroupCount(g, unit);
-            int freeStacks = upperStacks - usedStacks;
-            return freeStacks <= 0 ? 0 : freeStacks * Mathf.Max(1, def.stackLimit);
+            int s = Mathf.Max(1, def.stackLimit);
+            int freeCells = upperCells - GetGroupPhysicalStackCount(g, unit);
+            int mergeSlack = Mathf.Max(0, GetPhysicalStackCount(def, unit) * s - GetCount(def, unit));
+            if (freeCells < 0) return 0;
+            return freeCells == 0 ? mergeSlack : mergeSlack + freeCells * s;
         }
 
         // Over-cap drain budget for `def` in `unit` (physical). Ungrouped: count - per-def upper.
@@ -540,18 +576,20 @@ namespace PrecisionStockpileControl
             if (defToGroup.TryGetValue(def, out var g))
             {
                 if (g.limit == null || !g.limit.Upper.HasValue) return false;
-                int over = GroupCount(g, unit) - g.limit.Upper.Value;   // mode-aware (items or stacks)
+                int over = GroupCount(g, unit) - g.limit.Upper.Value;   // mode-aware (items or CELLS)
                 if (over <= 0) return false;
                 if (SelectDrainMember(g, unit) != def) return false;     // only the chosen member drains
                 int memberItems = GetCount(def, unit);
                 if (g.countMode == PscGroupCountMode.Stacks)
                 {
-                    // `over` is in stacks; drain whole stacks from the chosen member down toward the cap.
-                    // targetStacks = its stack count minus the overage (floored at 0); the item budget is
-                    // whatever exceeds targetStacks*stackLimit. Lands on/just-above the cap, converges.
-                    int s = Mathf.Max(1, def.stackLimit);
-                    int targetStacks = Mathf.Max(0, StacksOf(def, memberItems) - over);
-                    excess = Mathf.Min(memberItems, memberItems - targetStacks * s);
+                    // `over` is in CELLS; evict enough items to free `over` of the chosen member's cells.
+                    // Without per-stack sizes, remove `over` average-cell amounts (ceil), clamped to the
+                    // member's total. Slightly over-drains fragmented cells, but converges each recompute.
+                    int memberCells = GetPhysicalStackCount(def, unit);
+                    if (memberCells <= 0) return false;
+                    int drainCells = Mathf.Min(over, memberCells);
+                    int perCell = Mathf.Max(1, Mathf.CeilToInt(memberItems / (float)memberCells));
+                    excess = Mathf.Min(memberItems, drainCells * perCell);
                 }
                 else
                 {
@@ -569,8 +607,8 @@ namespace PrecisionStockpileControl
 
         // The single deterministic drain member, tie-broken by the lower shortHash so admission and the
         // clamp agree frame-to-frame. Mode-aware ranking: in Items mode, largest item count; in Stacks
-        // mode, MOST STACKS first (then item count), so the member actually contributing the most stack
-        // overage is drained — not a huge item-count def that happens to pack into few stacks.
+        // (cell) mode, MOST CELLS first (then item count), so the member occupying the most cells is
+        // drained — freeing whole cells fastest.
         private ThingDef SelectDrainMember(PscLimitGroup g, PscHaulUnit unit)
         {
             bool stacks = g.countMode == PscGroupCountMode.Stacks;
@@ -583,7 +621,7 @@ namespace PrecisionStockpileControl
                 if (d == null) continue;
                 int items = GetCount(d, unit);
                 if (items <= 0) continue;
-                int key = stacks ? StacksOf(d, items) : items;
+                int key = stacks ? GetPhysicalStackCount(d, unit) : items;
                 bool better = key > bestKey
                     || (key == bestKey && items > bestItems)
                     || (key == bestKey && items == bestItems && (best == null || d.shortHash < best.shortHash));
@@ -652,7 +690,7 @@ namespace PrecisionStockpileControl
                 {
                     var g = limitGroups[gi];
                     if (g == null || g.limit == null) continue;
-                    UpdateRefilling(g.limit, GroupModeSumFromCounts(g));
+                    UpdateGroupRefillFromCounts(g);
                 }
             }
         }
@@ -703,24 +741,41 @@ namespace PrecisionStockpileControl
                 var d = ms[i];
                 if (d != null && dirtyDefs.Contains(d)) RecountDef(d, unit);
             }
-            UpdateRefilling(g.limit, GroupModeSumFromCounts(g));
+            UpdateGroupRefillFromCounts(g);
+        }
+
+        // Group refill edge from the caches (no reentry). Items mode: Satisfied at count >= upper. Cell
+        // (Stacks) mode: Satisfied only when cells >= upper AND no member has a toppable partial — so a
+        // lower/upper cell group keeps filling its cells (topping partials) before going Satisfied, rather
+        // than stalling at "cap cells but not physically full".
+        private void UpdateGroupRefillFromCounts(PscLimitGroup g)
+        {
+            var lim = g.limit;
+            if (lim == null) return;
+            int count = GroupModeSumFromCounts(g);
+            bool full = lim.Upper.HasValue && count >= lim.Upper.Value
+                && (g.countMode != PscGroupCountMode.Stacks || !GroupHasMergeRoomFromCounts(g));
+            SetRefillEdge(lim, count, full);
         }
 
         // Hysteresis edge logic (D15), writing the PERSISTED lim.refill: ON (Refilling) at count <= lower,
-        // OFF (Satisfied) at count >= upper. Fed PHYSICAL count only (reserved-inbound is a planning overlay;
-        // hysteresis on effective would flip OFF on merely-reserved hauls). lower unset => not refill-relevant
-        // => Unset (admission ignores it). In the open band a KNOWN state is kept (the whole point of
-        // hysteresis, now persistent); a still-Unset def there is treated as "never evaluated" and defaults
-        // to filling, so a brand-new/pre-field limit fills to upper before the OFF edge can ever fire.
-        // The edge logic is keyed only on (count, lim) — it never used `def`. The 2-arg overload is the
-        // real body; the group pass and per-def pass both call it (per-def or shared-group limit alike).
+        // OFF (Satisfied) when `full`, keep the known state in the open band. Fed PHYSICAL count only
+        // (reserved-inbound is a planning overlay; hysteresis on effective would flip OFF on merely-reserved
+        // hauls). lower unset => not refill-relevant => Unset. A still-Unset def in the band is treated as
+        // "never evaluated" and defaults to filling.
+        private static void SetRefillEdge(PscDefLimit lim, int count, bool full)
+        {
+            if (!lim.Lower.HasValue) { lim.refill = PscRefillState.Unset; return; }
+            if (full) lim.refill = PscRefillState.Satisfied;
+            else if (count <= lim.Lower.Value) lim.refill = PscRefillState.Refilling;
+            else if (lim.refill == PscRefillState.Unset) lim.refill = PscRefillState.Refilling;
+        }
+
+        // Per-def / 2-arg refill edge (Satisfied at count >= upper). Used by the per-def passes.
         private void UpdateRefilling(PscDefLimit lim, int count)
         {
-            if (lim == null || !lim.Lower.HasValue) { if (lim != null) lim.refill = PscRefillState.Unset; return; }
-            if (lim.Upper.HasValue && count >= lim.Upper.Value) lim.refill = PscRefillState.Satisfied;
-            else if (count <= lim.Lower.Value) lim.refill = PscRefillState.Refilling;
-            else if (lim.refill == PscRefillState.Unset) lim.refill = PscRefillState.Refilling; // never-evaluated -> default to filling
-            // else: between thresholds with a known state — keep (persisted hysteresis)
+            if (lim == null) return;
+            SetRefillEdge(lim, count, lim.Upper.HasValue && count >= lim.Upper.Value);
         }
 
         // Called when a limit is created/changed via the UI. Seeds refill state ON (so a freshly
@@ -770,8 +825,9 @@ namespace PrecisionStockpileControl
             if (g?.limit == null || !g.limit.Lower.HasValue) return;
             // Edit-time seeder (not called from a recompute), so the public mode-aware GroupCount is safe.
             int sum = GroupCount(g, unit);
-            g.limit.refill = (g.limit.Upper.HasValue && sum >= g.limit.Upper.Value)
-                ? PscRefillState.Satisfied : PscRefillState.Refilling;
+            bool full = g.limit.Upper.HasValue && sum >= g.limit.Upper.Value
+                && (g.countMode != PscGroupCountMode.Stacks || !GroupAnyMergeRoom(g, unit));
+            g.limit.refill = full ? PscRefillState.Satisfied : PscRefillState.Refilling;
         }
 
         // Tightens every per-def limit to what this unit can physically hold, matching the limit
@@ -805,7 +861,7 @@ namespace PrecisionStockpileControl
                     int max;
                     if (g.countMode == PscGroupCountMode.Stacks)
                     {
-                        // Limit is in packed stacks; a group can occupy at most `slots` stacks.
+                        // Limit is in occupied cells; a group can occupy at most `slots` cells.
                         max = Mathf.Max(1, slots);
                     }
                     else
@@ -853,6 +909,8 @@ namespace PrecisionStockpileControl
 
         // Deep-copy limit groups from `other` and rebuild the reverse index (which also strips any
         // grouped def from the freshly-copied `limits`). Shared by CopyPolicyFrom and CopyScopedFrom.
+        // Copies every NON-EMPTY group (>= 1 member), including an unconfigured/named draft — drafts are
+        // persistent policy (HasPersistentPolicy), so copy/paste must preserve them, not silently drop them.
         private void CopyGroupsFrom(PscStorageData other)
         {
             limitGroups = new List<PscLimitGroup>();
@@ -861,7 +919,7 @@ namespace PrecisionStockpileControl
                 for (int i = 0; i < other.limitGroups.Count; i++)
                 {
                     var g = other.limitGroups[i];
-                    if (g != null && g.limit != null && !g.limit.IsDefault) limitGroups.Add(g.Clone());
+                    if (g != null && g.members != null && g.members.Count > 0) limitGroups.Add(g.Clone());
                 }
             }
             RebuildGroupIndex();

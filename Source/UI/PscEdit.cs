@@ -37,9 +37,13 @@ namespace PrecisionStockpileControl
         public static void ClearAllLimits(StorageSettings settings)
         {
             var data = PscStorageDataStore.TryGet(settings);
-            if (data == null || (data.limits.Count == 0 && !data.HasAnyGroup)) return;
+            if (data == null) return;
+            // Fire when ANY group exists, not just a non-default one (HasAnyGroup): a draft/unconfigured
+            // group is persistent policy too, so a filter-wide Allow All / Disallow All must clear it —
+            // otherwise hidden <groups> state survives and can reappear when defs are re-allowed.
+            if (data.limits.Count == 0 && (data.limitGroups == null || data.limitGroups.Count == 0)) return;
             data.limits.Clear();
-            data.limitGroups.Clear();
+            data.limitGroups?.Clear();
             data.RebuildGroupIndex();
             PscMapComponent.NotifyPolicyChanged(settings);
         }
@@ -97,18 +101,18 @@ namespace PrecisionStockpileControl
         }
 
         // Remove `def` from its group (dissolving the group only if it drops to zero members; a 1-member
-        // group is still a valid draft). The def is left UNALLOWED in the filter — "remove from group"
-        // takes the item out of the storage entirely, rather than silently leaving it as plain allowed
-        // storage. (ClearLimit handles the keep-allowed case via its own SetAllow.)
+        // group is still a valid draft). The def reverts to NO limit but stays ALLOWED/stored: "remove
+        // from group" drops only the grouping constraint, it does not evict the item — matching the
+        // non-destructive "Ungroup" and avoiding a surprise haul-out of stored goods (Council 5/5). Use the
+        // filter's own disallow / the row left-drag to actually remove an item from the storage.
         public static void RemoveFromGroup(StorageSettings settings, ThingDef def)
         {
             var data = PscStorageDataStore.TryGet(settings);
             if (data == null || def == null) return;
             if (data.GroupOf(def) == null) return;          // not grouped: nothing to remove
-            RemoveFromGroupInternal(data, def);
-            settings.filter.SetAllow(def, false);           // leave the def unallowed (removed from storage)
+            RemoveFromGroupInternal(data, def);             // leaves the def allowed, no per-def limit
             PscMapComponent.NotifyPolicyChanged(settings);
-            if (PscLog.Enabled) PscLog.Msg("group: removed " + def.defName + " (now unallowed)");
+            if (PscLog.Enabled) PscLog.Msg("group: removed " + def.defName + " (kept allowed, no limit)");
         }
 
         private static void RemoveFromGroupInternal(PscStorageData data, ThingDef def)

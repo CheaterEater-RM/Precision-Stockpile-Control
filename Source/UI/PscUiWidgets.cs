@@ -139,6 +139,15 @@ namespace PrecisionStockpileControl
             return fitted + fixedPart;
         }
 
+        // Label for a group in a float-menu option ("A: Meats" when named, else "A"). The letter is kept
+        // visible alongside the name because names are optional and not unique.
+        public static string GroupMenuLabel(PscLimitGroup g)
+        {
+            if (g == null) return "";
+            string letter = string.IsNullOrEmpty(g.letter) ? "?" : g.letter;
+            return string.IsNullOrEmpty(g.name) ? letter : letter + ": " + g.name;
+        }
+
         // Format one group limit value in the group's unit ("6 stacks" / "100"); unitless in items mode so
         // the Always/Maximum words and the items default stay concise.
         private static string GroupVal(PscLimitGroup g, int v)

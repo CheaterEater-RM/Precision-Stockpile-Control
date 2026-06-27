@@ -277,7 +277,7 @@ namespace PrecisionStockpileControl
             var opts = new List<FloatMenuOption>();
             var catGroup = TryGetCategoryGroup(cat);
             if (catGroup != null)
-                opts.Add(new FloatMenuOption("PSC_EditGroupLimit".Translate(catGroup.letter), () => OpenGroupEditor(settings, unit, catGroup)));
+                opts.Add(new FloatMenuOption("PSC_EditGroupLimit".Translate(PscUiWidgets.GroupMenuLabel(catGroup)), () => OpenGroupEditor(settings, unit, catGroup)));
             opts.Add(new FloatMenuOption("PSC_EditCategoryLimits".Translate(), () => OpenCategoryMenu(settings, unit, cat)));
             if (allowed.Count >= 2)
                 opts.Add(new FloatMenuOption("PSC_CreateGroupFromCategory".Translate(), () =>

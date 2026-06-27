@@ -40,6 +40,22 @@ namespace PrecisionStockpileControl
         }
     }
 
+    // Limit-group cell-cap steer (Stacks mode = occupied cells). When a group is AT its cell cap, an empty
+    // cell would open a new stack past the cap, so block it; existing partial cells stay acceptable, so the
+    // store search (and the engine, which calls IsGoodStoreCell -> NoStorageBlockersIn) routes intake into
+    // partials to top them off rather than spreading to new cells. Tighten-only (true -> false only).
+    [HarmonyPatch(typeof(StoreUtility), "NoStorageBlockersIn")]
+    public static class StoreUtility_NoStorageBlockersIn_GroupCell_Patch
+    {
+        public static void Postfix(ref bool __result, IntVec3 c, Map map, Thing thing)
+        {
+            if (!__result) return;
+            if (thing == null) return;
+            if (PscGroupCells.BlocksNewCellAtCap(c, map, thing.def))
+                __result = false;
+        }
+    }
+
     // Existing-pile relocation (Scope B). An already-stored spawned stack whose own floor cell holds more
     // than the per-tile cap is forced to read as Unstored, so the store search finds the emptier cell
     // NoStorageBlockersIn now steers to and the excess becomes haulable. The actual move (and its excess-only

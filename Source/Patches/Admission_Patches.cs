@@ -135,6 +135,16 @@ namespace PrecisionStockpileControl
                 __result.count = t.stackCount - perTileSrcCap;
             if (__result.count <= 0) { PscFeederHaulContext.Clear(t); __result = null; return; }
 
+            // Limit-group cell cap (Stacks mode = occupied cells): never deliver more than the store cell's
+            // fill room, so a trip can't open a stack past the group's visible cell cap. The
+            // NoStorageBlockersIn steer already keeps the search off empty cells at cap; this clamps the
+            // count for the chosen (partial / below-cap) cell. At/over cap with no room -> cancel.
+            if (PscGroupCells.TryGetCellFillRoom(storeCell, p.Map, t.def, out int groupCellRoom))
+            {
+                if (groupCellRoom <= 0) { PscFeederHaulContext.Clear(t); __result = null; return; }
+                if (__result.count > groupCellRoom) __result.count = groupCellRoom;
+            }
+
             // Intra-unit spread: the per-def target clamps below assume a cross-unit haul that changes the
             // unit total. An over-cap pile spreading within its OWN stockpile doesn't, so the per-tile
             // clamps above are the whole story for this trip.

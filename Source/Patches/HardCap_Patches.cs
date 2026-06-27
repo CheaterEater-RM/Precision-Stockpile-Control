@@ -39,10 +39,12 @@ namespace PrecisionStockpileControl
         public static bool TryGetRoom(IntVec3 cell, Map map, ThingDef def, out int room, bool includeReserved = false)
         {
             room = int.MaxValue;
+            // Cell-count (Stacks) group: room is THIS cell's fill room — top off a partial of `def`, or a
+            // full new cell while below the cell cap, and nothing on an empty cell at cap. This keeps a
+            // drop from opening a stack past the visible cap (the cell-aware seam, mirroring per-tile).
+            if (PscGroupCells.TryGetCellFillRoom(cell, map, def, out int cellRoom)) { room = cellRoom; return true; }
             if (!TryGetUpperLimit(cell, map, def, out var unit, out var data, out var lim)) return false;
-            // Always returns room in ITEMS, even for a stacks-mode group (where upper is in stacks): the
-            // helper does the member-specific stacks->items conversion. For a grouped def it enforces the
-            // pooled total, not one member; for an ungrouped def it is the plain per-def room.
+            // Items-mode group / per-def: room in ITEMS (the helper converts a group total to a budget).
             bool eff = includeReserved && PscMod.Settings.reservedFillCounting;
             room = data.GroupAwareItemRoom(def, unit, lim.Upper.Value, eff);
             return true;
