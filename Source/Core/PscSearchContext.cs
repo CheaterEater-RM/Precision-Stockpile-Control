@@ -13,12 +13,15 @@ namespace PrecisionStockpileControl
     // longer uses this: after the rewrite it serves only external callers and resolves fresh.
     //
     // ThreadStatic: DEFENSIVE per-thread isolation for the case the engine is ever reached off-main by a
-    // threading caller (RimWorld Multiplayer's sim thread, or a threading mod). Vanilla 1.6 runs the store
-    // search synchronously on the MAIN thread (WorkGiver_Haul -> HaulAIUtility -> StoreUtility; reachability is
-    // main-thread too), so this is not a vanilla requirement, and the defense is only partial -- the live count
-    // model (PscStorageData.counts / reservedInbound) is NOT concurrency-safe. See
-    // STORE_SEARCH_REWRITE_PHASE4_DESIGN.md §6.1. Set + cleared within a single store search on one thread ->
-    // multiplayer-deterministic. Cleared in
+    // threading caller (RimWorld Multiplayer's sim thread, or a threading mod). During GAMEPLAY vanilla 1.6 runs
+    // the store search synchronously on the MAIN thread (WorkGiver_Haul -> HaulAIUtility -> StoreUtility;
+    // reachability is main-thread too), so this is not a vanilla gameplay requirement. NOTE the one vanilla
+    // exception: save LOADING and map GENERATION run on the LongEventHandler async (background) thread (Game.LoadGame
+    // sets ProgramState.MapInitializing), so a store search triggered during load (e.g. the haulables lister
+    // re-checking stored items) is legitimately off the Unity main thread -- but single-threaded and benign (the
+    // engine's main-thread tripwire is gated on ProgramState.Playing for exactly this reason). The defense here is
+    // only partial regardless -- the live count model (PscStorageData.counts / reservedInbound) is NOT
+    // concurrency-safe. Set + cleared within a single store search on one thread -> multiplayer-deterministic. Cleared in
     // StoreUtility_Engine_Patch.Finalizer, which runs after the whole postfix chain so the memo survives
     // through the HD re-validation postfix.
     //

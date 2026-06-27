@@ -52,15 +52,18 @@ namespace PrecisionStockpileControl
         {
             cell = IntVec3.Invalid;
 
-            // Phase 1 (1D): main-thread tripwire. Vanilla's haul store-search is synchronous and main-thread
-            // (PHASE4 §6.1); PSC's live count/policy model (PscStorageData.counts / reservedInbound) is NOT
-            // concurrency-safe, so the residual ThreadStatic scopes would not actually protect an off-main
-            // caller (a threading mod) — they would silently corrupt counts. Catch that loudly instead of
-            // pretending to be safe. Dev-gated (PscLog.Enabled short-circuits the thread check), so normal
-            // play and profiling pay only one bool read.
-            if (PscLog.Enabled && !UnityData.IsInMainThread)
-                Log.ErrorOnce("[PSC] store-search engine entered off the main thread; PSC's count model is not "
-                    + "thread-safe (threading mod?). See STORE_SEARCH_REWRITE_PHASE4_DESIGN.md §6.1.", 0x1C5A0101);
+            // Phase 1 (1D): main-thread tripwire for a genuine concurrent entry DURING GAMEPLAY -- a threading
+            // mod or the RimWorld Multiplayer sim thread hitting PSC's non-concurrency-safe count/policy model
+            // (PscStorageData.counts / reservedInbound). Gated on ProgramState.Playing: save LOADING and map
+            // GENERATION run on the LongEventHandler ASYNC (background) thread with ProgramState == MapInitializing
+            // (Game.LoadGame / MapGenerator.GenerateMap), so a store search a load triggers (e.g. the haulables
+            // lister re-checking already-stored items via IsInValidBestStorage) is legitimately off the Unity main
+            // thread -- but it is the SOLE worker (the main thread only renders the loading screen), so there is no
+            // concurrent mutation and it must NOT warn. Dev-gated (PscLog.Enabled short-circuits), so normal play
+            // and profiling pay one bool read.
+            if (PscLog.Enabled && Current.ProgramState == ProgramState.Playing && !UnityData.IsInMainThread)
+                Log.ErrorOnce("[PSC] store-search engine entered off the main thread during play; PSC's count "
+                    + "model is not thread-safe (threading mod / MP sim thread?).", 0x1C5A0101);
 
             // Conservative, map-LOCAL opt-in gate (broaden-first): no PSC policy anywhere, then none on THIS
             // map (IsEmpty is global). A policy-free map stays byte-for-byte vanilla even when another map is
