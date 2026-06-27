@@ -21,6 +21,9 @@ namespace PrecisionStockpileControl
 
         public static IEnumerable<Gizmo> GizmosFor(StorageSettings settings, PscHaulUnit unit)
         {
+            // The gizmo's only function is painting a-z letters, so it's hidden while the a-z
+            // subpriority is off (the level/band remain on the storage tab).
+            if (PscMod.Settings == null || !PscMod.Settings.subpriorityLetters) yield break;
             if (settings == null || !unit.IsValid || unit.UniqueLoadID == null) yield break;
             var data = PscStorageDataStore.TryGet(settings);
 

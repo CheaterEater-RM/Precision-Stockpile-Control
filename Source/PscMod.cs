@@ -13,6 +13,7 @@ namespace PrecisionStockpileControl
         public bool defaultOnlyToDestinations = true; // M3 — seed strictness on first destination link
         public bool feederSkipHops = false;           // carry an item straight to the furthest reachable chain node (skip relay drops)
         public bool feederSkipLooseItems = false;     // sub-option of feederSkipHops: ground items may skip into the chain too
+        public bool subpriorityLetters = false;       // M4 — enable the a-z subpriority (letter box, paint gizmo, auto-priority); off by default
         public bool priorityNumbering = false;        // M4 — show 1-10 levels (two sub-tiers per band)
         public bool reverseOrder = false;             // M4 — 1-10 label flip only (ordering unchanged)
         public bool feederPortSpreading = false;      // overlay: fan route endpoints along the storage perimeter (declutter)
@@ -37,6 +38,7 @@ namespace PrecisionStockpileControl
             Scribe_Values.Look(ref defaultOnlyToDestinations, "defaultOnlyToDestinations", true);
             Scribe_Values.Look(ref feederSkipHops, "feederSkipHops", false);
             Scribe_Values.Look(ref feederSkipLooseItems, "feederSkipLooseItems", false);
+            Scribe_Values.Look(ref subpriorityLetters, "subpriorityLetters", false);
             Scribe_Values.Look(ref priorityNumbering, "priorityNumbering", false);
             Scribe_Values.Look(ref reverseOrder, "reverseOrder", false);
             Scribe_Values.Look(ref feederPortSpreading, "feederPortSpreading", false);
@@ -64,6 +66,7 @@ namespace PrecisionStockpileControl
             defaultOnlyToDestinations = true;
             feederSkipHops = false;
             feederSkipLooseItems = false;
+            subpriorityLetters = false;
             priorityNumbering = false;
             reverseOrder = false;
             feederPortSpreading = false;
@@ -210,7 +213,7 @@ namespace PrecisionStockpileControl
                 Settings.ResetToDefaults();
                 PscLog.Enabled = Settings.debugLogging;   // keep the cached gate in sync with the reset value
                 PscLog.FeederVerbose = Settings.debugFeederVerbose;
-                PscOrder.NumberingGeneration++;           // reset may flip 1-10 numbering; invalidate rank caches
+                PscOrder.FineOrderGeneration++;           // reset may flip fine-order settings; invalidate rank caches
                 ResortAllMaps();                          // 1-10 numbering may have flipped back to default
                 PscMapComponent.BumpSelectionGenAllMaps(); // reset may flip feeder-skip; flush Cache B
             }
@@ -249,10 +252,15 @@ namespace PrecisionStockpileControl
                 "PSC_SettingsDefaultOnlyFromSourceTip".Translate());
             listing.CheckboxLabeled("PSC_SettingsDefaultOnlyToDestinations".Translate(), ref Settings.defaultOnlyToDestinations,
                 "PSC_SettingsDefaultOnlyToDestinationsTip".Translate());
-            listing.CheckboxLabeled("PSC_SettingsAutoPrioritySource".Translate(), ref Settings.autosetSourcePriority,
-                "PSC_SettingsAutoPrioritySourceTip".Translate());
-            listing.CheckboxLabeled("PSC_SettingsAutoPriorityDestination".Translate(), ref Settings.autosetDestinationPriority,
-                "PSC_SettingsAutoPriorityDestinationTip".Translate());
+            // Auto-priority steps a-z letters, so it does nothing while the a-z subpriority is off (see
+            // the Fine order section below). Grey it out then — but keep each stored value, so a player's
+            // choice survives a subpriority off/on round-trip rather than being silently cleared.
+            CheckboxLabeledDisableable(listing, "PSC_SettingsAutoPrioritySource".Translate(),
+                "PSC_SettingsAutoPrioritySourceTip".Translate(), ref Settings.autosetSourcePriority,
+                disabled: !Settings.subpriorityLetters);
+            CheckboxLabeledDisableable(listing, "PSC_SettingsAutoPriorityDestination".Translate(),
+                "PSC_SettingsAutoPriorityDestinationTip".Translate(), ref Settings.autosetDestinationPriority,
+                disabled: !Settings.subpriorityLetters);
             bool prevSkipHops = Settings.feederSkipHops;
             bool prevSkipLoose = Settings.feederSkipLooseItems;
             listing.CheckboxLabeled("PSC_SettingsSkipHops".Translate(), ref Settings.feederSkipHops,
@@ -268,6 +276,18 @@ namespace PrecisionStockpileControl
             listing.Gap(12f);
             listing.Label("PSC_SettingsFineOrderHeader".Translate());
             listing.Gap(6f);
+            // a-z subpriorities master toggle. Off hides the storage-tab letter box, the Paint
+            // subpriority gizmo, and the on-map letter glyph, and disables auto-priority; existing
+            // letters persist but stop ordering. Toggling bumps the fine-order generation (invalidates
+            // cached ranks) and re-sorts every map (refreshes anyFineOrderActive).
+            bool prevLetters = Settings.subpriorityLetters;
+            listing.CheckboxLabeled("PSC_SettingsSubpriorityLetters".Translate(), ref Settings.subpriorityLetters,
+                "PSC_SettingsSubpriorityLettersTip".Translate());
+            if (Settings.subpriorityLetters != prevLetters)
+            {
+                PscOrder.FineOrderGeneration++;
+                ResortAllMaps();
+            }
             // Reverse-aware legend: DisplayLevel(1)/(10) give the displayed numbers for the highest
             // and lowest levels, so it stays correct when "Reverse 1-10 numbering" is on.
             Text.Font = GameFont.Tiny;
@@ -282,7 +302,7 @@ namespace PrecisionStockpileControl
                 "PSC_SettingsPriorityNumberingTip".Translate());
             if (Settings.priorityNumbering != prevNumbering)
             {
-                PscOrder.NumberingGeneration++;   // invalidate every cached fine-order rank (band-independent)
+                PscOrder.FineOrderGeneration++;   // invalidate every cached fine-order rank (band-independent)
                 ResortAllMaps();
             }
             listing.CheckboxLabeled("PSC_SettingsReverseOrder".Translate(), ref Settings.reverseOrder,
@@ -349,6 +369,19 @@ namespace PrecisionStockpileControl
                 "PSC_SettingsHashShadingTip".Translate());
             listing.Label("PSC_SettingsLineWidth".Translate(Settings.feederLineWidth.ToString("0.000")));
             Settings.feederLineWidth = listing.Slider(Settings.feederLineWidth, 0.02f, 0.16f);
+        }
+
+        // A full-width checkbox (with tooltip) that greys out and can't be toggled while disabled, but —
+        // unlike SubCheckboxLabeled — does NOT force the value off. Used where a control depends on another
+        // setting but its stored choice should survive an off/on round-trip (e.g. auto-priority vs. a-z).
+        private static void CheckboxLabeledDisableable(Listing_Standard listing, string label, string tip, ref bool value, bool disabled)
+        {
+            float h = Text.CalcHeight(label, listing.ColumnWidth);
+            Rect rect = listing.GetRect(h);
+            if (Mouse.IsOver(rect)) Widgets.DrawHighlight(rect);
+            if (!tip.NullOrEmpty()) TooltipHandler.TipRegion(rect, tip);
+            Widgets.CheckboxLabeled(rect, label, ref value, disabled);
+            listing.Gap(listing.verticalSpacing);
         }
 
         // An indented sub-option checkbox (with tooltip): greys out and can't be toggled while disabled,

@@ -9,7 +9,7 @@ namespace PrecisionStockpileControl
     // DELIBERATELY NOT a mirrored "hard record": mode / feeder participation / cap presence / fine-order
     // rank are already O(1) on PscStorageData and already invalidated by the existing seams
     // (NotifyPolicyChanged -> UpdateTracking, the tracked set, the anyXxxActive gates, the
-    // NumberingGeneration-stamped rank cache that reads the band live, and the 250-tick resync). Duplicating
+    // FineOrderGeneration-stamped rank cache that reads the band live, and the 250-tick resync). Duplicating
     // them into a second record would add an invalidation burden for no gain. Filter-allows is read LIVE (the
     // delegated vanilla AllowedToAccept enforces it during the engine's per-unit cell probe), never
     // summarized here. So the only state this owns is the SOFT def->units prefilter, held map-local on

@@ -145,6 +145,10 @@ namespace PrecisionStockpileControl
         private bool AutoPriority(PscHaulUnit dest, PscHaulUnit source)
         {
             if (PscMod.Settings == null) return false;
+            // Auto-priority steps a-z letters; with the a-z subpriority off those steps are inert, so do
+            // nothing rather than churn data with letters that won't order anything (the settings toggles
+            // are greyed too, but a route can be drawn while they sit dormant-on from a prior session).
+            if (!PscMod.Settings.subpriorityLetters) return false;
             PscOrder.AutoOrderResult result;
             string clampKey;
             if (mode == PscFeederLinkMode.Source)

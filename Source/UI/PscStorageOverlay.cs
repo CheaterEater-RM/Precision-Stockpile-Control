@@ -98,6 +98,7 @@ namespace PrecisionStockpileControl
             if (Find.CameraDriver.CurrentZoom > CameraZoomRange.Close) return;   // panels zoom-gated
 
             bool numbering = PscMod.Settings != null && PscMod.Settings.priorityNumbering;
+            bool letters = PscMod.Settings != null && PscMod.Settings.subpriorityLetters;
 
             Text.Font = GameFont.Tiny;                           // set BEFORE measuring (CalcSize)
             active = 0;
@@ -122,7 +123,7 @@ namespace PrecisionStockpileControl
                 p.levelGlyph = numbering
                     ? LevelGlyphs[PscOrder.DisplayLevel(PscOrder.LevelFor(settings.Priority, data?.subTier ?? 0))]
                     : PscOverlayState.BandInitial(settings.Priority);
-                p.letterGlyph = LetterGlyphFor(data?.letter);
+                p.letterGlyph = letters ? LetterGlyphFor(data?.letter) : null;   // a-z off ⇒ no glyph (and the tooltip append at line ~344 drops too)
                 p.stableId = u.UniqueLoadID?.GetHashCode() ?? 0;
                 MeasureAndPlace(p, anchor);
             }

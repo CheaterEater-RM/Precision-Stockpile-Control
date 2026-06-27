@@ -6,12 +6,13 @@ namespace PrecisionStockpileControl
     // PSC's fine-order layer (design §9). Vanilla offers 5 priority bands and proximity-only
     // tiebreak inside a band. PSC adds two PSC-owned half-steps:
     //   - sub-tier  (1..2 per band; 0 = unset = the band's anchor) -> the optional 1-10 numbering
-    //   - letter    (a..z; empty = highest) -> the always-available a-z subpriority
+    //   - letter    (a..z; empty = highest) -> the optional a-z subpriority
     //
-    // The vanilla StoragePriority enum is NEVER changed (D6). The fine-order key collapses cleanly:
-    // when 1-10 numbering is off, sub-tier is ignored (pairs merge back to their band) and only
-    // letters refine ordering; with the mod removed, both fields are inert and units read as their
-    // plain band.
+    // Both dimensions are opt-in: sub-tier participates only when the priorityNumbering setting is on,
+    // letter only when the subpriorityLetters setting is on. The vanilla StoragePriority enum is NEVER
+    // changed (D6). The fine-order key collapses cleanly: a disabled dimension is ignored (its field
+    // stays persisted but inert), and with the mod removed, both fields are inert and units read as
+    // their plain band.
     //
     // Ordering is expressed as a "rank within band" where LOWER = higher priority (better). A unit
     // at sub-tier 1 / no letter is the best within its band.
@@ -30,24 +31,29 @@ namespace PrecisionStockpileControl
             return AnchorTier(band);
         }
 
-        // a..z -> 1..26; empty/null -> 0 (sorts highest within tier).
+        // a..z -> 1..26; empty/null -> 0 (sorts highest within tier). Gated by the subpriorityLetters
+        // setting: when a-z subpriorities are off, every unit collapses to 0 so letters stop refining
+        // ordering (mirrors EffectiveSubTier's priorityNumbering gate).
         private static int LetterRank(string letter)
         {
+            if (PscMod.Settings == null || !PscMod.Settings.subpriorityLetters) return 0;
             if (string.IsNullOrEmpty(letter)) return 0;
             char c = char.ToLowerInvariant(letter[0]);
             if (c < 'a' || c > 'z') return 0;
             return c - 'a' + 1;
         }
 
-        // Bumped whenever PscMod.Settings.priorityNumbering changes (settings apply / reset). The
-        // PscStorageData rank cache stamps the generation it computed under and recomputes on a mismatch,
-        // so a numbering toggle transparently invalidates every cached rank without enumerating units.
-        public static int NumberingGeneration;
+        // Bumped whenever a global fine-order setting changes (priorityNumbering OR subpriorityLetters;
+        // settings apply / reset). The PscStorageData rank cache stamps the generation it computed under
+        // and recomputes on a mismatch, so toggling either dimension transparently invalidates every
+        // cached rank without enumerating units.
+        public static int FineOrderGeneration;
 
         // Pure "rank within band" (lower = better): effective sub-tier (dominant) then letter. No
         // per-call lookups — the cached form (PscStorageData.GetRank) and the no-data fast path below
-        // both call this. Depends on the global priorityNumbering via EffectiveSubTier, so any caller
-        // that memoises the result must also key on NumberingGeneration.
+        // both call this. Depends on the global priorityNumbering (via EffectiveSubTier) and
+        // subpriorityLetters (via LetterRank) settings, so any caller that memoises the result must also
+        // key on FineOrderGeneration.
         public static int ComputeRankWithinBand(byte subTier, string letter, StoragePriority band)
             => EffectiveSubTier(subTier, band) * 100 + LetterRank(letter);
 

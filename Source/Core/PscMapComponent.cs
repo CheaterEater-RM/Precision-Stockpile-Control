@@ -224,9 +224,29 @@ namespace PrecisionStockpileControl
             => RecomputeGate(ref anyFeederActive, "feeder: gate anyFeederActive",
                 d => d.onlyFromSource || d.onlyToDestinations);
 
+        // anyFineOrderActive folds in the GLOBAL fine-order settings (priorityNumbering / subpriorityLetters),
+        // so it can't use RecomputeGate (whose predicate is per-unit / non-capturing). ON only when a dimension
+        // is enabled AND some tracked unit carries a value in that enabled dimension — a disabled dimension's
+        // stored field is dormant and must not arm the gate (this also fixes a prior over-report where a stored
+        // subTier flagged active while numbering was off).
         public void RecomputeFineOrderActive()
-            => RecomputeGate(ref anyFineOrderActive, "order: gate anyFineOrderActive",
-                d => d.subTier != 0 || !string.IsNullOrEmpty(d.letter));
+        {
+            bool numbering = PscMod.Settings != null && PscMod.Settings.priorityNumbering;
+            bool letters = PscMod.Settings != null && PscMod.Settings.subpriorityLetters;
+            bool any = false;
+            if (numbering || letters)
+            {
+                foreach (var s in tracked)
+                {
+                    var d = PscStorageDataStore.TryGet(s);
+                    if (d == null) continue;
+                    if ((numbering && d.subTier != 0) || (letters && !string.IsNullOrEmpty(d.letter))) { any = true; break; }
+                }
+            }
+            if (PscLog.Enabled && any != anyFineOrderActive)
+                PscLog.Msg($"order: gate anyFineOrderActive {anyFineOrderActive} -> {any}");
+            anyFineOrderActive = any;
+        }
 
         private void RecomputeFreezeModeActive()
             => RecomputeGate(ref anyFreezeModeActive, "mode: gate anyFreezeModeActive",

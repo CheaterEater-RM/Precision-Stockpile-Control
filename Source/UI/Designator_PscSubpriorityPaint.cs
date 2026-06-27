@@ -73,6 +73,13 @@ namespace PrecisionStockpileControl
         public override void DesignateSingleCell(IntVec3 c)
         {
             lastPaintedCell = c;
+            // Defense in depth: the launching gizmo is hidden while a-z subpriorities are off, but if the
+            // setting is flipped off mid-drag, stop painting rather than write now-inert letters.
+            if (PscMod.Settings == null || !PscMod.Settings.subpriorityLetters)
+            {
+                Find.DesignatorManager.Deselect();
+                return;
+            }
             var map = TargetMap;
             if (map == null) return;
             var other = PscHaulUnit.ResolveCell(c, map);

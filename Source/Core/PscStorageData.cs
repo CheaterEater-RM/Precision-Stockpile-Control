@@ -180,7 +180,7 @@ namespace PrecisionStockpileControl
 
         // Cached fine-order rank (PscOrder.ComputeRankWithinBand). Runtime-only, never scribed. Recompute
         // only when the band changes — the band self-compare also transparently catches a vanilla
-        // priority-button edit that has no PSC seam — or the global numbering generation bumps. Any policy
+        // priority-button edit that has no PSC seam — or the global fine-order generation bumps. Any policy
         // edit (subTier/letter included) invalidates via MarkAllDirty resetting rankCacheGen above. Plain
         // ints keep the read branch tiny; -1 generation forces a recompute on first read / after a fresh
         // CopyPolicyFrom.
@@ -197,9 +197,9 @@ namespace PrecisionStockpileControl
 
         public int GetRank(StoragePriority band)
         {
-            if (rankCacheGen == PscOrder.NumberingGeneration && rankCacheBand == band) return rankCache;
+            if (rankCacheGen == PscOrder.FineOrderGeneration && rankCacheBand == band) return rankCache;
             rankCache = PscOrder.ComputeRankWithinBand(subTier, letter, band);
-            rankCacheGen = PscOrder.NumberingGeneration;
+            rankCacheGen = PscOrder.FineOrderGeneration;
             rankCacheBand = band;
             return rankCache;
         }

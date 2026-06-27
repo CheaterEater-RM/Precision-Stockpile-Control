@@ -9,7 +9,7 @@ namespace PrecisionStockpileControl
     // (design §10.7/§10.8). The vanilla button (group-space Rect(0,0,160,TopAreaHeight-6) inside a
     // BeginGroup contracted by 10) is left untouched; PSC draws to its right in window space.
     //
-    //   - Letter box (always): a-z subpriority within the band. Click opens an a..z menu.
+    //   - Letter box (only when a-z subpriorities are on): a-z subpriority within the band. Click opens an a..z menu.
     //   - Level box (only when 1-10 numbering is on): the 1-10 priority level. Click opens a level
     //     menu; selecting a level sets the vanilla band AND the PSC sub-tier (the enum stays
     //     authoritative, D6).
@@ -30,6 +30,12 @@ namespace PrecisionStockpileControl
             var unit = PscHaulUnit.ResolveSettings(settings);
             if (!unit.IsValid) return;
 
+            // Both fine-order dimensions are opt-in: nothing to draw here when both are off (the level
+            // box rides 1-10 numbering, the letter box rides a-z subpriorities).
+            bool numbering = PscMod.Settings != null && PscMod.Settings.priorityNumbering;
+            bool letters = PscMod.Settings != null && PscMod.Settings.subpriorityLetters;
+            if (!numbering && !letters) return;
+
             var data = PscStorageDataStore.TryGet(settings);
 
             Text.Font = GameFont.Small;
@@ -40,7 +46,6 @@ namespace PrecisionStockpileControl
             // patch hides vanilla's button (only on tabs that actually have one), and we draw the
             // level box in its exact footprint. The letter box then follows it. With numbering off,
             // the vanilla button stays and the letter box sits to its right (no level box).
-            bool numbering = PscMod.Settings != null && PscMod.Settings.priorityNumbering;
             bool replaceVanilla = numbering && ITab_Storage_PrioritySuppress_Patch.LastPriorityVisibleOriginal;
             float x = RowX + PriorityButtonW + Gap;
 
@@ -58,12 +63,15 @@ namespace PrecisionStockpileControl
                     "PSC_LevelTip".Translate(PscOrder.DisplayLevel(1), PscOrder.DisplayLevel(10)));
             }
 
-            var letterRect = new Rect(x, RowY, LetterW, RowH);
-            string letter = data?.letter;
-            string letterLabel = string.IsNullOrEmpty(letter) ? "–" : letter.ToLowerInvariant();
-            if (Widgets.ButtonText(letterRect, letterLabel))
-                OpenLetterMenu(settings);
-            TooltipHandler.TipRegion(letterRect, "PSC_LetterTip".Translate());
+            if (letters)
+            {
+                var letterRect = new Rect(x, RowY, LetterW, RowH);
+                string letter = data?.letter;
+                string letterLabel = string.IsNullOrEmpty(letter) ? "–" : letter.ToLowerInvariant();
+                if (Widgets.ButtonText(letterRect, letterLabel))
+                    OpenLetterMenu(settings);
+                TooltipHandler.TipRegion(letterRect, "PSC_LetterTip".Translate());
+            }
 
             Text.Anchor = prevAnchor;
         }
