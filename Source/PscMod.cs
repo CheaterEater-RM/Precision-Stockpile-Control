@@ -26,6 +26,7 @@ namespace PrecisionStockpileControl
         public bool reservedFillCounting = true;      // count in-flight hauls toward a cap so concurrent haulers don't overshoot
         public bool perTileLimits = false;            // master toggle for the floor-stockpile "Max per cell" control (niche; spreads items thin)
         public bool debugLogging = false;             // dev-mode diagnostic logging (PscLog)
+        public bool debugFeederVerbose = false;       // per-shelf feeder reject detail (off => one line per def+reason)
 
         public override void ExposeData()
         {
@@ -49,6 +50,7 @@ namespace PrecisionStockpileControl
             Scribe_Values.Look(ref reservedFillCounting, "reservedFillCounting", true);
             Scribe_Values.Look(ref perTileLimits, "perTileLimits", false);
             Scribe_Values.Look(ref debugLogging, "debugLogging", false);
+            Scribe_Values.Look(ref debugFeederVerbose, "debugFeederVerbose", false);
         }
 
         // Restore every setting to its shipped default. Kept in lockstep with the field initialisers
@@ -75,6 +77,7 @@ namespace PrecisionStockpileControl
             reservedFillCounting = true;
             perTileLimits = false;
             debugLogging = false;
+            debugFeederVerbose = false;
         }
     }
 
@@ -105,6 +108,7 @@ namespace PrecisionStockpileControl
         {
             Settings = GetSettings<PscSettings>();
             PscLog.Enabled = Settings.debugLogging;   // seed the cached gate from the loaded setting
+            PscLog.FeederVerbose = Settings.debugFeederVerbose;
         }
 
         public override string SettingsCategory()
@@ -205,6 +209,7 @@ namespace PrecisionStockpileControl
             {
                 Settings.ResetToDefaults();
                 PscLog.Enabled = Settings.debugLogging;   // keep the cached gate in sync with the reset value
+                PscLog.FeederVerbose = Settings.debugFeederVerbose;
                 PscOrder.NumberingGeneration++;           // reset may flip 1-10 numbering; invalidate rank caches
                 ResortAllMaps();                          // 1-10 numbering may have flipped back to default
                 PscMapComponent.BumpSelectionGenAllMaps(); // reset may flip feeder-skip; flush Cache B
@@ -313,6 +318,12 @@ namespace PrecisionStockpileControl
                 listing.CheckboxLabeled("PSC_SettingsDebugLogging".Translate(), ref Settings.debugLogging,
                     "PSC_SettingsDebugLoggingTip".Translate());
                 PscLog.Enabled = Settings.debugLogging;   // keep the cached gate in sync with the toggle
+                // Dev-only sub-toggle; literal label avoids a translation-key round-trip for a diagnostic knob.
+                SubCheckboxLabeled(listing, "Verbose feeder rejections (per-shelf)",
+                    "Off (default): one log line per item+reason instead of one per candidate shelf. On: full "
+                    + "per-shelf detail. Only affects logging when debug logging is on.",
+                    ref Settings.debugFeederVerbose, disabled: !Settings.debugLogging);
+                PscLog.FeederVerbose = Settings.debugFeederVerbose;
             }
         }
 

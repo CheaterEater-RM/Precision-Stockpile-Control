@@ -14,6 +14,12 @@ namespace PrecisionStockpileControl
     {
         public static bool Enabled;
 
+        // When false (default), the high-volume per-candidate feeder-rejection lines are throttled per
+        // (def, reason) -- one representative line instead of one per shelf -- so a chain of 20 shelves does
+        // not flood the log. Flip on (dev settings) to get the full per-(def, unit, reason) detail back.
+        // Mirrors PscSettings.debugFeederVerbose; synced alongside Enabled.
+        public static bool FeederVerbose;
+
         public static void Msg(string msg)  { if (Enabled) Log.Message("[PSC] " + msg); }
         public static void Warn(string msg) { if (Enabled) Log.Warning("[PSC] " + msg); }
 

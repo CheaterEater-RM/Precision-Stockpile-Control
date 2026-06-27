@@ -271,7 +271,21 @@ namespace PrecisionStockpileControl
             bool carriedCase = !source.IsValid
                 && PscFeederHaulContext.TryGet(t, out carriedRoute)
                 && carriedRoute.map == unit.Map;
-            if (!sourceOnlyTo && !targetOnlyFrom && !carriedCase) return false;
+
+            // Bulk-hauler carried-item provenance (restored source; PUAH / Hauler's Dream). A bulk-hauled item
+            // has no live source and no per-Thing route, but its origin feeder source may be remembered per
+            // (carrier, def). Resolve once per item (memoised): restoredSourceId enables entry into a downstream
+            // onlyFromSource node, and restoredHoldBack (origin onlyToDestinations AND still allows the def)
+            // keeps the item OUT of the unconstrained overflow -- as if it were still spawned in its source.
+            // This is fed ONLY into the feeder gate; the cap/batch/mode gates in HardReject still see the
+            // (invalid) live source (D-codex).
+            string restoredSourceId = null;
+            bool restoredHoldBack = false;
+            if (!source.IsValid && !carriedCase && !PscCarriedSourceTracker.IsEmpty)
+                ResolveRestoredSource(psc, t, unit, out restoredSourceId, out restoredHoldBack);
+            bool restoredCase = restoredSourceId != null;
+
+            if (!sourceOnlyTo && !targetOnlyFrom && !carriedCase && !(restoredCase && restoredHoldBack)) return false;
 
             // A strict rule is in play -> compute whether a functional edge exempts this candidate. Opt B
             // (feeder source short-circuit): a functional edge needs an OUTGOING edge from source; if the
@@ -304,6 +318,16 @@ namespace PrecisionStockpileControl
             {
                 hasFunctionalEdge = true;
             }
+            // Restored-source exemption (bulk inventory haul): a carried item may flow to ANY functional
+            // destination of its remembered origin (not a single planned dest), so it can still enter the chain
+            // after the merge.
+            if (!hasFunctionalEdge && restoredCase && psc.FeederAllows(restoredSourceId, unit))
+            {
+                hasFunctionalEdge = true;
+                if (PscLog.Enabled)
+                    PscLog.MsgThrottled($"feeder:bulkok:{t.def?.defName}:{unit.UniqueLoadID}",
+                        $"feeder: carried(bulk) {t.def?.defName} -> {unit.UniqueLoadID} admitted via restored origin {restoredSourceId}");
+            }
             // Loose-item skip (feederSkipLooseItems): a genuinely loose ground item (no source unit AND no
             // active route) may enter a chain with an open mouth and skip straight to this node.
             if (!hasFunctionalEdge && !source.IsValid
@@ -323,22 +347,29 @@ namespace PrecisionStockpileControl
                 // on sourceIsTarget) and short-circuits last.
                 if (sourceOnlyTo && SourceAcceptsItem(source, t, planning))
                 {
-                    if (PscLog.Enabled) LogReject(t, unit, "onlyToDestinations",
-                        $"feeder: rejected {t.def.defName} -> {unit.UniqueLoadID} (source onlyToDestinations, no functional edge)");
+                    LogFeederReject(psc, t, source.UniqueLoadID, unit, "onlyToDestinations", "source onlyToDestinations");
                     return true;
                 }
             }
             else if (carriedCase)
             {
-                if (PscLog.Enabled) LogReject(t, unit, "carriedRoute",
-                    $"feeder: rejected carried {t.def.defName} -> {unit.UniqueLoadID} (planned route no longer a functional edge)");
+                LogFeederReject(psc, t, carriedRoute.sourceId, unit, "carriedRoute", "carried planned route");
+                return true;
+            }
+            else if (restoredCase && restoredHoldBack)
+            {
+                // Carried (bulk-hauled) item from an onlyToDestinations origin, candidate is not a functional
+                // dest: hold it back from the unconstrained overflow, just as the live source would.
+                LogFeederReject(psc, t, restoredSourceId, unit, "bulkOnlyToDestinations", "carried(bulk) origin onlyToDestinations");
                 return true;
             }
 
             if (targetOnlyFrom)
             {
-                if (PscLog.Enabled) LogReject(t, unit, "onlyFromSource",
-                    $"feeder: rejected {t.def.defName} -> {unit.UniqueLoadID} (target onlyFromSource, no functional edge)");
+                string diagSrc = source.IsValid ? source.UniqueLoadID
+                    : restoredCase ? restoredSourceId
+                    : carriedCase ? carriedRoute.sourceId : null;
+                LogFeederReject(psc, t, diagSrc, unit, "onlyFromSource", "target onlyFromSource");
                 return true;
             }
             return false;
@@ -351,11 +382,82 @@ namespace PrecisionStockpileControl
         private static bool SourceAcceptsItem(PscHaulUnit source, Thing t, bool planning)
             => planning ? PscSearchContext.SourceAcceptsItem(t) : source.Settings.AllowedToAccept(t);
 
+        // Resolve (once per item, memoised in PscSearchContext) the captured feeder source for a bulk-hauled
+        // carried item with no live source. `holdBack` folds the two hold-back conditions -- origin onlyToDestinations
+        // AND the origin still accepts this item -- so the per-candidate rejection never re-evaluates them.
+        // The tracker stores only the source id; the strict flags are read LIVE here, so a mid-haul link break
+        // or onlyToDestinations toggle stops holding the item back on the next search (codex review).
+        private static void ResolveRestoredSource(PscMapComponent psc, Thing t, PscHaulUnit unit,
+            out string sourceId, out bool holdBack)
+        {
+            if (PscSearchContext.TryGetRestoredSource(t, out sourceId, out holdBack, out bool probed))
+                return;                                                   // memo: found
+            if (probed) { sourceId = null; holdBack = false; return; }    // memo: none
+
+            var carrier = PscSearchContext.Carrier;
+            if (carrier != null && PscCarriedSourceTracker.TryGetSource(carrier, t.def, unit.Map, out sourceId))
+                holdBack = RestoredOriginHoldsBack(psc, sourceId, t);
+            else
+            {
+                sourceId = null;
+                holdBack = false;
+            }
+            PscSearchContext.CacheRestoredSource(t, sourceId, holdBack);
+        }
+
+        // Live hold-back decision for a restored origin: it currently restricts outflow (onlyToDestinations)
+        // AND still accepts THIS item. Reads live PscStorageData + the source's RAW item-aware ThingFilter
+        // (filter.Allows(t), so thing-specific filters apply) -- never AllowedToAccept, which would re-enter
+        // PSC admission in a carried context. Mirrors the live path's exemption: onlyToDestinations only holds
+        // back contents the source still accepts.
+        private static bool RestoredOriginHoldsBack(PscMapComponent psc, string sourceId, Thing t)
+        {
+            if (sourceId == null || !psc.Feeder.TryResolveLiveUnit(sourceId, out var src)) return false;
+            var data = PscStorageDataStore.TryGet(src.Settings);
+            if (data == null || !data.onlyToDestinations) return false;
+            var settings = src.Settings;
+            return settings?.filter != null && settings.filter.Allows(t);
+        }
+
         // Throttled dev-log of an admission rejection. Keyed per (def, unit, reason) so a steady haul scan
         // logs each distinct rejection at most once per throttle window.
         private static void LogReject(Thing t, PscHaulUnit unit, string reason, string msg)
         {
             if (PscLog.Enabled) PscLog.MsgThrottled($"adm:{t.def?.defName}:{unit.UniqueLoadID}:{reason}", msg);
+        }
+
+        // Feeder-specific rejection log that explains WHY there is no functional edge (no source / no route
+        // drawn / route exists but the destination does not out-rank the source). That distinction -- a missing
+        // route vs an inverted priority -- is the key signal for diagnosing a chain that will not flow, and is
+        // invisible in the bare "no functional edge" line. Throttled per (def, reason) by default so a 20-shelf
+        // chain collapses to one representative line; per (def, unit, reason) when debugFeederVerbose is on.
+        private static void LogFeederReject(PscMapComponent psc, Thing t, string sourceId, PscHaulUnit unit,
+            string reason, string strictDesc)
+        {
+            if (!PscLog.Enabled) return;
+            string def = t.def?.defName;
+            string dest = unit.UniqueLoadID;
+            string why = EdgeFailReason(psc, sourceId, unit);
+            if (PscLog.FeederVerbose)
+                PscLog.MsgThrottled($"feeder:{def}:{dest}:{reason}",
+                    $"feeder: rejected {def} -> {dest} ({strictDesc}; {why})");
+            else
+                PscLog.MsgThrottled($"feeder:{def}:{reason}",
+                    $"feeder: {def} blocked by {strictDesc} (e.g. -> {dest}: {why})");
+        }
+
+        // Explain why no functional edge connects sourceId to the candidate unit. A priority misconfig and a
+        // missing route both read as "no functional edge" but need opposite fixes, so name which one it is.
+        private static string EdgeFailReason(PscMapComponent psc, string sourceId, PscHaulUnit unit)
+        {
+            if (string.IsNullOrEmpty(sourceId)) return "item has no source unit (loose / carried, no provenance)";
+            string destId = unit.UniqueLoadID;
+            if (destId == null) return "destination has no id";
+            if (psc.Links.HasEdge(sourceId, destId))
+                return "route drawn, but destination does not out-rank source -- raise the destination's priority";
+            if (PscMod.Settings != null && PscMod.Settings.feederSkipHops && psc.Links.IsDownstreamReachable(sourceId, destId))
+                return "multi-hop path exists, but a hop does not out-rank -- raise priorities along the chain";
+            return "no route drawn from source to this destination";
         }
     }
 }

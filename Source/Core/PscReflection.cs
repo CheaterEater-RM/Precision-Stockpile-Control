@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
 using RimWorld;
@@ -24,7 +25,11 @@ namespace PrecisionStockpileControl
     //   Widgets.Checkbox(float,float,bool&,float,bool,bool,Texture2D,Texture2D)  (overload)
     //   Widgets.CheckboxMulti(Rect,MultiCheckboxState,bool)                       (overload)
     //   PickUpAndHaul.WorkGiver_HaulToInventory:CapacityAt(Thing,IntVec3,Map)     (soft dependency)
+    //   PickUpAndHaul.JobDriver_HaulToInventory:TryMakePreToilReservations(bool)  (soft dep, capture seam)
+    //   PickUpAndHaul.WorkGiver_HaulToInventory:TryFindBestBetterStoreCellFor(...) (soft dep, bulk-adapter seam)
+    //   PickUpAndHaul.WorkGiver_HaulToInventory:skipCells           (soft dep, private static field)
     //   HaulersDream.BulkHaul:StorageSpaceForDef(Pawn,Thing,IntVec3,Map)          (soft dep, private)
+    //   HaulersDream.JobDriver_BulkHaul:TryMakePreToilReservations(bool)          (soft dep, capture seam)
     //   HaulDestinationManager.map            (private field)   — owning map for the selection-gen chokepoint
     internal static class PscReflection
     {
@@ -132,6 +137,51 @@ namespace PrecisionStockpileControl
         public static MethodBase PuahCapacityAt()
             => AccessTools.Method(PuahCapacityAtId, new[] { typeof(Thing), typeof(IntVec3), typeof(Map) });
 
+        // The PUAH bulk-gather job driver's reservation seam — the COMMITTED point (reservations succeeded,
+        // job about to run) where the queued items to be hauled into inventory are still spawned in their
+        // source, so PSC can snapshot feeder-source provenance before SplitOff/merge destroys it. PUAH
+        // overrides this method, so resolving by member id targets PUAH's own override (not base JobDriver).
+        public const string PuahHaulToInventoryReserveId = "PickUpAndHaul.JobDriver_HaulToInventory:TryMakePreToilReservations";
+
+        public static MethodBase PuahHaulToInventoryReserve()
+            => AccessTools.Method(PuahHaulToInventoryReserveId, new[] { typeof(bool) });
+
+        // PUAH's PRIVATE extra-item destination search (WorkGiver_HaulToInventory.TryFindBestBetterStoreCellFor).
+        // It gates on `slotGroup.Settings.Priority <= currentPriority` (a STRICTLY-higher vanilla-band test), so it
+        // is blind to PSC's same-band fine-order feeder routing and never plans a same-band chain hop during a bulk
+        // gather. PSC prefixes it to delegate the choice to the engine (PickUpAndHaul_Patch), restoring bulk hauls
+        // into the chain. Distinct from the vanilla StoreUtility method of the same name: this is PUAH's own static.
+        public const string PuahExtraItemStoreCellId = "PickUpAndHaul.WorkGiver_HaulToInventory:TryFindBestBetterStoreCellFor";
+
+        public static MethodBase PuahExtraItemStoreCell()
+            => AccessTools.Method(PuahExtraItemStoreCellId,
+                new[] { typeof(Thing), typeof(Pawn), typeof(Map), typeof(StoragePriority), typeof(Faction), typeof(IntVec3).MakeByRefType() });
+
+        // PUAH's static `skipCells` set (cells already allocated this gather). The adapter reads it to (a) feed the
+        // engine as ExcludedCells and (b) add its chosen cell back, replicating PUAH's own skip so its loop advances.
+        // Null between gathers (PUAH sets it to a fresh set in JobOnThing and nulls it after); the adapter null-checks.
+        private static readonly AccessTools.FieldRef<HashSet<IntVec3>> PuahSkipCellsRef = ResolvePuahSkipCells();
+
+        public static HashSet<IntVec3> PuahSkipCells() => PuahSkipCellsRef != null ? PuahSkipCellsRef() : null;
+
+        private static AccessTools.FieldRef<HashSet<IntVec3>> ResolvePuahSkipCells()
+        {
+            // PUAH absent is the normal soft-dependency case and must stay SILENT. Resolve the TYPE first
+            // (ResolveTypeByName returns null silently when absent) rather than the string-form AccessTools.Field,
+            // which logs/throws on a missing type -- that is what wrongly printed a "reflection seam not found"
+            // error when PUAH was removed. Only a type that EXISTS but lacks the field (a real PUAH version drift)
+            // is worth a log.
+            var type = ResolveTypeByName("PickUpAndHaul.WorkGiver_HaulToInventory");
+            if (type == null) return null;   // PUAH not installed
+            try
+            {
+                var fi = AccessTools.Field(type, "skipCells");
+                if (fi == null) { LogMissing("PickUpAndHaul.WorkGiver_HaulToInventory.skipCells", null); return null; }
+                return AccessTools.StaticFieldRefAccess<HashSet<IntVec3>>(fi);
+            }
+            catch (Exception ex) { LogMissing("PickUpAndHaul.WorkGiver_HaulToInventory.skipCells", ex); return null; }
+        }
+
         // ---- Hauler's Dream (soft dependency — no compile/load-time reference) ----------------------
         // BulkHaul.StorageSpaceForDef is HD's per-destination capacity probe (the analogue of PUAH's
         // CapacityAt). It is PRIVATE STATIC and HD-internal, so it is the most version-fragile seam here;
@@ -142,6 +192,17 @@ namespace PrecisionStockpileControl
 
         public static MethodBase HaulersDreamStorageSpaceForDef()
             => AccessTools.Method(HaulersDreamStorageSpaceForDefId, new[] { typeof(Pawn), typeof(Thing), typeof(IntVec3), typeof(Map) });
+
+        // HD's bulk-gather job driver's reservation seam — the analogue of PUAH's HaulToInventory reserve seam.
+        // At TryMakePreToilReservations the queued pickup targets (JobDriver_BulkHaul keeps them in targetQueueB)
+        // are still spawned in their source, so PSC can snapshot feeder-source provenance before the take toil's
+        // SplitOff + inventory merge severs it. HD overrides this method, so resolving by member id targets HD's
+        // own override (not base JobDriver). Private-method coupling: a future HD rename makes Prepare() return
+        // null and the capture silently degrades (carried items shake out via normal hauling), never crashing.
+        public const string HaulersDreamBulkHaulReserveId = "HaulersDream.JobDriver_BulkHaul:TryMakePreToilReservations";
+
+        public static MethodBase HaulersDreamBulkHaulReserve()
+            => AccessTools.Method(HaulersDreamBulkHaulReserveId, new[] { typeof(bool) });
 
         // ---- LWM Deep Storage detection (soft dependency — no compile/load-time reference) ----------
         // The CompDeepStorage type, resolved once (null when LWM is absent). The store-search engine uses it

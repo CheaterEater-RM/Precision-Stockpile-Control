@@ -13,12 +13,15 @@ namespace PrecisionStockpileControl
     // longer uses this: after the rewrite it serves only external callers and resolves fresh.
     //
     // ThreadStatic: DEFENSIVE per-thread isolation for the case the engine is ever reached off-main by a
-    // threading caller (RimWorld Multiplayer's sim thread, or a threading mod). Vanilla 1.6 runs the store
-    // search synchronously on the MAIN thread (WorkGiver_Haul -> HaulAIUtility -> StoreUtility; reachability is
-    // main-thread too), so this is not a vanilla requirement, and the defense is only partial -- the live count
-    // model (PscStorageData.counts / reservedInbound) is NOT concurrency-safe. See
-    // STORE_SEARCH_REWRITE_PHASE4_DESIGN.md §6.1. Set + cleared within a single store search on one thread ->
-    // multiplayer-deterministic. Cleared in
+    // threading caller (RimWorld Multiplayer's sim thread, or a threading mod). During GAMEPLAY vanilla 1.6 runs
+    // the store search synchronously on the MAIN thread (WorkGiver_Haul -> HaulAIUtility -> StoreUtility;
+    // reachability is main-thread too), so this is not a vanilla gameplay requirement. NOTE the one vanilla
+    // exception: save LOADING and map GENERATION run on the LongEventHandler async (background) thread (Game.LoadGame
+    // sets ProgramState.MapInitializing), so a store search triggered during load (e.g. the haulables lister
+    // re-checking stored items) is legitimately off the Unity main thread -- but single-threaded and benign (the
+    // engine's main-thread tripwire is gated on ProgramState.Playing for exactly this reason). The defense here is
+    // only partial regardless -- the live count model (PscStorageData.counts / reservedInbound) is NOT
+    // concurrency-safe. Set + cleared within a single store search on one thread -> multiplayer-deterministic. Cleared in
     // StoreUtility_Engine_Patch.Finalizer, which runs after the whole postfix chain so the memo survives
     // through the HD re-validation postfix.
     //
@@ -46,6 +49,20 @@ namespace PrecisionStockpileControl
         [System.ThreadStatic] private static ISlotGroup feederTargetGroup;
         [System.ThreadStatic] private static bool feederTargetAllows;
 
+        // The hauling pawn for this search (carrier), set by the engine entry. Per SEARCH, not per item, so it
+        // is reset only in Clear (not EnsureFor). The carried-item feeder restore (PscCarriedSourceTracker) needs
+        // it to look up (carrier, def) provenance; non-engine callers (the AllowedToAccept backstop) leave it
+        // null and so never restore.
+        [System.ThreadStatic] private static Pawn carrier;
+
+        // Restored carried-source memo (bulk inventory haul): for an item with no live source, the captured feeder
+        // source for (carrier, def), resolved once per item. 0 = unprobed, 1 = found, 2 = none. `restoredHoldBack`
+        // is precomputed at probe time (source onlyToDestinations AND still allows the def) so the hold-back
+        // decision never re-enters AllowedToAccept per candidate. Per ITEM, so reset in EnsureFor and Clear.
+        [System.ThreadStatic] private static byte restoredState;
+        [System.ThreadStatic] private static string restoredSourceId;
+        [System.ThreadStatic] private static bool restoredHoldBack;
+
         private static void EnsureFor(Thing t)
         {
             if (ReferenceEquals(t, item)) return;
@@ -53,11 +70,19 @@ namespace PrecisionStockpileControl
             feederDestState = 0;
             sourceAcceptsState = 0;
             feederTargetGroup = null;
+            restoredState = 0;
+            restoredSourceId = null;
+            restoredHoldBack = false;
             var cur = PscHaulUnit.ResolveCurrent(t);
             sourceValid = cur.IsValid;
             sourceGroup = cur.group;
             sourceData = sourceValid ? PscStorageDataStore.TryGet(cur.Settings) : null;
         }
+
+        // The hauling pawn for this search (or null). Set once by the engine entry; read by the carried-item
+        // feeder restore.
+        public static Pawn Carrier => carrier;
+        public static void SetCarrier(Pawn p) => carrier = p;
 
         // The item's source/current unit (canonical). Returns false (and a default unit) when the item is
         // loose / unspawned / carried.
@@ -122,6 +147,27 @@ namespace PrecisionStockpileControl
             feederTargetAllows = allows;
         }
 
+        // Carried-source restore memo: the captured feeder source for the current (carrier, item-def), or
+        // null when none, plus the precomputed hold-back decision. Resolved once per item by TryFeederReject
+        // (which holds the map component + tracker) and reused across every candidate. Returns true when a
+        // source is already known this item; `probed` distinguishes "known to be none" (2) from "unprobed" (0).
+        public static bool TryGetRestoredSource(Thing t, out string sourceId, out bool holdBack, out bool probed)
+        {
+            EnsureFor(t);
+            sourceId = restoredSourceId;
+            holdBack = restoredHoldBack;
+            probed = restoredState != 0;
+            return restoredState == 1;
+        }
+
+        public static void CacheRestoredSource(Thing t, string sourceId, bool holdBack)
+        {
+            EnsureFor(t);
+            restoredSourceId = sourceId;
+            restoredHoldBack = holdBack;
+            restoredState = sourceId != null ? (byte)1 : (byte)2;
+        }
+
         // Reset every field so no stale state lingers and the strong Thing/group/data refs are dropped between
         // searches. Called from StoreUtility_Engine_Patch.Finalizer.
         public static void Clear()
@@ -134,6 +180,10 @@ namespace PrecisionStockpileControl
             sourceAcceptsState = 0;
             feederTargetGroup = null;
             feederTargetAllows = false;
+            carrier = null;
+            restoredState = 0;
+            restoredSourceId = null;
+            restoredHoldBack = false;
         }
     }
 }

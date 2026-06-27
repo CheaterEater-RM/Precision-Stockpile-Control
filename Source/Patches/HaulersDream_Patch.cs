@@ -1,6 +1,7 @@
 using System.Reflection;
 using HarmonyLib;
 using Verse;
+using Verse.AI;
 
 namespace PrecisionStockpileControl
 {
@@ -31,5 +32,28 @@ namespace PrecisionStockpileControl
             if (PscCap.TryGetRoom(cell, map, thing.def, out int room, includeReserved: true) && room < __result)
                 __result = room;
         }
+    }
+
+    // Feeder-source provenance capture for HD bulk gathers (soft-dependency; the HD analogue of PUAH's
+    // HaulToInventory capture patch). HD's JobDriver_BulkHaul carries items through a pawn's INVENTORY via
+    // SplitOff + merge (DepositSwept), which severs the source link PSC's feeder admission needs: by unload the
+    // item is unspawned with no source, so the gate can neither admit it into an onlyFromSource chain node nor
+    // hold it out of the overflow. TryMakePreToilReservations is the committed seam where the queued pickup
+    // items are still spawned in their source. HD keeps those targets in targetQueueB (its StackInd), so the
+    // shared PscCarriedSourceCapture helper reads TargetIndex.B; the restore reads it back during the unload
+    // store-search (PscAdmissionIndex.TryFeederReject). The capacity clamp above plus PSC's admission and
+    // same-band store-search already cover HD; this closes the one remaining gap (feeder routing across the
+    // inventory merge). Guarded by Prepare()/TargetMethod via reflection — no compile- or load-time reference
+    // to HD, and a future HD rename of the private method makes Prepare() return null so the capture silently
+    // degrades (carried items shake out via normal hauling) without crashing.
+    [HarmonyPatch]
+    public static class HaulersDream_BulkHaul_Capture_Patch
+    {
+        public static bool Prepare() => PscReflection.HaulersDreamBulkHaulReserve() != null;
+
+        public static MethodBase TargetMethod() => PscReflection.HaulersDreamBulkHaulReserve();
+
+        public static void Postfix(JobDriver __instance, bool __result)
+            => PscCarriedSourceCapture.CaptureQueue(__instance, __result, TargetIndex.B);
     }
 }

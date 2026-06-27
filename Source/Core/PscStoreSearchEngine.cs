@@ -52,15 +52,18 @@ namespace PrecisionStockpileControl
         {
             cell = IntVec3.Invalid;
 
-            // Phase 1 (1D): main-thread tripwire. Vanilla's haul store-search is synchronous and main-thread
-            // (PHASE4 §6.1); PSC's live count/policy model (PscStorageData.counts / reservedInbound) is NOT
-            // concurrency-safe, so the residual ThreadStatic scopes would not actually protect an off-main
-            // caller (a threading mod) — they would silently corrupt counts. Catch that loudly instead of
-            // pretending to be safe. Dev-gated (PscLog.Enabled short-circuits the thread check), so normal
-            // play and profiling pay only one bool read.
-            if (PscLog.Enabled && !UnityData.IsInMainThread)
-                Log.ErrorOnce("[PSC] store-search engine entered off the main thread; PSC's count model is not "
-                    + "thread-safe (threading mod?). See STORE_SEARCH_REWRITE_PHASE4_DESIGN.md §6.1.", 0x1C5A0101);
+            // Phase 1 (1D): main-thread tripwire for a genuine concurrent entry DURING GAMEPLAY -- a threading
+            // mod or the RimWorld Multiplayer sim thread hitting PSC's non-concurrency-safe count/policy model
+            // (PscStorageData.counts / reservedInbound). Gated on ProgramState.Playing: save LOADING and map
+            // GENERATION run on the LongEventHandler ASYNC (background) thread with ProgramState == MapInitializing
+            // (Game.LoadGame / MapGenerator.GenerateMap), so a store search a load triggers (e.g. the haulables
+            // lister re-checking already-stored items via IsInValidBestStorage) is legitimately off the Unity main
+            // thread -- but it is the SOLE worker (the main thread only renders the loading screen), so there is no
+            // concurrent mutation and it must NOT warn. Dev-gated (PscLog.Enabled short-circuits), so normal play
+            // and profiling pay one bool read.
+            if (PscLog.Enabled && Current.ProgramState == ProgramState.Playing && !UnityData.IsInMainThread)
+                Log.ErrorOnce("[PSC] store-search engine entered off the main thread during play; PSC's count "
+                    + "model is not thread-safe (threading mod / MP sim thread?).", 0x1C5A0101);
 
             // Conservative, map-LOCAL opt-in gate (broaden-first): no PSC policy anywhere, then none on THIS
             // map (IsEmpty is global). A policy-free map stays byte-for-byte vanilla even when another map is
@@ -88,6 +91,11 @@ namespace PrecisionStockpileControl
             // (Admission_Patches.cs), so a non-per-tile same-unit pick would be cancelled and strand the item.
             bool perTileSpread = PscPerTile.TryGetCellCap(t, out int perCellCap) && t.stackCount > perCellCap;
             bool allowSameUnitRelocation = perTileSpread;
+
+            // Carried-item feeder restore (PUAH): remember the hauling pawn so TryFeederReject can look up the
+            // captured feeder source for an item that has no live source (in this pawn's inventory). Cleared by
+            // the Finalizer with the rest of the per-search context.
+            PscSearchContext.SetCarrier(carrier);
 
             PscSearchContext.TrySource(t, out var source);
             var sourceData = PscSearchContext.SourceData(t);
@@ -252,10 +260,11 @@ namespace PrecisionStockpileControl
                 // (AGENTS.md "never retain StorageGroup.CellsList"). So copy a StorageGroup's cells into a reused
                 // per-search buffer first; a plain SlotGroup's CellsList is a stable per-parent list (shelf
                 // cachedOccupiedCells / zone cells), iterated directly so vanilla shelves/zones pay no copy.
-                // ExcludedCells (PUAH skipCells, the Phase 4 bulk adapters) is held across the scan so the
-                // Phase 4 IsGoodStoreCell postfix sees it; the engine clears it in finally, so the option is
-                // honored without relying on the Harmony Finalizer (which also clears it, defensively). null /
-                // empty on the vanilla path.
+                // ExcludedCells (PUAH skipCells, the Phase 4 bulk adapters): cells the bulk caller has already
+                // allocated to. Checked INLINE in this scan -- the only place that needs it, since the PUAH
+                // extra-item adapter replaces PUAH's own body -- rather than via a global IsGoodStoreCell postfix
+                // that would pay a dispatch on every cell scan game-wide. null / empty on the ordinary vanilla
+                // path, so that path pays one local read and no Contains.
                 List<IntVec3> cells;
                 if (canon is StorageGroup)
                 {
@@ -270,25 +279,22 @@ namespace PrecisionStockpileControl
                 }
                 int count = cells.Count;
                 int num = options.NeedAccurateResult ? Mathf.FloorToInt(count * Rand.Range(0.005f, 0.018f)) : 0;
-                PscEngineScope.ExcludedCells = options.ExcludedCells;
-                try
+                var excluded = options.ExcludedCells;
+                for (int i = 0; i < count; i++)
                 {
-                    for (int i = 0; i < count; i++)
+                    IntVec3 c = cells[i];
+                    if (excluded != null && excluded.Contains(c)) continue;
+                    float d = itemPos.IsValid ? (itemPos - c).LengthHorizontalSquared : 0f;
+                    if (!(d > bestDist) && StoreUtility.IsGoodStoreCell(c, map, t, carrier, faction))
                     {
-                        IntVec3 c = cells[i];
-                        float d = itemPos.IsValid ? (itemPos - c).LengthHorizontalSquared : 0f;
-                        if (!(d > bestDist) && StoreUtility.IsGoodStoreCell(c, map, t, carrier, faction))
-                        {
-                            bestCell = c;
-                            bestDist = d;
-                            bestBand = cb;
-                            bestRank = rank;
-                            chosenGroup = canon;
-                            if (i >= num) break;
-                        }
+                        bestCell = c;
+                        bestDist = d;
+                        bestBand = cb;
+                        bestRank = rank;
+                        chosenGroup = canon;
+                        if (i >= num) break;
                     }
                 }
-                finally { PscEngineScope.ExcludedCells = null; }
             }
 
             if (bestCell.IsValid)
@@ -296,8 +302,15 @@ namespace PrecisionStockpileControl
                 PscEngineScope.IntendedUnitGroup = chosenGroup;     // read by the HD re-validation postfix
                 cell = bestCell;
                 if (PscLog.Enabled)
+                {
+                    // Name the chosen unit and the item's source so the trace shows WHERE stock lands and
+                    // FROM where -- "chosen <overflow>" vs "chosen <chain node>" is the whole diagnosis, and the
+                    // bare band/rank could not distinguish them.
+                    string chosenId = chosenGroup != null ? PscHaulUnit.FromSlotGroup(chosenGroup).UniqueLoadID : "?";
+                    string srcHint = source.IsValid ? source.UniqueLoadID : "no-source(carried/loose)";
                     PscLog.MsgThrottled($"eng:{t.def?.defName}",
-                        $"engine: {t.def?.defName} chosen band {bestBand} rank {bestRank}");
+                        $"engine: {t.def?.defName} chosen {chosenId} (band {bestBand} rank {bestRank}) [from {srcHint}]");
+                }
                 return PscSearchResult.Found;
             }
             return PscSearchResult.NoLegalTarget;
@@ -312,6 +325,20 @@ namespace PrecisionStockpileControl
         {
             seenCanon?.Clear();
             cellBuffer?.Clear();
+        }
+
+        // Full per-search teardown: the engine scopes + the per-search context + the thread-static buffers.
+        // The vanilla-prefix path runs this via StoreUtility_Engine_Patch.Finalizer; a DIRECT engine caller (the
+        // Phase 4 PUAH extra-item adapter calls TryFindBestStoreCell outside that Harmony method, so its
+        // Finalizer never fires) must call this itself in a finally, or VanillaFallbackPlanning / the carrier
+        // memo / the candidate buffers would leak into the next search on this thread. Idempotent.
+        public static void ResetSearchState()
+        {
+            PscEngineScope.BypassAdmissionBackstop = false;
+            PscEngineScope.IntendedUnitGroup = null;
+            PscEngineScope.VanillaFallbackPlanning = false;
+            ClearThreadStaticState();
+            PscSearchContext.Clear();
         }
     }
 }

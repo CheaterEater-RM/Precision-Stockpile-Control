@@ -41,21 +41,14 @@ namespace PrecisionStockpileControl
         // StoreUtility_PlanningScope_Patch.Finalizer's PscSearchContext.Clear().
         public static void Finalizer()
         {
-            PscEngineScope.IntendedUnitGroup = null;
-            PscEngineScope.ExcludedCells = null;
-            PscEngineScope.BypassAdmissionBackstop = false;
-            PscEngineScope.VanillaFallbackPlanning = false;
-            PscStoreSearchEngine.ClearThreadStaticState();   // release the engine's candidate buffer refs
-            PscSearchContext.Clear();
+            PscStoreSearchEngine.ResetSearchState();   // scopes + per-search context + candidate buffers
         }
     }
 
-    // The excluded-cell gate (a tighten-only postfix on IsGoodStoreCell that drops cells in
-    // PscEngineScope.ExcludedCells) is DEFERRED to Phase 4. IsGoodStoreCell is a hot per-cell method, and in
-    // Phase 2 ExcludedCells is always null (only the Phase 4 PUAH extra-item adapter supplies it), so wiring
-    // the postfix now would put a no-op dispatch on every cell scan -- exactly the overhead this rewrite
-    // removes. The engine already forwards options.ExcludedCells into the scope, so Phase 4 adds only the
-    // postfix.
+    // Excluded-cell gate (PUAH skipCells): the Phase 4 PUAH extra-item adapter passes PUAH's already-allocated
+    // cells via PscSearchOptions.ExcludedCells, and the engine drops them INLINE in its own cell scan. No global
+    // IsGoodStoreCell postfix (which would pay a per-cell dispatch game-wide) is needed -- the adapter replaces
+    // PUAH's body, so only the engine's own scan has to honor the exclusion.
 
     // Hauler's Dream re-validation (design §4.9). A prefix returning false does NOT skip postfixes, so HD's
     // haul-to-stack postfix on this same method still runs on PSC's result and CAN re-point foundCell into a
