@@ -153,11 +153,10 @@ until you set a limit. Removed, limited items simply become "allowed" (unlimited
 
 ## Development Status
 
-M1 (core limits), M2 (focused hard cap, batch, Pick Up And Haul / multi-stack integration), M3
-(routes), M4 (fine ordering — a–z subpriority and 1–10 priority), M5 part 1 (one-way migration from
-other limit mods), and M5 part 2 (the four storage modes) are code complete and in-game verified. The
-stockpile alarms and on-map storage overlay are code complete and in final testing. The authoritative
-design is in `docs/DESIGN.md`.
+Released (v1.0). All features described above are live: per-item limits and refill thresholds, limit
+groups, batch fill/empty, routes, the four storage modes, stockpile alarms, the on-map overlay,
+fine-grained priority, per-cell spread, and one-way import from other limit mods. Bug reports and
+suggestions are welcome.
 
 ## Credits
 
