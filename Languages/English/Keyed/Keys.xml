@@ -68,7 +68,7 @@
   <PSC_LetterNone>None (highest)</PSC_LetterNone>
 
   <!-- Sequential subpriority painter gizmo -->
-  <PSC_PaintSubpriority>Paint subpriority</PSC_PaintSubpriority>
+  <PSC_PaintSubpriority>Paint subpriorities</PSC_PaintSubpriority>
   <PSC_PaintSubpriorityDesc>Click or drag over other storage to give each the next letter in sequence below this one. This storage stays put, and every painted storage adopts its priority level. Stops at "z". Right-click to cancel.</PSC_PaintSubpriorityDesc>
   <PSC_PaintNext>Next: {0}</PSC_PaintNext>
   <PSC_PaintClamp>Reached the lowest letter ("z"). Set any remaining storage by hand.</PSC_PaintClamp>
