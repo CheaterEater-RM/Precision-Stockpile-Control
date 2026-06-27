@@ -165,12 +165,17 @@ namespace PrecisionStockpileControl
 
         private static AccessTools.FieldRef<HashSet<IntVec3>> ResolvePuahSkipCells()
         {
-            // PUAH absent -> TypeByName/Field returns null (the normal soft-dependency case) and the adapter no-ops;
-            // only a genuine load fault reaches the catch and logs once, per AGENTS.md (no silent swallow).
+            // PUAH absent is the normal soft-dependency case and must stay SILENT. Resolve the TYPE first
+            // (ResolveTypeByName returns null silently when absent) rather than the string-form AccessTools.Field,
+            // which logs/throws on a missing type -- that is what wrongly printed a "reflection seam not found"
+            // error when PUAH was removed. Only a type that EXISTS but lacks the field (a real PUAH version drift)
+            // is worth a log.
+            var type = ResolveTypeByName("PickUpAndHaul.WorkGiver_HaulToInventory");
+            if (type == null) return null;   // PUAH not installed
             try
             {
-                var fi = AccessTools.Field("PickUpAndHaul.WorkGiver_HaulToInventory:skipCells");
-                if (fi == null) return null;
+                var fi = AccessTools.Field(type, "skipCells");
+                if (fi == null) { LogMissing("PickUpAndHaul.WorkGiver_HaulToInventory.skipCells", null); return null; }
                 return AccessTools.StaticFieldRefAccess<HashSet<IntVec3>>(fi);
             }
             catch (Exception ex) { LogMissing("PickUpAndHaul.WorkGiver_HaulToInventory.skipCells", ex); return null; }
