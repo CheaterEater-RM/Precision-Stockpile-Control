@@ -115,6 +115,11 @@ namespace PrecisionStockpileControl
         // its own persisted edge state. Shared across a linked StorageGroup like the rest of policy.
         public PscAlarmConfig alarm;
 
+        // Limit groups (opt-in): each bundles several defs under ONE shared limit governing their
+        // COMBINED total. A def is in at most one group, and a grouped def is NOT also in `limits`
+        // (joining strips its per-def entry — the documented "override"). Empty list writes nothing.
+        public List<PscLimitGroup> limitGroups = new List<PscLimitGroup>();
+
         // ---- Runtime cache (never scribed; rebuilt from HeldThings) ----
         // Hysteresis state is NOT here anymore — it is persisted on each PscDefLimit (lim.refill).
         private readonly Dictionary<ThingDef, int> counts = new Dictionary<ThingDef, int>();
@@ -128,13 +133,39 @@ namespace PrecisionStockpileControl
         // (GetEffectiveCount); the hard drop cap, over-cap drain, and freeze reads stay on physical.
         private readonly Dictionary<ThingDef, int> reservedInbound = new Dictionary<ThingDef, int>();
 
+        // Runtime reverse index def -> its limit group (never scribed; rebuilt by RebuildGroupIndex on
+        // load and after every group edit). A real, always-non-null field so the resolver's hot-path
+        // miss is a single TryGetValue with no allocate-on-demand.
+        private readonly Dictionary<ThingDef, PscLimitGroup> defToGroup = new Dictionary<ThingDef, PscLimitGroup>();
+
         public bool HasPersistentPolicy =>
             limits.Count > 0
+            // Any group (>= 2 members by construction) keeps the unit tracked AND saved — even before the
+            // player has set its shared limit, so a freshly created group survives until configured rather
+            // than being dropped by UpdateTracking's "no policy -> Remove" path. HasAnyLimit / restrictedDefs
+            // still gate on a NON-default group, so an unconfigured group tracks but enforces nothing.
+            || (limitGroups != null && limitGroups.Count > 0)
             || batch > 0 || batchEmpty > 0 || onlyFromSource || onlyToDestinations
             || subTier != 0 || !string.IsNullOrEmpty(letter)
             || mode != PscStorageMode.Normal
             || perTileLimit > 0
             || (alarm != null && alarm.IsActive);
+
+        // True when any non-default limit group exists. Manual loop (no LINQ); the limitGroups list can
+        // briefly hold default entries before a normalize pass prunes them.
+        public bool HasAnyGroup
+        {
+            get
+            {
+                if (limitGroups == null) return false;
+                for (int i = 0; i < limitGroups.Count; i++)
+                {
+                    var g = limitGroups[i];
+                    if (g != null && g.limit != null && !g.limit.IsDefault) return true;
+                }
+                return false;
+            }
+        }
 
         // Per-def limit accessors. The admission, hard-cap, and refill paths gate on HasLimit then
         // read GetLimit; the filter-row / per-item editor UI uses the same pair. Limits are always
@@ -157,7 +188,7 @@ namespace PrecisionStockpileControl
             {
                 foreach (var kv in limits)
                     if (kv.Value != null && !kv.Value.IsDefault) return true;
-                return false;
+                return HasAnyGroup;
             }
         }
 
@@ -170,8 +201,138 @@ namespace PrecisionStockpileControl
             {
                 foreach (var kv in limits)
                     if (kv.Value != null && !kv.Value.IsDefault && kv.Value.Upper.HasValue) return true;
+                if (limitGroups != null)
+                    for (int i = 0; i < limitGroups.Count; i++)
+                    {
+                        var g = limitGroups[i];
+                        if (g != null && g.limit != null && !g.limit.IsDefault && g.limit.Upper.HasValue) return true;
+                    }
                 return false;
             }
+        }
+
+        // ---- Limit groups: reverse-index management + the effective-limit resolver ----
+        // The resolver is the single seam that makes every enforcement site group-aware without
+        // rewriting each one: a grouped def reports its GROUP's limit and the GROUP-SUM count; an
+        // ungrouped def falls through to the exact per-def behaviour. The hot-path miss is one
+        // TryGetValue, allocation-free.
+
+        // The group `def` belongs to, or null. O(1).
+        public PscLimitGroup GroupOf(ThingDef def)
+            => def != null && defToGroup.TryGetValue(def, out var g) ? g : null;
+
+        // Effective "has a limit": grouped (non-default shared limit) OR an individual per-def limit.
+        public bool HasEffectiveLimit(ThingDef def)
+        {
+            if (def == null) return false;
+            if (defToGroup.TryGetValue(def, out var g)) return g.limit != null && !g.limit.IsDefault;
+            return HasLimit(def);
+        }
+
+        // The limit that governs `def`: the group's shared limit if grouped, else the per-def limit.
+        public PscDefLimit GetEffectiveLimit(ThingDef def)
+        {
+            if (def != null && defToGroup.TryGetValue(def, out var g)) return g.limit;
+            return GetLimit(def);
+        }
+
+        // Refill state that governs `def`: the group's shared refill if grouped, else the per-def one.
+        public bool IsRefillingEffective(ThingDef def)
+        {
+            if (def != null && defToGroup.TryGetValue(def, out var g))
+                return g.limit != null && g.limit.refill == PscRefillState.Refilling;
+            return IsRefilling(def);
+        }
+
+        // Rebuild defToGroup from limitGroups: resolve each group's members, enforce "at most one group
+        // per def" (first claim wins; later/duplicate claims dropped), and strip every grouped def from
+        // the per-def `limits` dict (a grouped def is never also individually limited). Cheap; called on
+        // load and after every group edit, never on the hot path.
+        public void RebuildGroupIndex()
+        {
+            defToGroup.Clear();
+            if (limitGroups == null) { limitGroups = new List<PscLimitGroup>(); return; }
+            for (int gi = 0; gi < limitGroups.Count; gi++)
+            {
+                var g = limitGroups[gi];
+                if (g == null) continue;
+                g.ResolveMembers();
+                var kept = new List<ThingDef>(g.members.Count);
+                for (int i = 0; i < g.members.Count; i++)
+                {
+                    var d = g.members[i];
+                    if (d == null || defToGroup.ContainsKey(d)) continue;   // missing, dup, or cross-group
+                    defToGroup[d] = g;
+                    limits.Remove(d);                                       // group overrides per-def
+                    kept.Add(d);
+                }
+                g.members = kept;
+                g.SyncNames();
+            }
+        }
+
+        // Full normalize: rebuild the index, drop groups below the 2-member minimum (a single survivor's
+        // shared limit converts back to a per-def limit so a cap doesn't silently vanish), assign/dedupe
+        // letters, then rebuild once more since membership/limits may have changed. Called from
+        // PostLoadInit and after any membership mutation.
+        public void NormalizeGroups()
+        {
+            RebuildGroupIndex();
+            PruneDegenerateGroups();
+            AssignGroupLetters();
+            RebuildGroupIndex();
+            MarkAllDirty();
+        }
+
+        private void PruneDegenerateGroups()
+        {
+            if (limitGroups == null) return;
+            for (int i = limitGroups.Count - 1; i >= 0; i--)
+            {
+                var g = limitGroups[i];
+                if (g == null) { limitGroups.RemoveAt(i); continue; }
+                if (g.members.Count >= 2) continue;
+                // 1 survivor with a real cap -> preserve it as a per-def limit; 0 -> just drop.
+                if (g.members.Count == 1 && g.limit != null && !g.limit.IsDefault)
+                {
+                    var d = g.members[0];
+                    if (d != null && !limits.ContainsKey(d)) limits[d] = g.limit.Clone();
+                }
+                limitGroups.RemoveAt(i);
+            }
+        }
+
+        // Ensure every group has a unique letter, keeping valid existing ones and reassigning blanks /
+        // collisions deterministically by list order (so a corrupt save heals predictably).
+        private void AssignGroupLetters()
+        {
+            if (limitGroups == null) return;
+            var used = new HashSet<string>();
+            for (int i = 0; i < limitGroups.Count; i++)
+            {
+                var g = limitGroups[i];
+                if (g == null) continue;
+                if (!string.IsNullOrEmpty(g.letter) && used.Add(g.letter)) continue;
+                g.letter = NextFreeLetter(used);
+                used.Add(g.letter);
+            }
+        }
+
+        // Lowest free A..Z, then two-char AA, AB, … past 26 groups in one unit.
+        private static string NextFreeLetter(HashSet<string> used)
+        {
+            for (char c = 'A'; c <= 'Z'; c++)
+            {
+                string s = c.ToString();
+                if (!used.Contains(s)) return s;
+            }
+            for (char a = 'A'; a <= 'Z'; a++)
+                for (char b = 'A'; b <= 'Z'; b++)
+                {
+                    string s = string.Concat(a, b);
+                    if (!used.Contains(s)) return s;
+                }
+            return "?";
         }
 
         // ---- Dirty marking (cheap; called from drift-seam patches) ----
@@ -230,6 +391,87 @@ namespace PrecisionStockpileControl
             return n + (reservedInbound.TryGetValue(def, out var r) ? r : 0);
         }
 
+        // Group-aware physical count: the GROUP-SUM (Σ members) if `def` is grouped, else the per-def
+        // count. Effective = physical + reserved-inbound, summed the same way (reservation stays keyed
+        // per member def, so it rolls up naturally and the effective >= physical invariant holds).
+        public int GetGroupAwareCount(ThingDef def, PscHaulUnit unit)
+        {
+            if (def != null && defToGroup.TryGetValue(def, out var g)) return GroupCount(g, unit);
+            return GetCount(def, unit);
+        }
+
+        public int GetGroupAwareEffectiveCount(ThingDef def, PscHaulUnit unit)
+        {
+            if (def != null && defToGroup.TryGetValue(def, out var g)) return GroupEffectiveCount(g, unit);
+            return GetEffectiveCount(def, unit);
+        }
+
+        private int GroupCount(PscLimitGroup g, PscHaulUnit unit)
+        {
+            int sum = 0;
+            var ms = g.members;
+            for (int i = 0; i < ms.Count; i++) { var d = ms[i]; if (d != null) sum += GetCount(d, unit); }
+            return sum;
+        }
+
+        private int GroupEffectiveCount(PscLimitGroup g, PscHaulUnit unit)
+        {
+            int sum = 0;
+            var ms = g.members;
+            for (int i = 0; i < ms.Count; i++) { var d = ms[i]; if (d != null) sum += GetEffectiveCount(d, unit); }
+            return sum;
+        }
+
+        // Over-cap drain budget for `def` in `unit` (physical). Ungrouped: count - per-def upper.
+        // Grouped: the group is over its SHARED cap by (groupSum - upper), but to avoid an N-fold
+        // double-drain (every member reading misplaced and removing the full excess), only ONE member
+        // — the largest by count, tie-broken by shortHash — is ever the drain member, and its budget is
+        // clamped to its own count. The admission misplaced-flag and the haul-count clamp both call
+        // this, so they always pick the same member and can't drift. Returns false (excess 0) when not
+        // draining. Each recompute shrinks the budget; the group converges to exactly the cap.
+        public bool TryGetDrainExcess(ThingDef def, PscHaulUnit unit, out int excess)
+        {
+            excess = 0;
+            if (def == null) return false;
+            if (defToGroup.TryGetValue(def, out var g))
+            {
+                if (g.limit == null || !g.limit.Upper.HasValue) return false;
+                int over = GroupCount(g, unit) - g.limit.Upper.Value;
+                if (over <= 0) return false;
+                if (SelectDrainMember(g, unit) != def) return false;     // only the chosen member drains
+                excess = Mathf.Min(over, GetCount(def, unit));
+                return excess > 0;
+            }
+            var lim = GetLimit(def);
+            if (lim == null || !lim.Upper.HasValue) return false;
+            int n = GetCount(def, unit);
+            if (n <= lim.Upper.Value) return false;
+            excess = n - lim.Upper.Value;
+            return true;
+        }
+
+        // The single deterministic drain member: largest current count, tie-broken by the lower
+        // shortHash so admission and the clamp agree frame-to-frame.
+        private ThingDef SelectDrainMember(PscLimitGroup g, PscHaulUnit unit)
+        {
+            ThingDef best = null;
+            int bestCount = -1;
+            var ms = g.members;
+            for (int i = 0; i < ms.Count; i++)
+            {
+                var d = ms[i];
+                if (d == null) continue;
+                int c = GetCount(d, unit);
+                if (c <= 0) continue;
+                if (c > bestCount || (c == bestCount && (best == null || d.shortHash < best.shortHash)))
+                {
+                    best = d;
+                    bestCount = c;
+                }
+            }
+            return best;
+        }
+
         public int GetReservedInbound(ThingDef def)
             => reservedInbound.TryGetValue(def, out var r) ? r : 0;
 
@@ -276,11 +518,44 @@ namespace PrecisionStockpileControl
             foreach (var kv in limits)
             {
                 counts.TryGetValue(kv.Key, out var c);
-                UpdateRefilling(kv.Key, c, kv.Value);
+                UpdateRefilling(kv.Value, c);
+            }
+            // Group pass: one refill state per group, derived from the member SUM. Member counts are
+            // already in `counts` from the single HeldThings walk above, so this adds no scan.
+            if (limitGroups != null)
+            {
+                for (int gi = 0; gi < limitGroups.Count; gi++)
+                {
+                    var g = limitGroups[gi];
+                    if (g == null || g.limit == null) continue;
+                    int sum = 0;
+                    var ms = g.members;
+                    for (int i = 0; i < ms.Count; i++)
+                    {
+                        var d = ms[i];
+                        if (d == null) continue;
+                        counts.TryGetValue(d, out var c);
+                        sum += c;
+                    }
+                    UpdateRefilling(g.limit, sum);
+                }
             }
         }
 
         private void RecomputeDef(ThingDef def, PscHaulUnit unit)
+        {
+            RecountDef(def, unit);
+            // A grouped def carries no per-def limit; its hysteresis lives on the GROUP, recomputed
+            // against the full member sum whenever ANY member is dirtied.
+            var g = GroupOf(def);
+            if (g != null) { UpdateGroupRefilling(g, unit); return; }
+            counts.TryGetValue(def, out var c);
+            UpdateRefilling(GetLimit(def), c);
+        }
+
+        // Recount one def into `counts` and clear its dirty flag — WITHOUT touching refill, so the
+        // group-refill path can force dirty siblings fresh without re-entering RecomputeDef.
+        private void RecountDef(ThingDef def, PscHaulUnit unit)
         {
             int sum = 0;
             if (unit.IsValid)
@@ -296,7 +571,24 @@ namespace PrecisionStockpileControl
             }
             counts[def] = sum;
             dirtyDefs.Remove(def);
-            UpdateRefilling(def, sum, GetLimit(def));
+        }
+
+        // Recompute a group's single refill state from its member sum, forcing any still-dirty sibling
+        // fresh via the inner RecountDef (never the public GetCount, which would re-enter RecomputeDef).
+        private void UpdateGroupRefilling(PscLimitGroup g, PscHaulUnit unit)
+        {
+            if (g.limit == null) return;
+            int sum = 0;
+            var ms = g.members;
+            for (int i = 0; i < ms.Count; i++)
+            {
+                var d = ms[i];
+                if (d == null) continue;
+                if (dirtyDefs.Contains(d)) RecountDef(d, unit);
+                counts.TryGetValue(d, out var c);
+                sum += c;
+            }
+            UpdateRefilling(g.limit, sum);
         }
 
         // Hysteresis edge logic (D15), writing the PERSISTED lim.refill: ON (Refilling) at count <= lower,
@@ -305,7 +597,9 @@ namespace PrecisionStockpileControl
         // => Unset (admission ignores it). In the open band a KNOWN state is kept (the whole point of
         // hysteresis, now persistent); a still-Unset def there is treated as "never evaluated" and defaults
         // to filling, so a brand-new/pre-field limit fills to upper before the OFF edge can ever fire.
-        private void UpdateRefilling(ThingDef def, int count, PscDefLimit lim)
+        // The edge logic is keyed only on (count, lim) — it never used `def`. The 2-arg overload is the
+        // real body; the group pass and per-def pass both call it (per-def or shared-group limit alike).
+        private void UpdateRefilling(PscDefLimit lim, int count)
         {
             if (lim == null || !lim.Lower.HasValue) { if (lim != null) lim.refill = PscRefillState.Unset; return; }
             if (lim.Upper.HasValue && count >= lim.Upper.Value) lim.refill = PscRefillState.Satisfied;
@@ -344,6 +638,28 @@ namespace PrecisionStockpileControl
             }
         }
 
+        // Seeds refill ON for every group from current contents (paste / migration). The whole-set
+        // analogue of Notify_GroupLimitSet, paired with Notify_LimitsSeeded on the paste path.
+        public void Notify_GroupsSeeded(PscHaulUnit unit)
+        {
+            if (limitGroups == null) return;
+            for (int gi = 0; gi < limitGroups.Count; gi++)
+                Notify_GroupLimitSet(limitGroups[gi], unit);
+        }
+
+        // Group analogue of Notify_LimitSet: seed a group's shared refill ON from the member sum when
+        // its limit is created/changed via the UI (fresh policy fills up before hysteresis takes over).
+        public void Notify_GroupLimitSet(PscLimitGroup g, PscHaulUnit unit)
+        {
+            MarkAllDirty();
+            if (g?.limit == null || !g.limit.Lower.HasValue) return;
+            int sum = 0;
+            var ms = g.members;
+            for (int i = 0; i < ms.Count; i++) { var d = ms[i]; if (d != null) sum += GetCount(d, unit); }
+            g.limit.refill = (g.limit.Upper.HasValue && sum >= g.limit.Upper.Value)
+                ? PscRefillState.Satisfied : PscRefillState.Refilling;
+        }
+
         // Tightens every per-def limit to what this unit can physically hold, matching the limit
         // editor's slider cap (slots * stackLimit). Called on paste so a policy copied from a larger
         // unit cannot leave an over-capacity number on a smaller one. slots is floored by the current
@@ -363,6 +679,24 @@ namespace PrecisionStockpileControl
                 PscDefLimit.ClampPair(ref lo, ref up, max);
                 lim.Lower = lo;
                 lim.Upper = up;
+            }
+            // Groups: a shared total spans defs, so cap against slots * the largest member stackLimit
+            // (a generous unit-capacity basis — the hard cap still enforces real physical room).
+            if (limitGroups != null)
+            {
+                for (int gi = 0; gi < limitGroups.Count; gi++)
+                {
+                    var g = limitGroups[gi];
+                    if (g?.limit == null || g.limit.IsDefault) continue;
+                    int maxStack = 1;
+                    for (int i = 0; i < g.members.Count; i++)
+                        if (g.members[i] != null) maxStack = Mathf.Max(maxStack, g.members[i].stackLimit);
+                    int max = slots * maxStack;
+                    int? lo = g.limit.Lower, up = g.limit.Upper;
+                    PscDefLimit.ClampPair(ref lo, ref up, max);
+                    g.limit.Lower = lo;
+                    g.limit.Upper = up;
+                }
             }
             MarkAllDirty();
         }
@@ -385,10 +719,27 @@ namespace PrecisionStockpileControl
             mode = other.mode;
             perTileLimit = other.perTileLimit;
             alarm = (other.alarm != null && other.alarm.IsActive) ? other.alarm.Clone() : null;
+            CopyGroupsFrom(other);
             // refill state rides each cloned PscDefLimit and is reset to Unset by Clone (fresh policy, not a
-            // restore); the caller re-seeds it via Notify_LimitsSeeded.
+            // restore); the caller re-seeds it via Notify_LimitsSeeded / Notify_GroupLimitSet.
             reservedInbound.Clear();
             MarkAllDirty();
+        }
+
+        // Deep-copy limit groups from `other` and rebuild the reverse index (which also strips any
+        // grouped def from the freshly-copied `limits`). Shared by CopyPolicyFrom and CopyScopedFrom.
+        private void CopyGroupsFrom(PscStorageData other)
+        {
+            limitGroups = new List<PscLimitGroup>();
+            if (other?.limitGroups != null)
+            {
+                for (int i = 0; i < other.limitGroups.Count; i++)
+                {
+                    var g = other.limitGroups[i];
+                    if (g != null && g.limit != null && !g.limit.IsDefault) limitGroups.Add(g.Clone());
+                }
+            }
+            RebuildGroupIndex();
         }
 
         // Scoped copy for the right-click "paste only some settings" menu. Replaces the IN-SCOPE fields
@@ -398,7 +749,7 @@ namespace PrecisionStockpileControl
         // (PscScopedPaste.Apply).
         public void CopyScopedFrom(PscStorageData other, PscPasteScope scope)
         {
-            // Items & limits — every scope.
+            // Items & limits — every scope (groups are a limits facet, so they copy here too).
             limits = new Dictionary<ThingDef, PscDefLimit>();
             if (other != null)
             {
@@ -408,6 +759,7 @@ namespace PrecisionStockpileControl
                         limits[kv.Key] = kv.Value.Clone();
                 }
             }
+            CopyGroupsFrom(other);
 
             // Routes scope and wider — the pull-only / push-only flags.
             if (scope >= PscPasteScope.ItemsLimitsRoutes)
@@ -464,6 +816,19 @@ namespace PrecisionStockpileControl
                 Scribe_Deep.Look(ref alarm, "alarm");
             }
 
+            // Limit groups: write the <groups> node only when non-empty (write-nothing-when-empty), so a
+            // groupless unit and a removed-mod save stay clean. Members persist as defNames inside each
+            // PscLimitGroup (LookMode.Value), so a missing content def loads silently.
+            if (Scribe.mode == LoadSaveMode.Saving)
+            {
+                if (limitGroups != null && limitGroups.Count > 0)
+                    Scribe_Collections.Look(ref limitGroups, "groups", LookMode.Deep);
+            }
+            else
+            {
+                Scribe_Collections.Look(ref limitGroups, "groups", LookMode.Deep);
+            }
+
             if (Scribe.mode == LoadSaveMode.PostLoadInit)
             {
                 if (limits == null) limits = new Dictionary<ThingDef, PscDefLimit>();
@@ -477,6 +842,12 @@ namespace PrecisionStockpileControl
                 if (toRemove != null)
                     foreach (var k in toRemove) limits.Remove(k);
                 if (perTileLimit < 0) perTileLimit = 0;   // defensive: a stray negative degrades to off
+                // Groups self-heal: resolve member names, drop unresolved, prune groups under the
+                // 2-member minimum (1 survivor -> per-def limit), dedupe letters, strip grouped defs from
+                // `limits`, and rebuild the reverse index. Runs after the limits prune so a def claimed by
+                // both heals group-wins-and-strip-limits.
+                if (limitGroups == null) limitGroups = new List<PscLimitGroup>();
+                NormalizeGroups();
                 allDirty = true;
                 reservedInbound.Clear();   // runtime-only; rebuilt from active jobs after load
             }

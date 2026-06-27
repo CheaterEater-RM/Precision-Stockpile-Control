@@ -143,25 +143,26 @@ namespace PrecisionStockpileControl
             var data = PscStorageDataStore.TryGet(canon.Settings);
             var sourceData = sourceUnit.IsValid ? PscStorageDataStore.TryGet(sourceUnit.Settings) : null;
             bool sourceHasBatchEmpty = sourceData != null && sourceData.batchEmpty > 0;
-            bool sourceHasLimit = sourceData != null && sourceData.HasLimit(t.def);
+            bool sourceHasLimit = sourceData != null && sourceData.HasEffectiveLimit(t.def);
             // The target-keyed clamps need a limit or fill-batch; the source-keyed batch-empty cancel and
             // the source-over-cap drain clamp below must run even when the target has no PSC policy, so
             // they can't share a single early-out.
-            bool targetHasClampPolicy = data != null && (data.HasLimit(t.def) || data.batch > 0);
+            bool targetHasClampPolicy = data != null && (data.HasEffectiveLimit(t.def) || data.batch > 0);
             if (!targetHasClampPolicy && !sourceHasBatchEmpty && !sourceHasLimit) return;
 
             if (data != null)
             {
-                // Upper clamp — cap the planned count so the trip never plans past the maximum.
-                if (data.HasLimit(t.def))
+                // Upper clamp — cap the planned count so the trip never plans past the maximum. Group-aware:
+                // a grouped def clamps against the GROUP's shared cap and the GROUP-SUM room.
+                if (data.HasEffectiveLimit(t.def))
                 {
-                    var lim = data.GetLimit(t.def);
+                    var lim = data.GetEffectiveLimit(t.def);
                     if (lim.Upper.HasValue)
                     {
                         // Effective room (physical + reserved-inbound). The current job is NOT yet
                         // registered (that happens after all clamps below), so this excludes its own
                         // reservation -> automatic self-exclusion. No-op when the feature is off.
-                        int room = Math.Max(0, lim.Upper.Value - data.GetEffectiveCount(t.def, targetUnit));
+                        int room = Math.Max(0, lim.Upper.Value - data.GetGroupAwareEffectiveCount(t.def, targetUnit));
                         if (room <= 0)
                         {
                             // No room (reservation-overshoot window between admission and job build):
@@ -199,13 +200,11 @@ namespace PrecisionStockpileControl
             // misplaced and this trip is draining it. Compute the excess once; reads the cached count, no
             // scan. srcExcess <= 0 means the source is within cap (a normal haul-out), so neither the
             // drain clamp nor the batch-empty exemption below engages.
+            // Group-aware via TryGetDrainExcess: per-def gives count-over-cap; a group gives the single
+            // deterministic drain member's clamped excess (and 0 for every other member, so only the one
+            // chosen member's drain trip is clamped — no N-fold over-drain).
             int srcExcess = 0;
-            if (sourceHasLimit)
-            {
-                var srcLim = sourceData.GetLimit(t.def);
-                if (srcLim.Upper.HasValue)
-                    srcExcess = Math.Max(0, sourceData.GetCount(t.def, sourceUnit) - srcLim.Upper.Value);
-            }
+            if (sourceHasLimit) sourceData.TryGetDrainExcess(t.def, sourceUnit, out srcExcess);
 
             // Drain clamp: clamp an over-cap drain to exactly the excess so a single hauler lands the
             // source on its cap rather than overshooting below it (which could otherwise re-trigger refill

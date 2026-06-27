@@ -28,7 +28,7 @@ namespace PrecisionStockpileControl
         private int perTileVal;
         private string perTileBuf = "0";
 
-        public override Vector2 InitialSize => new Vector2(520f, 380f);
+        public override Vector2 InitialSize => new Vector2(520f, 440f);
 
         public PscControlWindow(StorageSettings settings, PscHaulUnit unit, QuickSearchFilter search)
         {
@@ -148,6 +148,21 @@ namespace PrecisionStockpileControl
             GUI.color = Color.white;
             Text.Font = GameFont.Small;
 
+            // Group these (search only): bundle the matched items into one limit group with a shared
+            // COMBINED total, then open the group editor to set that total (pooled, raw items).
+            if (searching)
+            {
+                list.Gap(8f);
+                var groupRow = list.GetRect(30f);
+                if (Widgets.ButtonText(groupRow, "PSC_GroupThese".Translate())) GroupCurrent();
+                Text.Font = GameFont.Tiny;
+                GUI.color = PscUiTheme.NoteText;
+                list.Gap(2f);
+                list.Label("PSC_GroupTheseHint".Translate());
+                GUI.color = Color.white;
+                Text.Font = GameFont.Small;
+            }
+
             list.End();
         }
 
@@ -199,6 +214,24 @@ namespace PrecisionStockpileControl
             for (int i = 0; i < defs.Count; i++)
                 PscEdit.ApplyLimit(settings, unit, defs[i], editor.ToLimit(defs[i]));
             PscMapComponent.NotifyPolicyChanged(settings);
+        }
+
+        // Bundle the matched (or all allowed) items into a new limit group, then open the group editor to
+        // set the shared combined total. Created with no limit so the total is set once, pooled (raw
+        // items) — avoids the per-def stack conversion ambiguity of this window's editor.
+        private void GroupCurrent()
+        {
+            var defs = new List<ThingDef>(CurrentDefs());
+            var g = PscEdit.CreateGroup(settings, unit, defs, new PscDefLimit());
+            if (g != null)
+            {
+                Find.WindowStack.WindowOfType<PscGroupEditorWindow>()?.Close(false);
+                Find.WindowStack.Add(new PscGroupEditorWindow(settings, unit, g));
+            }
+            else
+            {
+                Messages.Message("PSC_GroupNeedsTwo".Translate(), MessageTypeDefOf.RejectInput, false);
+            }
         }
 
         // Clear the limit across the current set. With a search active we also un-allow the matched

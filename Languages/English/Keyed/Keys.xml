@@ -177,8 +177,34 @@
   <!-- Per-item / category limit submenu (right-click a filter row or category) -->
   <PSC_Apply>Apply</PSC_Apply>
   <PSC_Cancel>Cancel</PSC_Cancel>
+  <PSC_Close>Close</PSC_Close>
   <PSC_AllowClear>✓ Allow, no limit</PSC_AllowClear>
   <PSC_DisallowClear>✗ Disallow</PSC_DisallowClear>
+
+  <!-- Limit groups: several items sharing ONE limit on their combined total -->
+  <PSC_GroupThese>Group these (shared total)</PSC_GroupThese>
+  <PSC_GroupTheseHint>Bundles every item matching the search into one group with a single shared limit on their combined total. You'll set that total next.</PSC_GroupTheseHint>
+  <PSC_GroupNeedsTwo>A group needs at least two item types.</PSC_GroupNeedsTwo>
+  <PSC_GroupCombinedNote>This limit is the COMBINED total across all items in the group, counted in items.</PSC_GroupCombinedNote>
+  <PSC_SliderHintGroup>Leave an end blank for: always refill / fill to maximum. The value is the combined item total across the whole group.</PSC_SliderHintGroup>
+  <!-- Group editor window -->
+  <PSC_GroupEditorTitle>Limit group {0}</PSC_GroupEditorTitle>
+  <PSC_GroupName>Name (optional)</PSC_GroupName>
+  <PSC_GroupMembersHeader>Members ({0})</PSC_GroupMembersHeader>
+  <PSC_GroupAddHeader>Add an item (type to search):</PSC_GroupAddHeader>
+  <PSC_GroupUngroup>Ungroup</PSC_GroupUngroup>
+  <!-- Row / category right-click float menu -->
+  <PSC_EditItemLimit>Edit item limit…</PSC_EditItemLimit>
+  <PSC_EditGroupLimit>Edit group {0}…</PSC_EditGroupLimit>
+  <PSC_EditCategoryLimits>Edit category limits…</PSC_EditCategoryLimits>
+  <PSC_AddToGroupX>Add to group {0}</PSC_AddToGroupX>
+  <PSC_RemoveFromGroup>Remove from group</PSC_RemoveFromGroup>
+  <PSC_CreateGroupFromCategory>Create group from category…</PSC_CreateGroupFromCategory>
+  <!-- Group row label tooltip -->
+  <PSC_GroupTitleLetter>Limit group {0}</PSC_GroupTitleLetter>
+  <PSC_GroupTitleNamed>Limit group {0}: {1}</PSC_GroupTitleNamed>
+  <PSC_GroupCombinedRange>Combined total across {2} item type(s), kept between {0} and {1}.</PSC_GroupCombinedRange>
+  <PSC_GroupMembers>Members:</PSC_GroupMembers>
 
   <!-- Stockpile alarm (gizmo + dialog): alert when a storage gets too full or too empty -->
   <PSC_Alarm_GizmoLabel>Stockpile alarm</PSC_Alarm_GizmoLabel>

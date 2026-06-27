@@ -45,6 +45,9 @@ namespace PrecisionStockpileControl
         private const int GenericItemMax = 5000;
 
         public bool stacksMode = true;
+        // Pooled mode (limit groups): the limit is a single RAW item total spanning several defs, so
+        // there is no per-def stack conversion and no items/stacks toggle — always items.
+        public bool pooled;
         public int? lowerVal;
         public int? upperVal;
         public string lowerBuf = "";
@@ -53,33 +56,45 @@ namespace PrecisionStockpileControl
         public void Draw(Listing_Standard list, PscHaulUnit unit, PscLimitEditorTarget target = null)
         {
             target ??= new PscLimitEditorTarget();
-            if (!target.ItemsModeAllowed && !stacksMode)
+            if (pooled)
             {
-                ConvertItemsToStacks(target);
-                stacksMode = true;
-            }
-
-            Rect modeRect = list.GetRect(Text.LineHeight);
-            Rect modeLabel = modeRect.LeftHalf().Rounded();
-            Rect modeButton = modeRect.RightHalf().Rounded();
-            Widgets.Label(modeLabel, "PSC_Mode".Translate());
-            bool prevEnabled = GUI.enabled;
-            GUI.enabled = prevEnabled && target.ItemsModeAllowed;
-            if (Widgets.ButtonText(modeButton, (stacksMode ? "PSC_ModeStacks" : "PSC_ModeItems").Translate()))
-            {
-                ToggleMode(target);
-            }
-            GUI.enabled = prevEnabled;
-            if (target.ItemsModeAllowed)
-                TooltipHandler.TipRegion(modeButton, "PSC_CountByTip".Translate());
-            if (!target.ItemsModeAllowed)
-            {
-                TooltipHandler.TipRegion(modeButton, "PSC_ItemsModeMixedStacksTip".Translate());
+                stacksMode = false;
                 Text.Font = GameFont.Tiny;
                 GUI.color = PscUiTheme.NoteText;
-                list.Label("PSC_ItemsModeMixedStacksTip".Translate());
+                list.Label("PSC_GroupCombinedNote".Translate());
                 GUI.color = Color.white;
                 Text.Font = GameFont.Small;
+            }
+            else
+            {
+                if (!target.ItemsModeAllowed && !stacksMode)
+                {
+                    ConvertItemsToStacks(target);
+                    stacksMode = true;
+                }
+
+                Rect modeRect = list.GetRect(Text.LineHeight);
+                Rect modeLabel = modeRect.LeftHalf().Rounded();
+                Rect modeButton = modeRect.RightHalf().Rounded();
+                Widgets.Label(modeLabel, "PSC_Mode".Translate());
+                bool prevEnabled = GUI.enabled;
+                GUI.enabled = prevEnabled && target.ItemsModeAllowed;
+                if (Widgets.ButtonText(modeButton, (stacksMode ? "PSC_ModeStacks" : "PSC_ModeItems").Translate()))
+                {
+                    ToggleMode(target);
+                }
+                GUI.enabled = prevEnabled;
+                if (target.ItemsModeAllowed)
+                    TooltipHandler.TipRegion(modeButton, "PSC_CountByTip".Translate());
+                if (!target.ItemsModeAllowed)
+                {
+                    TooltipHandler.TipRegion(modeButton, "PSC_ItemsModeMixedStacksTip".Translate());
+                    Text.Font = GameFont.Tiny;
+                    GUI.color = PscUiTheme.NoteText;
+                    list.Label("PSC_ItemsModeMixedStacksTip".Translate());
+                    GUI.color = Color.white;
+                    Text.Font = GameFont.Small;
+                }
             }
 
             int sliderMax = SliderMax(unit, target);
@@ -115,11 +130,22 @@ namespace PrecisionStockpileControl
             return new PscDefLimit { Upper = upper, Lower = lower };
         }
 
+        // Pooled (group) read-out: the stored value IS the raw item total, so no stack conversion.
+        public PscDefLimit ToRawLimit()
+        {
+            int? upper = upperVal.HasValue ? Mathf.Max(1, upperVal.Value) : (int?)null;
+            int? lower = lowerVal.HasValue ? Mathf.Max(0, lowerVal.Value) : (int?)null;
+            if (upper.HasValue && lower.HasValue && lower.Value > upper.Value) lower = upper;
+            return new PscDefLimit { Upper = upper, Lower = lower };
+        }
+
         public void LoadFrom(PscDefLimit lim, PscLimitEditorTarget target = null)
         {
             target ??= new PscLimitEditorTarget();
             lowerVal = lim != null && lim.Lower.HasValue ? lim.Lower.Value : (int?)null;
             upperVal = lim != null && lim.Upper.HasValue ? lim.Upper.Value : (int?)null;
+            // Pooled: raw item totals, no conversion and no items/stacks toggle.
+            if (pooled) { stacksMode = false; SyncBuffers(); return; }
             // Default to stacks mode so the displayed unit stays stable as the selection changes (the
             // player can toggle to items when a single stack size makes it available). The stored value
             // is in items, so convert for display when we have a stack basis; fall back to items only
@@ -229,6 +255,7 @@ namespace PrecisionStockpileControl
         private int SliderMax(PscHaulUnit unit, PscLimitEditorTarget target)
         {
             int slots = StackSlots(unit);
+            if (pooled) return GenericItemMax;          // raw item total; text field is the precise input
             if (stacksMode) return Mathf.Max(1, slots);
             if (target.HasStackContext) return Mathf.Max(1, slots * target.StackLimit);
             return GenericItemMax;
@@ -241,6 +268,7 @@ namespace PrecisionStockpileControl
 
         private string SliderHint(PscLimitEditorTarget target)
         {
+            if (pooled) return "PSC_SliderHintGroup".Translate();
             if (target.mixedStackLimits) return "PSC_SliderHintMixedStacks".Translate();
             if (!target.HasStackContext)
             {

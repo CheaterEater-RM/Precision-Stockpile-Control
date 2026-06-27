@@ -562,8 +562,11 @@ namespace PrecisionStockpileControl
                 def = job.targetA.Thing?.def;
                 amount = job.count;
             }
-            if (def == null || amount <= 0 || !data.HasLimit(def)) return false;
-            var lim = data.GetLimit(def);
+            // Group-aware: a grouped member has no per-def limit, but its in-flight haul still reserves
+            // against the group's shared cap. Without this the periodic rebuild would clear a grouped
+            // reservation and never re-accrue it, reopening the overshoot window.
+            if (def == null || amount <= 0 || !data.HasEffectiveLimit(def)) return false;
+            var lim = data.GetEffectiveLimit(def);
             if (lim == null || !lim.Upper.HasValue) return false;
             data.AddReservedInbound(def, amount);
             return true;

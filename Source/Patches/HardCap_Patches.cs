@@ -25,8 +25,8 @@ namespace PrecisionStockpileControl
             unit = PscHaulUnit.ResolveCell(cell, map);
             if (!unit.IsValid) return false;
             data = PscStorageDataStore.TryGet(unit.Settings);
-            if (data == null || !data.HasLimit(def)) return false;
-            lim = data.GetLimit(def);
+            if (data == null || !data.HasEffectiveLimit(def)) return false;   // per-def OR a limit group
+            lim = data.GetEffectiveLimit(def);                                // group's shared limit if grouped
             if (lim == null || !lim.Upper.HasValue) return false;
             return true;
         }
@@ -40,9 +40,11 @@ namespace PrecisionStockpileControl
         {
             room = int.MaxValue;
             if (!TryGetUpperLimit(cell, map, def, out var unit, out var data, out var lim)) return false;
+            // Group-aware "used": for a grouped def this is the GROUP SUM vs the shared cap, so the drop
+            // cap and the room probe enforce the pooled total, not one member.
             int used = (includeReserved && PscMod.Settings.reservedFillCounting)
-                ? data.GetEffectiveCount(def, unit)
-                : data.GetCount(def, unit);
+                ? data.GetGroupAwareEffectiveCount(def, unit)
+                : data.GetGroupAwareCount(def, unit);
             room = Math.Max(0, lim.Upper.Value - used);
             return true;
         }

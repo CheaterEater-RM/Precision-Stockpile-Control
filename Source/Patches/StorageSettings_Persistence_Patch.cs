@@ -69,6 +69,7 @@ namespace PrecisionStockpileControl
                     // then re-derive hysteresis against the clamped upper (clamp must precede seed).
                     data.ClampLimitsToCapacity(unit);
                     data.Notify_LimitsSeeded(unit);
+                    data.Notify_GroupsSeeded(unit);
                 }
             }
             PscMapComponent.NotifyPolicyChanged(__instance);

@@ -1,3 +1,4 @@
+using System.Text;
 using RimWorld;
 using UnityEngine;
 using Verse;
@@ -106,6 +107,47 @@ namespace PrecisionStockpileControl
             string lo = lim != null && lim.Lower.HasValue ? FormatItemsStacks(lim.Lower.Value, stackLimit.Value) : "";
             string hi = lim != null && lim.Upper.HasValue ? FormatItemsStacks(lim.Upper.Value, stackLimit.Value) : "";
             return lo + "-" + hi;
+        }
+
+        // Compact group row label: "A: 100-125" — the letter plus the shared limit as RAW item totals.
+        // Stack-count parens are deliberately omitted for groups (meaningless across mixed stack sizes).
+        public static string CompactGroupLimit(PscLimitGroup g)
+        {
+            if (g == null) return "";
+            string lo = g.limit != null && g.limit.Lower.HasValue ? g.limit.Lower.Value.ToString() : "";
+            string hi = g.limit != null && g.limit.Upper.HasValue ? g.limit.Upper.Value.ToString() : "";
+            string prefix = string.IsNullOrEmpty(g.letter) ? "" : g.letter + ": ";
+            return prefix + lo + "-" + hi;
+        }
+
+        // Full group tooltip: titles the group (letter + optional name), states it is a combined total
+        // across N items, then lists the members so "what is A?" resolves on hover.
+        public static string FullGroupLimit(PscLimitGroup g)
+        {
+            if (g == null) return "";
+            string lo = g.limit != null && g.limit.Lower.HasValue ? g.limit.Lower.Value.ToString()
+                : "PSC_Always".Translate().ToString();
+            string hi = g.limit != null && g.limit.Upper.HasValue ? g.limit.Upper.Value.ToString()
+                : "PSC_Maximum".Translate().ToString();
+            var sb = new StringBuilder();
+            sb.Append(string.IsNullOrEmpty(g.name)
+                ? (string)"PSC_GroupTitleLetter".Translate(g.letter)
+                : (string)"PSC_GroupTitleNamed".Translate(g.letter, g.name));
+            sb.Append("\n");
+            sb.Append("PSC_GroupCombinedRange".Translate(lo, hi, g.members.Count));
+            if (g.members.Count > 0)
+            {
+                sb.Append("\n");
+                sb.Append("PSC_GroupMembers".Translate());
+                sb.Append(" ");
+                for (int i = 0; i < g.members.Count; i++)
+                {
+                    if (g.members[i] == null) continue;
+                    if (i > 0) sb.Append(", ");
+                    sb.Append(g.members[i].LabelCap);
+                }
+            }
+            return sb.ToString();
         }
 
         public static string FullLimit(PscDefLimit lim, ThingDef def)

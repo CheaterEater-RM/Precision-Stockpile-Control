@@ -112,6 +112,7 @@ namespace PrecisionStockpileControl
                     // Tighten limits to the destination's capacity before re-deriving hysteresis.
                     tgtData.ClampLimitsToCapacity(pasteUnit);
                     tgtData.Notify_LimitsSeeded(pasteUnit);
+                    tgtData.Notify_GroupsSeeded(pasteUnit);
                 }
                 if (!tgtData.HasPersistentPolicy) PscStorageDataStore.Remove(target);
             }

@@ -72,6 +72,17 @@ namespace PrecisionStockpileControl
                 if (data == null) continue;
                 foreach (var kv in data.limits)
                     if (kv.Value != null && !kv.Value.IsDefault) restricted.Add(kv.Key);
+                // Grouped members carry no per-def `limits` entry, so they MUST be added here too —
+                // otherwise the store-search engine's restricted-def gate skips admission for them and a
+                // group never enforces (the cap/refill/over-cap-drain all run through HardReject).
+                if (data.limitGroups != null)
+                    for (int gi = 0; gi < data.limitGroups.Count; gi++)
+                    {
+                        var g = data.limitGroups[gi];
+                        if (g == null || g.limit == null || g.limit.IsDefault) continue;
+                        for (int mi = 0; mi < g.members.Count; mi++)
+                            if (g.members[mi] != null) restricted.Add(g.members[mi]);
+                    }
                 // Off / RetrieveOnly block haul-in: such a unit can never be an intake candidate (admitIndex only).
                 if (data.mode != PscStorageMode.Normal && data.mode != PscStorageMode.AcceptOnly) continue;
                 var filter = s.filter;
@@ -151,7 +162,7 @@ namespace PrecisionStockpileControl
             // --- Limit / batch gates (M1/M2) ---
             // data was resolved once at the top (TryGet(target)) and TryFeederReject only reads it, so no re-fetch.
             if (data == null) return false;
-            bool hasLimit = data.HasLimit(t.def);
+            bool hasLimit = data.HasEffectiveLimit(t.def);     // per-def OR limit-group membership
             if (!hasLimit && data.batch <= 0) return false;    // no effective limit and no batch -> vanilla
 
             // D16: a unit's own contents are normally always valid. The ONE documented exception (DESIGN §8):
@@ -161,31 +172,29 @@ namespace PrecisionStockpileControl
             // single hauler overshooting below the cap.
             if (sourceIsTarget)
             {
-                if (hasLimit)
+                // Over-cap own contents read as misplaced so vanilla drains the excess (D16/DESIGN §8).
+                // TryGetDrainExcess covers both per-def (count > cap) and the group case (group sum over
+                // the shared cap, with ONLY the single deterministic drain member flagged, so a group
+                // can never N-fold double-drain).
+                if (hasLimit && data.TryGetDrainExcess(t.def, unit, out int drainExcess))
                 {
-                    var ownLim = data.GetLimit(t.def);
-                    if (ownLim.Upper.HasValue)
-                    {
-                        int ownCount = data.GetCount(t.def, unit);
-                        if (ownCount > ownLim.Upper.Value)
-                        {
-                            reason = "overCapDrain";
-                            if (PscLog.Enabled) LogReject(t, unit, reason,
-                                $"limit: draining over-cap {t.def.defName} from {unit.UniqueLoadID} ({ownCount} > cap {ownLim.Upper.Value})");
-                            return true;
-                        }
-                    }
+                    reason = "overCapDrain";
+                    if (PscLog.Enabled) LogReject(t, unit, reason,
+                        $"limit: draining over-cap {t.def.defName} from {unit.UniqueLoadID} (excess {drainExcess})");
+                    return true;
                 }
                 return false;                            // own contents otherwise always valid (D16)
             }
 
             if (hasLimit)
             {
-                var lim = data.GetLimit(t.def);
+                // Group-aware: a grouped def reports its GROUP's shared limit and the GROUP-SUM count;
+                // an ungrouped def reads exactly as before.
+                var lim = data.GetEffectiveLimit(t.def);
                 // Planning gate: effective = physical + reserved-inbound while planning a new haul, so
                 // concurrent haulers don't all admit against the same stale physical count and overshoot the
                 // cap; physical for every other (recheck) caller. No-op when reservation counting is off.
-                int n = planning ? data.GetEffectiveCount(t.def, unit) : data.GetCount(t.def, unit);
+                int n = planning ? data.GetGroupAwareEffectiveCount(t.def, unit) : data.GetGroupAwareCount(t.def, unit);
 
                 // Upper — the maximum (M2 makes this a hard cap at drop time via HardCap_Patches).
                 if (lim.Upper.HasValue && n >= lim.Upper.Value)
@@ -197,7 +206,7 @@ namespace PrecisionStockpileControl
                 }
 
                 // Lower / hysteresis (D15): lower unset => always refill; otherwise require refill state.
-                if (lim.Lower.HasValue && !data.IsRefilling(t.def))
+                if (lim.Lower.HasValue && !data.IsRefillingEffective(t.def))
                 {
                     reason = "hysteresis";
                     if (PscLog.Enabled) LogReject(t, unit, reason,
@@ -222,10 +231,10 @@ namespace PrecisionStockpileControl
                 // batch destination. Capped: cap-room arithmetic (effective while planning). Uncapped: gate on
                 // vanilla PHYSICAL stack space via the bounded PhysicalRoomForDef scan, but only while
                 // planning (an in-flight FailOn recheck must not run the cell scan or self-cancel).
-                var blim = hasLimit ? data.GetLimit(t.def) : null;
+                var blim = hasLimit ? data.GetEffectiveLimit(t.def) : null;
                 if (blim != null && blim.Upper.HasValue)
                 {
-                    int room = blim.Upper.Value - (planning ? data.GetEffectiveCount(t.def, unit) : data.GetCount(t.def, unit));
+                    int room = blim.Upper.Value - (planning ? data.GetGroupAwareEffectiveCount(t.def, unit) : data.GetGroupAwareCount(t.def, unit));
                     if (room < data.batch)
                     {
                         reason = "underBatchRoom";
