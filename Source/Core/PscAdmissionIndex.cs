@@ -66,12 +66,24 @@ namespace PrecisionStockpileControl
             // engine could read it off-main only under a threading caller (vanilla 1.6 is main-thread; PHASE4
             // §6.1), so the live set is published copy-on-write and never mutated in place).
             var restricted = new HashSet<ThingDef>();
+            int groupedMembers = 0;   // diagnostics: grouped member defs folded into restrictedDefs
             foreach (var s in psc.tracked)
             {
                 var data = PscStorageDataStore.TryGet(s);
                 if (data == null) continue;
                 foreach (var kv in data.limits)
                     if (kv.Value != null && !kv.Value.IsDefault) restricted.Add(kv.Key);
+                // Grouped members carry no per-def `limits` entry, so they MUST be added here too —
+                // otherwise the store-search engine's restricted-def gate skips admission for them and a
+                // group never enforces (the cap/refill/over-cap-drain all run through HardReject).
+                if (data.limitGroups != null)
+                    for (int gi = 0; gi < data.limitGroups.Count; gi++)
+                    {
+                        var g = data.limitGroups[gi];
+                        if (g == null || g.limit == null || g.limit.IsDefault) continue;
+                        for (int mi = 0; mi < g.members.Count; mi++)
+                            if (g.members[mi] != null && restricted.Add(g.members[mi])) groupedMembers++;
+                    }
                 // Off / RetrieveOnly block haul-in: such a unit can never be an intake candidate (admitIndex only).
                 if (data.mode != PscStorageMode.Normal && data.mode != PscStorageMode.AcceptOnly) continue;
                 var filter = s.filter;
@@ -90,7 +102,7 @@ namespace PrecisionStockpileControl
             psc.SetRestrictedDefs(restricted);
             psc.admitIndexDirty = false;   // Phase 1 (1C): any rebuild makes admitIndex fresh; clear the gate.
             if (PscLog.Enabled)
-                PscLog.Msg($"index: rebuilt map={psc.map.uniqueID} units={psc.tracked.Count} defs={index.Count} restricted={restricted.Count}");
+                PscLog.Msg($"index: rebuilt map={psc.map.uniqueID} units={psc.tracked.Count} defs={index.Count} restricted={restricted.Count} groupedMembers={groupedMembers}");
         }
 
         // ── Selection-level hard-admit predicate (store-search rewrite, Phase 2) ──────────────────────
@@ -151,7 +163,7 @@ namespace PrecisionStockpileControl
             // --- Limit / batch gates (M1/M2) ---
             // data was resolved once at the top (TryGet(target)) and TryFeederReject only reads it, so no re-fetch.
             if (data == null) return false;
-            bool hasLimit = data.HasLimit(t.def);
+            bool hasLimit = data.HasEffectiveLimit(t.def);     // per-def OR limit-group membership
             if (!hasLimit && data.batch <= 0) return false;    // no effective limit and no batch -> vanilla
 
             // D16: a unit's own contents are normally always valid. The ONE documented exception (DESIGN §8):
@@ -161,43 +173,76 @@ namespace PrecisionStockpileControl
             // single hauler overshooting below the cap.
             if (sourceIsTarget)
             {
-                if (hasLimit)
+                // Over-cap own contents read as misplaced so vanilla drains the excess (D16/DESIGN §8).
+                // TryGetDrainExcess covers both per-def (count > cap) and the group case (group sum over
+                // the shared cap, with ONLY the single deterministic drain member flagged, so a group
+                // can never N-fold double-drain).
+                if (hasLimit && data.TryGetDrainExcess(t.def, unit, out int drainExcess))
                 {
-                    var ownLim = data.GetLimit(t.def);
-                    if (ownLim.Upper.HasValue)
-                    {
-                        int ownCount = data.GetCount(t.def, unit);
-                        if (ownCount > ownLim.Upper.Value)
-                        {
-                            reason = "overCapDrain";
-                            if (PscLog.Enabled) LogReject(t, unit, reason,
-                                $"limit: draining over-cap {t.def.defName} from {unit.UniqueLoadID} ({ownCount} > cap {ownLim.Upper.Value})");
-                            return true;
-                        }
-                    }
+                    reason = "overCapDrain";
+                    if (PscLog.Enabled) LogReject(t, unit, reason,
+                        $"limit: draining over-cap {t.def.defName} from {unit.UniqueLoadID} (excess {drainExcess})");
+                    return true;
                 }
                 return false;                            // own contents otherwise always valid (D16)
             }
 
             if (hasLimit)
             {
-                var lim = data.GetLimit(t.def);
+                // Group-aware: a grouped def reports its GROUP's shared limit and the GROUP-SUM count;
+                // an ungrouped def reads exactly as before.
+                var lim = data.GetEffectiveLimit(t.def);
                 // Planning gate: effective = physical + reserved-inbound while planning a new haul, so
                 // concurrent haulers don't all admit against the same stale physical count and overshoot the
                 // cap; physical for every other (recheck) caller. No-op when reservation counting is off.
-                int n = planning ? data.GetEffectiveCount(t.def, unit) : data.GetCount(t.def, unit);
+                int n = planning ? data.GetGroupAwareEffectiveCount(t.def, unit) : data.GetGroupAwareCount(t.def, unit);
 
-                // Upper — the maximum (M2 makes this a hard cap at drop time via HardCap_Patches).
-                if (lim.Upper.HasValue && n >= lim.Upper.Value)
+                // Decision-time group diagnostics: the one line that disambiguates a real enforcement defect
+                // from the packed-vs-physical gap. Shows the enforced count, the actual physical cell count,
+                // the cap/refill state, and the resolved item-room. Throttled per (def, unit); behind Enabled
+                // so it costs nothing in normal play.
+                if (PscLog.Enabled && data.GroupOf(t.def) is PscLimitGroup dg)
                 {
-                    reason = "overCap";
-                    if (PscLog.Enabled) LogReject(t, unit, reason,
-                        $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (at/over cap {n}/{lim.Upper.Value})");
-                    return true;
+                    int physical = data.GetGroupPhysicalStackCount(dg, unit);
+                    string roomStr = lim.Upper.HasValue
+                        ? data.GroupAwareItemRoom(t.def, unit, lim.Upper.Value, planning).ToString() : "-";
+                    PscLog.MsgThrottled($"grp:{t.def.defName}:{unit.UniqueLoadID}",
+                        $"group {dg.letter} {t.def.defName} -> {unit.UniqueLoadID}: mode={dg.countMode} n={n} "
+                        + $"physicalStacks={physical} upper={(lim.Upper.HasValue ? lim.Upper.Value.ToString() : "-")} "
+                        + $"lower={(lim.Lower.HasValue ? lim.Lower.Value.ToString() : "-")} "
+                        + $"refilling={data.IsRefillingEffective(t.def)} roomItems={roomStr} planning={planning}");
+                }
+
+                // Upper — the maximum (M2 makes this a hard cap at drop time via HardCap_Patches). For a
+                // CELL-cap (Stacks) group the cap is in occupied cells: reject only when the group is OVER
+                // its cell cap, or exactly AT it with no partial of `def` to top off (a new haul would have
+                // to open a new cell). At cap WITH a toppable partial we admit, and the cell-aware seam
+                // (PscGroupCells: NoStorageBlockersIn steer + the cell clamp) routes the merge.
+                if (lim.Upper.HasValue)
+                {
+                    var grp = data.GroupOf(t.def);
+                    bool overCap;
+                    if (grp != null && grp.countMode == PscGroupCountMode.Stacks)
+                    {
+                        int cells = data.GetGroupPhysicalStackCount(grp, unit);
+                        overCap = cells > lim.Upper.Value
+                            || (cells == lim.Upper.Value && !data.GroupDefHasMergeRoom(t.def, unit));
+                    }
+                    else
+                    {
+                        overCap = n >= lim.Upper.Value;
+                    }
+                    if (overCap)
+                    {
+                        reason = "overCap";
+                        if (PscLog.Enabled) LogReject(t, unit, reason,
+                            $"limit: rejected {t.def.defName} -> {unit.UniqueLoadID} (at/over cap {n}/{lim.Upper.Value})");
+                        return true;
+                    }
                 }
 
                 // Lower / hysteresis (D15): lower unset => always refill; otherwise require refill state.
-                if (lim.Lower.HasValue && !data.IsRefilling(t.def))
+                if (lim.Lower.HasValue && !data.IsRefillingEffective(t.def))
                 {
                     reason = "hysteresis";
                     if (PscLog.Enabled) LogReject(t, unit, reason,
@@ -222,10 +267,12 @@ namespace PrecisionStockpileControl
                 // batch destination. Capped: cap-room arithmetic (effective while planning). Uncapped: gate on
                 // vanilla PHYSICAL stack space via the bounded PhysicalRoomForDef scan, but only while
                 // planning (an in-flight FailOn recheck must not run the cell scan or self-cancel).
-                var blim = hasLimit ? data.GetLimit(t.def) : null;
+                var blim = hasLimit ? data.GetEffectiveLimit(t.def) : null;
                 if (blim != null && blim.Upper.HasValue)
                 {
-                    int room = blim.Upper.Value - (planning ? data.GetEffectiveCount(t.def, unit) : data.GetCount(t.def, unit));
+                    // Room ALWAYS in items via the helper (a stacks-mode group converts to a member-specific
+                    // item budget), so the comparison to the item-valued `batch` is apples-to-apples.
+                    int room = data.GroupAwareItemRoom(t.def, unit, blim.Upper.Value, includeReserved: planning);
                     if (room < data.batch)
                     {
                         reason = "underBatchRoom";

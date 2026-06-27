@@ -42,6 +42,11 @@ namespace PrecisionStockpileControl
         // no capped floor stockpile, pays only the cheap setting/IsEmpty checks before the cell lookup.
         public bool anyPerTileActive;
 
+        // True when any tracked unit has a non-default Stacks-mode (occupied-CELL) limit group. Gates the
+        // group cell-cap seam (PscGroupCells: the NoStorageBlockersIn steer + drop/haul clamps) so a colony
+        // with no cell-mode group pays only a bool check before the per-cell lookup on the store-search hot path.
+        public bool anyGroupCellActive;
+
         // Per-item narrowing gates (store-search rewrite, Phase 3b §3/§5). The engine skips its per-candidate
         // admission gate (HardReject) for an item no PSC rule could reject; these coarse gates + restrictedDefs
         // below are the policy-keyed terms of that decision. All recomputed synchronously on the policy seam
@@ -213,6 +218,7 @@ namespace PrecisionStockpileControl
             RecomputeAlarmActive();
             RecomputeReservedActive();
             RecomputePerTileActive();
+            RecomputeGroupCellActive();
             RecomputeBatchActive();
             RecomputeOnlyFromSourceActive();
             RecomputeIntakeBlockActive();
@@ -254,6 +260,10 @@ namespace PrecisionStockpileControl
 
         // Per-item narrowing gates (Phase 3b §3/§5). anyIntakeBlockActive uses Off || RetrieveOnly (the modes
         // that block intake in HardReject) — deliberately NOT the Off || AcceptOnly pair of anyFreezeModeActive.
+        private void RecomputeGroupCellActive()
+            => RecomputeGate(ref anyGroupCellActive, "group: gate anyGroupCellActive",
+                d => d.HasAnyStacksGroup);
+
         private void RecomputeBatchActive()
             => RecomputeGate(ref anyBatchActive, "batch: gate anyBatchActive",
                 d => d.batch > 0);
@@ -404,6 +414,7 @@ namespace PrecisionStockpileControl
             RecomputeAlarmActive();
             RecomputeReservedActive();
             RecomputePerTileActive();
+            RecomputeGroupCellActive();
             RecomputeBatchActive();
             RecomputeOnlyFromSourceActive();
             RecomputeIntakeBlockActive();
@@ -562,8 +573,11 @@ namespace PrecisionStockpileControl
                 def = job.targetA.Thing?.def;
                 amount = job.count;
             }
-            if (def == null || amount <= 0 || !data.HasLimit(def)) return false;
-            var lim = data.GetLimit(def);
+            // Group-aware: a grouped member has no per-def limit, but its in-flight haul still reserves
+            // against the group's shared cap. Without this the periodic rebuild would clear a grouped
+            // reservation and never re-accrue it, reopening the overshoot window.
+            if (def == null || amount <= 0 || !data.HasEffectiveLimit(def)) return false;
+            var lim = data.GetEffectiveLimit(def);
             if (lim == null || !lim.Upper.HasValue) return false;
             data.AddReservedInbound(def, amount);
             return true;

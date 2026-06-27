@@ -48,12 +48,12 @@ namespace PrecisionStockpileControl
             // stacks, so an over-cap def un-freezes wholesale, drains/uses back down, and re-freezes
             // at/under cap; a no-cap Fill-only pile (no upper) still freezes all its allowed contents.
             if (!unit.Settings.filter.Allows(t)) return;            // disallowed -> leave drainable
-            if (data.HasLimit(t.def))
-            {
-                var lim = data.GetLimit(t.def);
-                if (lim.Upper.HasValue && data.GetCount(t.def, unit) > lim.Upper.Value)
-                    return;                                         // over cap -> leave excess drainable
-            }
+            // Over-cap contents stay drainable rather than frozen. Group-aware via TryGetDrainExcess:
+            // per-def this is count > cap (the def un-freezes wholesale, as before); for a group it is the
+            // single deterministic drain member while the GROUP sum is over its shared cap — so only that
+            // member un-freezes and drains down, never the whole group at once.
+            if (data.HasEffectiveLimit(t.def) && data.TryGetDrainExcess(t.def, unit, out _))
+                return;                                             // over (group) cap -> leave drainable
 
             __result = true;                             // virtual freeze — real flag untouched
         }

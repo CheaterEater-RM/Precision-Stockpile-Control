@@ -8,7 +8,9 @@ using Verse;
 namespace PrecisionStockpileControl
 {
     // Category rows summarize PSC state across currently allowed, storable descendants. Disallowed
-    // descendants do not prevent a category from showing a shared range.
+    // descendants do not prevent a category from showing a shared range. A category whose allowed
+    // descendants all belong to ONE limit group shows that group's label; right-click offers "Create
+    // group from category".
     [HarmonyPatch(typeof(Listing_TreeThingFilter), "DoCategory")]
     public static class Listing_TreeThingFilter_DoCategory_Patch
     {
@@ -21,14 +23,15 @@ namespace PrecisionStockpileControl
             var e = Event.current;
             try
             {
-                bool hasPscState = TryGetCategoryLimitState(node.catDef, out _, out _);
+                var catGroup = TryGetCategoryGroup(node.catDef);
+                bool hasPscState = catGroup != null || TryGetCategoryLimitState(node.catDef, out _, out _);
                 if (hasPscState)
                 {
                     var checkRect = PscFilterRow.CheckboxRect(__instance, __state);
                     PscFilterPaint.OwnCheckbox(checkRect);
                     if (e != null && e.type == EventType.MouseDown && e.button == 0 && checkRect.Contains(e.mousePosition))
                     {
-                        OpenCategoryMenu(node.catDef);
+                        if (catGroup != null) OpenGroupEditor(PscUiContext.Settings, PscUiContext.Unit, catGroup); else OpenCategoryMenu(PscUiContext.Settings, PscUiContext.Unit, node.catDef);
                         e.Use();
                         return;
                     }
@@ -37,7 +40,7 @@ namespace PrecisionStockpileControl
                 if (e == null || e.type != EventType.MouseDown || e.button != 1) return;
                 if (PscFilterRow.RowRect(__instance, __state).Contains(e.mousePosition))
                 {
-                    OpenCategoryMenu(node.catDef);
+                    OpenCategoryFloatMenu(node.catDef);
                     e.Use();
                 }
             }
@@ -70,13 +73,16 @@ namespace PrecisionStockpileControl
                     }
                 }
 
-                if (!TryGetCategoryLimitState(node.catDef, out var shared, out bool mixed, out int? sharedStackLimit)) return;
+                var catGroup = TryGetCategoryGroup(node.catDef, out bool catGroupPartial);
+                bool hasPerDef = TryGetCategoryLimitState(node.catDef, out var shared, out bool mixed, out int? sharedStackLimit);
+                if (catGroup == null && !hasPerDef) return;
 
                 var iconRect = PscFilterRow.CheckboxRect(__instance, __state);
 
                 // A vanilla left-drag allow/disallow paint over a category overwrites every descendant's
-                // limit with the plain painted state (mirrors vanilla's category-paint cascade). The
-                // category checkbox is suppressed while it has PSC state, so we apply it ourselves.
+                // policy with the plain painted state (mirrors vanilla's category-paint cascade). The
+                // category checkbox is suppressed while it has PSC state, so we apply it ourselves
+                // (ClearLimit removes per-def limits AND group membership).
                 if (PscFilterPaint.VanillaPaintActive && Mouse.IsOver(iconRect))
                 {
                     bool allow = PscFilterPaint.VanillaPaintAllow;
@@ -89,7 +95,21 @@ namespace PrecisionStockpileControl
                 float lh = ((Listing_Lines)__instance).lineHeight;
                 PscUiWidgets.DrawLimitMarker(iconRect);
 
-                if (!mixed)
+                if (catGroup != null)
+                {
+                    // Fully-covered category -> clean group label. Partly-grouped (some allowed descendants
+                    // ungrouped) -> append a distinct marker + a tooltip note, so it never reads as wholly
+                    // group-governed.
+                    string compact = PscUiWidgets.CompactGroupLimit(catGroup);
+                    string tip = PscUiWidgets.FullGroupLimit(catGroup);
+                    if (catGroupPartial)
+                    {
+                        compact += " " + "PSC_GroupPartialMark".Translate();
+                        tip += "\n" + "PSC_GroupCategoryPartial".Translate();
+                    }
+                    PscFilterRow.DrawLimitLabel(iconRect, __state, lh, compact, tip);
+                }
+                else if (!mixed)
                 {
                     PscFilterRow.DrawLimitLabel(iconRect, __state, lh,
                         PscUiWidgets.CompactLimit(shared, sharedStackLimit),
@@ -134,6 +154,10 @@ namespace PrecisionStockpileControl
                 if (d == null || !d.EverStorable(false)) continue;
                 if (parentFilter != null && !parentFilter.Allows(d)) continue;
                 if (!filter.Allows(d)) continue;
+                // A grouped descendant has no per-def limit; the group is summarized separately
+                // (TryGetCategoryGroup). Skip it here so it neither counts as a per-def limit nor
+                // forces "mixed".
+                if (data != null && data.GroupOf(d) != null) continue;
 
                 anyAllowed = true;
                 int dStack = Mathf.Max(1, d.stackLimit);
@@ -164,6 +188,48 @@ namespace PrecisionStockpileControl
             return true;
         }
 
+        private static PscLimitGroup TryGetCategoryGroup(ThingCategoryDef cat) => TryGetCategoryGroup(cat, out _);
+
+        // Returns the single limit group covering the category's GROUPED allowed descendants, or null when
+        // there is no group, the category spans more than one group, or an ungrouped allowed descendant
+        // carries its own per-def limit (a group label would then be misleading — let the per-def path
+        // handle it). `partial` is set true when that single group does NOT cover every allowed descendant
+        // (some are ungrouped-and-unlimited): the caller then draws a distinct "partial" marker rather than
+        // a clean label, so a partly-grouped category is never painted as wholly group-governed. This is the
+        // safe relaxation of the old "every descendant must be in the group" rule (which hid the label
+        // whenever a stray allowed-but-ungrouped descendant existed, e.g. a generated meat def the grouping
+        // pass skipped).
+        private static PscLimitGroup TryGetCategoryGroup(ThingCategoryDef cat, out bool partial)
+        {
+            partial = false;
+            var data = PscUiContext.Data;
+            var filter = PscUiContext.Settings?.filter;
+            var parentFilter = PscUiContext.Settings?.owner?.GetParentStoreSettings()?.filter;
+            if (data == null || filter == null) return null;
+
+            PscLimitGroup group = null;
+            bool any = false, anyUngrouped = false;
+            foreach (var d in cat.DescendantThingDefs)
+            {
+                if (d == null || !d.EverStorable(false)) continue;
+                if (parentFilter != null && !parentFilter.Allows(d)) continue;
+                if (!filter.Allows(d)) continue;
+                any = true;
+                var g = data.GroupOf(d);
+                if (g == null)
+                {
+                    anyUngrouped = true;
+                    if (data.HasLimit(d)) return null;  // ungrouped + own limit -> a group label would mislead
+                    continue;
+                }
+                if (group == null) group = g;
+                else if (group != g) return null;       // spans multiple groups
+            }
+            if (!any || group == null || group.IsDefault) return null;
+            partial = anyUngrouped;
+            return group;
+        }
+
         // Storable descendant defs of a category that the parent store settings permit. Shared by the
         // category menu and the vanilla-paint clear path.
         private static IEnumerable<ThingDef> StorableDescendants(ThingCategoryDef cat)
@@ -177,13 +243,50 @@ namespace PrecisionStockpileControl
             }
         }
 
-        private static void OpenCategoryMenu(ThingCategoryDef cat)
+        // settings/unit passed in (not read from PscUiContext) — the float-menu callback runs after the
+        // tab cleared PscUiContext, which would leave the menu operating on null settings.
+        private static void OpenCategoryMenu(StorageSettings settings, PscHaulUnit unit, ThingCategoryDef cat)
         {
             var defs = new List<ThingDef>();
             foreach (var d in StorableDescendants(cat)) defs.Add(d);
             if (defs.Count == 0) return;
             Find.WindowStack.WindowOfType<PscItemLimitMenu>()?.Close(false);
-            Find.WindowStack.Add(new PscItemLimitMenu(PscUiContext.Settings, PscUiContext.Unit, defs, cat.LabelCap));
+            Find.WindowStack.Add(new PscItemLimitMenu(settings, unit, defs, cat.LabelCap));
+        }
+
+        // settings/unit passed in (captured at the call site), NOT read from PscUiContext here — a
+        // right-click float-menu callback fires after the storage tab cleared PscUiContext, so reading it
+        // at click time gives null settings and the editor self-closes on its first frame.
+        private static void OpenGroupEditor(StorageSettings settings, PscHaulUnit unit, PscLimitGroup g)
+        {
+            Find.WindowStack.WindowOfType<PscGroupEditorWindow>()?.Close(false);
+            Find.WindowStack.Add(new PscGroupEditorWindow(settings, unit, g));
+        }
+
+        // Right-click float menu for a category: edit per-def limits, edit the category's group (if it is
+        // one), or create a new group from the category's currently-allowed descendants.
+        private static void OpenCategoryFloatMenu(ThingCategoryDef cat)
+        {
+            var settings = PscUiContext.Settings;
+            var unit = PscUiContext.Unit;
+            var filter = settings?.filter;
+            var allowed = new List<ThingDef>();
+            foreach (var d in StorableDescendants(cat))
+                if (filter == null || filter.Allows(d)) allowed.Add(d);
+
+            var opts = new List<FloatMenuOption>();
+            var catGroup = TryGetCategoryGroup(cat);
+            if (catGroup != null)
+                opts.Add(new FloatMenuOption("PSC_EditGroupLimit".Translate(PscUiWidgets.GroupMenuLabel(catGroup)), () => OpenGroupEditor(settings, unit, catGroup)));
+            opts.Add(new FloatMenuOption("PSC_EditCategoryLimits".Translate(), () => OpenCategoryMenu(settings, unit, cat)));
+            if (allowed.Count >= 2)
+                opts.Add(new FloatMenuOption("PSC_CreateGroupFromCategory".Translate(), () =>
+                {
+                    var g = PscEdit.CreateGroup(settings, unit, allowed, new PscDefLimit(), cat.LabelCap);
+                    if (g != null) OpenGroupEditor(settings, unit, g);
+                }));
+
+            if (opts.Count > 0) Find.WindowStack.Add(new FloatMenu(opts));
         }
     }
 }

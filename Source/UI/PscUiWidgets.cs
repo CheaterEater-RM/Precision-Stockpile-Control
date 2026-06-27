@@ -1,3 +1,4 @@
+using System.Text;
 using RimWorld;
 using UnityEngine;
 using Verse;
@@ -106,6 +107,80 @@ namespace PrecisionStockpileControl
             string lo = lim != null && lim.Lower.HasValue ? FormatItemsStacks(lim.Lower.Value, stackLimit.Value) : "";
             string hi = lim != null && lim.Upper.HasValue ? FormatItemsStacks(lim.Upper.Value, stackLimit.Value) : "";
             return lo + "-" + hi;
+        }
+
+        // Compact group row label: "Meats: 6-8 stacks" / "A: 100-125" — the group's NAME when set (else its
+        // letter) plus the shared limit in the group's count unit. Per-def stack-count parens are never
+        // shown for a group (the value already IS the chosen unit; in stacks mode the suffix names it). The
+        // name is truncated to fit the row so the limit numbers are never the bit that gets cut.
+        public static string CompactGroupLimit(PscLimitGroup g)
+        {
+            if (g == null) return "";
+            string lo = g.limit != null && g.limit.Lower.HasValue ? g.limit.Lower.Value.ToString() : "";
+            string hi = g.limit != null && g.limit.Upper.HasValue ? g.limit.Upper.Value.ToString() : "";
+            string suffix = g.countMode == PscGroupCountMode.Stacks ? " " + "PSC_ModeStacks".Translate() : "";
+            string idPart = !string.IsNullOrEmpty(g.name) ? g.name : (g.letter ?? "");
+            return FitRowPrefix(idPart, ": " + lo + "-" + hi + suffix, PscUiTheme.RowLabelWidth - 6f);
+        }
+
+        // Fit `idPart` + `fixedPart` into `maxWidth` at the row font (GameFont.Tiny), truncating ONLY
+        // `idPart` with an ellipsis so the fixed part (the limit numbers) is always preserved. Measures the
+        // actual rendered width (no fixed char count) so it is translation- and font-safe.
+        private static string FitRowPrefix(string idPart, string fixedPart, float maxWidth)
+        {
+            if (string.IsNullOrEmpty(idPart)) return fixedPart.TrimStart(':', ' ');
+            var prevFont = Text.Font;
+            Text.Font = GameFont.Tiny;
+            float budget = maxWidth - Text.CalcSize(fixedPart).x;
+            string fitted = idPart;
+            if (budget <= 0f) fitted = "";
+            else if (Text.CalcSize(idPart).x > budget) fitted = idPart.Truncate(budget);
+            Text.Font = prevFont;
+            return fitted + fixedPart;
+        }
+
+        // Label for a group in a float-menu option ("A: Meats" when named, else "A"). The letter is kept
+        // visible alongside the name because names are optional and not unique.
+        public static string GroupMenuLabel(PscLimitGroup g)
+        {
+            if (g == null) return "";
+            string letter = string.IsNullOrEmpty(g.letter) ? "?" : g.letter;
+            return string.IsNullOrEmpty(g.name) ? letter : letter + ": " + g.name;
+        }
+
+        // Format one group limit value in the group's unit ("6 stacks" / "100"); unitless in items mode so
+        // the Always/Maximum words and the items default stay concise.
+        private static string GroupVal(PscLimitGroup g, int v)
+            => g.countMode == PscGroupCountMode.Stacks ? v + " " + "PSC_ModeStacks".Translate() : v.ToString();
+
+        // Full group tooltip: titles the group (letter + optional name), states it is a combined total
+        // across N items, then lists the members so "what is A?" resolves on hover.
+        public static string FullGroupLimit(PscLimitGroup g)
+        {
+            if (g == null) return "";
+            string lo = g.limit != null && g.limit.Lower.HasValue ? GroupVal(g, g.limit.Lower.Value)
+                : "PSC_Always".Translate().ToString();
+            string hi = g.limit != null && g.limit.Upper.HasValue ? GroupVal(g, g.limit.Upper.Value)
+                : "PSC_Maximum".Translate().ToString();
+            var sb = new StringBuilder();
+            sb.Append(string.IsNullOrEmpty(g.name)
+                ? (string)"PSC_GroupTitleLetter".Translate(g.letter)
+                : (string)"PSC_GroupTitleNamed".Translate(g.letter, g.name));
+            sb.Append("\n");
+            sb.Append("PSC_GroupCombinedRange".Translate(lo, hi, g.members.Count));
+            if (g.members.Count > 0)
+            {
+                sb.Append("\n");
+                sb.Append("PSC_GroupMembers".Translate());
+                sb.Append(" ");
+                for (int i = 0; i < g.members.Count; i++)
+                {
+                    if (g.members[i] == null) continue;
+                    if (i > 0) sb.Append(", ");
+                    sb.Append(g.members[i].LabelCap);
+                }
+            }
+            return sb.ToString();
         }
 
         public static string FullLimit(PscDefLimit lim, ThingDef def)

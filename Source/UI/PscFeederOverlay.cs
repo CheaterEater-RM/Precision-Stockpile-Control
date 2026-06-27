@@ -22,6 +22,7 @@ namespace PrecisionStockpileControl
     //   shading — hashShading nudges each line's value (lightness) by a smooth, quantized field of its
     //             midpoint + angle, so a dense bundle separates while staying clearly in its colour band (item 6).
     //   dots    — dotsOnly replaces arrows with flow dots on every valid route (item 2).
+    [StaticConstructorOnStartup]
     public static class PscFeederOverlay
     {
         // Base hues (alpha is computed per link from the chain tier, then baked in via GetMat).
