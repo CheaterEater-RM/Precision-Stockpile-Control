@@ -109,25 +109,32 @@ namespace PrecisionStockpileControl
             return lo + "-" + hi;
         }
 
-        // Compact group row label: "A: 100-125" — the letter plus the shared limit as RAW item totals.
-        // Stack-count parens are deliberately omitted for groups (meaningless across mixed stack sizes).
+        // Compact group row label: "A: 100-125" (items) or "A: 6-8 stacks" (stacks mode) — the letter plus
+        // the shared limit in the group's count unit. Per-def stack-count parens are never shown for a
+        // group (the value already IS the chosen unit; in stacks mode the suffix names it).
         public static string CompactGroupLimit(PscLimitGroup g)
         {
             if (g == null) return "";
             string lo = g.limit != null && g.limit.Lower.HasValue ? g.limit.Lower.Value.ToString() : "";
             string hi = g.limit != null && g.limit.Upper.HasValue ? g.limit.Upper.Value.ToString() : "";
             string prefix = string.IsNullOrEmpty(g.letter) ? "" : g.letter + ": ";
-            return prefix + lo + "-" + hi;
+            string suffix = g.countMode == PscGroupCountMode.Stacks ? " " + "PSC_ModeStacks".Translate() : "";
+            return prefix + lo + "-" + hi + suffix;
         }
+
+        // Format one group limit value in the group's unit ("6 stacks" / "100"); unitless in items mode so
+        // the Always/Maximum words and the items default stay concise.
+        private static string GroupVal(PscLimitGroup g, int v)
+            => g.countMode == PscGroupCountMode.Stacks ? v + " " + "PSC_ModeStacks".Translate() : v.ToString();
 
         // Full group tooltip: titles the group (letter + optional name), states it is a combined total
         // across N items, then lists the members so "what is A?" resolves on hover.
         public static string FullGroupLimit(PscLimitGroup g)
         {
             if (g == null) return "";
-            string lo = g.limit != null && g.limit.Lower.HasValue ? g.limit.Lower.Value.ToString()
+            string lo = g.limit != null && g.limit.Lower.HasValue ? GroupVal(g, g.limit.Lower.Value)
                 : "PSC_Always".Translate().ToString();
-            string hi = g.limit != null && g.limit.Upper.HasValue ? g.limit.Upper.Value.ToString()
+            string hi = g.limit != null && g.limit.Upper.HasValue ? GroupVal(g, g.limit.Upper.Value)
                 : "PSC_Maximum".Translate().ToString();
             var sb = new StringBuilder();
             sb.Append(string.IsNullOrEmpty(g.name)

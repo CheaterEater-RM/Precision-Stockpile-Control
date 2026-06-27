@@ -31,7 +31,7 @@ namespace PrecisionStockpileControl
                     PscFilterPaint.OwnCheckbox(checkRect);
                     if (e != null && e.type == EventType.MouseDown && e.button == 0 && checkRect.Contains(e.mousePosition))
                     {
-                        if (catGroup != null) OpenGroupEditor(catGroup); else OpenCategoryMenu(node.catDef);
+                        if (catGroup != null) OpenGroupEditor(PscUiContext.Settings, PscUiContext.Unit, catGroup); else OpenCategoryMenu(PscUiContext.Settings, PscUiContext.Unit, node.catDef);
                         e.Use();
                         return;
                     }
@@ -218,19 +218,24 @@ namespace PrecisionStockpileControl
             }
         }
 
-        private static void OpenCategoryMenu(ThingCategoryDef cat)
+        // settings/unit passed in (not read from PscUiContext) — the float-menu callback runs after the
+        // tab cleared PscUiContext, which would leave the menu operating on null settings.
+        private static void OpenCategoryMenu(StorageSettings settings, PscHaulUnit unit, ThingCategoryDef cat)
         {
             var defs = new List<ThingDef>();
             foreach (var d in StorableDescendants(cat)) defs.Add(d);
             if (defs.Count == 0) return;
             Find.WindowStack.WindowOfType<PscItemLimitMenu>()?.Close(false);
-            Find.WindowStack.Add(new PscItemLimitMenu(PscUiContext.Settings, PscUiContext.Unit, defs, cat.LabelCap));
+            Find.WindowStack.Add(new PscItemLimitMenu(settings, unit, defs, cat.LabelCap));
         }
 
-        private static void OpenGroupEditor(PscLimitGroup g)
+        // settings/unit passed in (captured at the call site), NOT read from PscUiContext here — a
+        // right-click float-menu callback fires after the storage tab cleared PscUiContext, so reading it
+        // at click time gives null settings and the editor self-closes on its first frame.
+        private static void OpenGroupEditor(StorageSettings settings, PscHaulUnit unit, PscLimitGroup g)
         {
             Find.WindowStack.WindowOfType<PscGroupEditorWindow>()?.Close(false);
-            Find.WindowStack.Add(new PscGroupEditorWindow(PscUiContext.Settings, PscUiContext.Unit, g));
+            Find.WindowStack.Add(new PscGroupEditorWindow(settings, unit, g));
         }
 
         // Right-click float menu for a category: edit per-def limits, edit the category's group (if it is
@@ -247,13 +252,13 @@ namespace PrecisionStockpileControl
             var opts = new List<FloatMenuOption>();
             var catGroup = TryGetCategoryGroup(cat);
             if (catGroup != null)
-                opts.Add(new FloatMenuOption("PSC_EditGroupLimit".Translate(catGroup.letter), () => OpenGroupEditor(catGroup)));
-            opts.Add(new FloatMenuOption("PSC_EditCategoryLimits".Translate(), () => OpenCategoryMenu(cat)));
+                opts.Add(new FloatMenuOption("PSC_EditGroupLimit".Translate(catGroup.letter), () => OpenGroupEditor(settings, unit, catGroup)));
+            opts.Add(new FloatMenuOption("PSC_EditCategoryLimits".Translate(), () => OpenCategoryMenu(settings, unit, cat)));
             if (allowed.Count >= 2)
                 opts.Add(new FloatMenuOption("PSC_CreateGroupFromCategory".Translate(), () =>
                 {
                     var g = PscEdit.CreateGroup(settings, unit, allowed, new PscDefLimit(), cat.LabelCap);
-                    if (g != null) OpenGroupEditor(g);
+                    if (g != null) OpenGroupEditor(settings, unit, g);
                 }));
 
             if (opts.Count > 0) Find.WindowStack.Add(new FloatMenu(opts));

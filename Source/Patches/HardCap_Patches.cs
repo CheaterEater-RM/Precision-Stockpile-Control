@@ -40,12 +40,11 @@ namespace PrecisionStockpileControl
         {
             room = int.MaxValue;
             if (!TryGetUpperLimit(cell, map, def, out var unit, out var data, out var lim)) return false;
-            // Group-aware "used": for a grouped def this is the GROUP SUM vs the shared cap, so the drop
-            // cap and the room probe enforce the pooled total, not one member.
-            int used = (includeReserved && PscMod.Settings.reservedFillCounting)
-                ? data.GetGroupAwareEffectiveCount(def, unit)
-                : data.GetGroupAwareCount(def, unit);
-            room = Math.Max(0, lim.Upper.Value - used);
+            // Always returns room in ITEMS, even for a stacks-mode group (where upper is in stacks): the
+            // helper does the member-specific stacks->items conversion. For a grouped def it enforces the
+            // pooled total, not one member; for an ungrouped def it is the plain per-def room.
+            bool eff = includeReserved && PscMod.Settings.reservedFillCounting;
+            room = data.GroupAwareItemRoom(def, unit, lim.Upper.Value, eff);
             return true;
         }
     }

@@ -46,14 +46,18 @@ namespace PrecisionStockpileControl
 
         // ---- Limit groups ----
 
-        // Create a new group from `defs` with the shared `lim` (raw item totals). Pulls members out of
-        // any existing group, strips their per-def limits, assigns a letter, and seeds refill. Returns
-        // the new group, or null if fewer than 2 valid members.
+        // Create a new group from `defs` with the shared `lim` (in `mode`'s unit — items or packed
+        // stacks). Pulls members out of any existing group, strips their per-def limits, assigns a letter,
+        // and seeds refill. Returns the new group, or null if no valid members. A 1-member group is legal
+        // (the ad-hoc "New group from this item" draft — grow it via the editor / right-click "Add to").
+        // Seed ordering is load-bearing: g.limit is copied from `lim` HERE, before NormalizeGroups strips
+        // the member's per-def entry, so a "New group" that seeds from an existing per-def cap never loses it.
         public static PscLimitGroup CreateGroup(StorageSettings settings, PscHaulUnit unit,
-            IEnumerable<ThingDef> defs, PscDefLimit lim, string name = null)
+            IEnumerable<ThingDef> defs, PscDefLimit lim, string name = null,
+            PscGroupCountMode mode = PscGroupCountMode.Stacks)
         {
             var data = PscStorageDataStore.GetOrCreate(settings);
-            var g = new PscLimitGroup { name = string.IsNullOrEmpty(name) ? null : name };
+            var g = new PscLimitGroup { name = string.IsNullOrEmpty(name) ? null : name, countMode = mode };
             if (lim != null) { g.limit.Lower = lim.Lower; g.limit.Upper = lim.Upper; }
             foreach (var d in defs)
             {
@@ -63,7 +67,7 @@ namespace PrecisionStockpileControl
                 if (!g.members.Contains(d)) g.members.Add(d);
                 settings.filter.SetAllow(d, true);
             }
-            if (g.members.Count < 2) return null;
+            if (g.members.Count < 1) return null;
             g.SyncNames();
             data.limitGroups.Add(g);
             data.NormalizeGroups();                 // assign letter, strip per-def limits on members, rebuild index
@@ -90,8 +94,8 @@ namespace PrecisionStockpileControl
             PscMapComponent.NotifyPolicyChanged(settings);
         }
 
-        // Remove `def` from its group (auto-dissolving the group if it drops below 2 members). The def
-        // reverts to NO limit.
+        // Remove `def` from its group (dissolving the group only if it drops to zero members; a 1-member
+        // group is still a valid draft). The def reverts to NO limit.
         public static void RemoveFromGroup(StorageSettings settings, ThingDef def)
         {
             var data = PscStorageDataStore.TryGet(settings);
@@ -106,7 +110,7 @@ namespace PrecisionStockpileControl
             if (g == null) return;
             g.members.Remove(def);
             g.SyncNames();
-            data.NormalizeGroups();                 // dissolves the group if < 2 members remain
+            data.NormalizeGroups();                 // drops the group only when no members remain
         }
 
         // Dissolve a group; its members revert to no limit.
@@ -119,13 +123,16 @@ namespace PrecisionStockpileControl
             PscMapComponent.NotifyPolicyChanged(settings);
         }
 
-        // Set a group's shared limit (raw item totals) and re-seed its refill state.
-        public static void ApplyGroupLimit(StorageSettings settings, PscHaulUnit unit, PscLimitGroup g, PscDefLimit lim)
+        // Set a group's shared limit (in `mode`'s unit — items or packed stacks), its count mode, and
+        // re-seed its refill state. The editor calls this when the values OR the count mode change.
+        public static void ApplyGroupLimit(StorageSettings settings, PscHaulUnit unit, PscLimitGroup g,
+            PscDefLimit lim, PscGroupCountMode mode)
         {
             var data = PscStorageDataStore.GetOrCreate(settings);
             if (g == null) return;
             g.limit.Lower = lim?.Lower;
             g.limit.Upper = lim?.Upper;
+            g.countMode = mode;
             data.Notify_GroupLimitSet(g, unit);
             PscMapComponent.NotifyPolicyChanged(settings);
         }

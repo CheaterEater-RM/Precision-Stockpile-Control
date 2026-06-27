@@ -234,7 +234,9 @@ namespace PrecisionStockpileControl
                 var blim = hasLimit ? data.GetEffectiveLimit(t.def) : null;
                 if (blim != null && blim.Upper.HasValue)
                 {
-                    int room = blim.Upper.Value - (planning ? data.GetGroupAwareEffectiveCount(t.def, unit) : data.GetGroupAwareCount(t.def, unit));
+                    // Room ALWAYS in items via the helper (a stacks-mode group converts to a member-specific
+                    // item budget), so the comparison to the item-valued `batch` is apples-to-apples.
+                    int room = data.GroupAwareItemRoom(t.def, unit, blim.Upper.Value, includeReserved: planning);
                     if (room < data.batch)
                     {
                         reason = "underBatchRoom";

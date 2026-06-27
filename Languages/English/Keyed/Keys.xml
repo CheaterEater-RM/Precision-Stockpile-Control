@@ -185,12 +185,18 @@
   <PSC_GroupThese>Group these (shared total)</PSC_GroupThese>
   <PSC_GroupTheseHint>Bundles every item matching the search into one group with a single shared limit on their combined total. You'll set that total next.</PSC_GroupTheseHint>
   <PSC_GroupNeedsTwo>A group needs at least two item types.</PSC_GroupNeedsTwo>
-  <PSC_GroupCombinedNote>This limit is the COMBINED total across all items in the group, counted in items.</PSC_GroupCombinedNote>
+  <PSC_GroupNeedsOne>Select at least one item to group.</PSC_GroupNeedsOne>
+  <PSC_GroupCombinedNote>This limit is the COMBINED total across all items in the group.</PSC_GroupCombinedNote>
+  <PSC_GroupMixedStacksNote>These items have different stack sizes, so the limit counts whole stacks.</PSC_GroupMixedStacksNote>
   <PSC_SliderHintGroup>Leave an end blank for: always refill / fill to maximum. The value is the combined item total across the whole group.</PSC_SliderHintGroup>
+  <PSC_SliderHintGroupStacks>Leave an end blank for: always refill / fill to maximum. The value is the combined stack count across the whole group.</PSC_SliderHintGroupStacks>
+  <PSC_NewGroup>New group…</PSC_NewGroup>
   <!-- Group editor window -->
   <PSC_GroupEditorTitle>Limit group {0}</PSC_GroupEditorTitle>
   <PSC_GroupName>Name (optional)</PSC_GroupName>
   <PSC_GroupMembersHeader>Members ({0})</PSC_GroupMembersHeader>
+  <PSC_GroupOneMemberHint>Add more items to share this limit.</PSC_GroupOneMemberHint>
+  <PSC_GroupAddMatching>Add:</PSC_GroupAddMatching>
   <PSC_GroupAddHeader>Add an item (type to search):</PSC_GroupAddHeader>
   <PSC_GroupUngroup>Ungroup</PSC_GroupUngroup>
   <!-- Row / category right-click float menu -->

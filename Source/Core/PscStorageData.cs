@@ -140,10 +140,10 @@ namespace PrecisionStockpileControl
 
         public bool HasPersistentPolicy =>
             limits.Count > 0
-            // Any group (>= 2 members by construction) keeps the unit tracked AND saved — even before the
-            // player has set its shared limit, so a freshly created group survives until configured rather
-            // than being dropped by UpdateTracking's "no policy -> Remove" path. HasAnyLimit / restrictedDefs
-            // still gate on a NON-default group, so an unconfigured group tracks but enforces nothing.
+            // Any group (>= 1 member) keeps the unit tracked AND saved — even an unconfigured default-limit
+            // 1-member draft, so a freshly created group survives until configured rather than being dropped
+            // by UpdateTracking's "no policy -> Remove" path. HasAnyLimit / restrictedDefs still gate on a
+            // NON-default group, so an unconfigured group tracks but enforces nothing.
             || (limitGroups != null && limitGroups.Count > 0)
             || batch > 0 || batchEmpty > 0 || onlyFromSource || onlyToDestinations
             || subTier != 0 || !string.IsNullOrEmpty(letter)
@@ -271,10 +271,10 @@ namespace PrecisionStockpileControl
             }
         }
 
-        // Full normalize: rebuild the index, drop groups below the 2-member minimum (a single survivor's
-        // shared limit converts back to a per-def limit so a cap doesn't silently vanish), assign/dedupe
-        // letters, then rebuild once more since membership/limits may have changed. Called from
-        // PostLoadInit and after any membership mutation.
+        // Full normalize: rebuild the index, drop only fully-empty groups (a 1-member group is a legal
+        // ad-hoc "named limit" draft and keeps its shared limit on the group), assign/dedupe letters, then
+        // rebuild once more since membership/limits may have changed. Called from PostLoadInit and after
+        // any membership mutation.
         public void NormalizeGroups()
         {
             RebuildGroupIndex();
@@ -290,15 +290,9 @@ namespace PrecisionStockpileControl
             for (int i = limitGroups.Count - 1; i >= 0; i--)
             {
                 var g = limitGroups[i];
-                if (g == null) { limitGroups.RemoveAt(i); continue; }
-                if (g.members.Count >= 2) continue;
-                // 1 survivor with a real cap -> preserve it as a per-def limit; 0 -> just drop.
-                if (g.members.Count == 1 && g.limit != null && !g.limit.IsDefault)
-                {
-                    var d = g.members[0];
-                    if (d != null && !limits.ContainsKey(d)) limits[d] = g.limit.Clone();
-                }
-                limitGroups.RemoveAt(i);
+                // Drop only null or empty groups. 1-member groups are allowed (ad-hoc drafts and the
+                // single-survivor-after-content-mod-removal case alike keep the group + its shared cap).
+                if (g == null || g.members.Count == 0) limitGroups.RemoveAt(i);
             }
         }
 
@@ -406,20 +400,105 @@ namespace PrecisionStockpileControl
             return GetEffectiveCount(def, unit);
         }
 
+        // Packed stack-equivalents of `items` for one def: ceil(items / stackLimit). See PscGroupCountMode.
+        private static int StacksOf(ThingDef d, int items)
+            => items <= 0 ? 0 : Mathf.CeilToInt(items / (float)Mathf.Max(1, d.stackLimit));
+
+        // Group's combined count in its OWN unit (items or packed stacks). Public: may recompute via
+        // GetCount, so it is only ever called from enforcement / room / edit-seed paths, never from a
+        // recompute (the refill recompute uses GroupModeSumFromCounts, which does not re-enter GetCount).
         private int GroupCount(PscLimitGroup g, PscHaulUnit unit)
         {
+            bool stacks = g.countMode == PscGroupCountMode.Stacks;
             int sum = 0;
             var ms = g.members;
-            for (int i = 0; i < ms.Count; i++) { var d = ms[i]; if (d != null) sum += GetCount(d, unit); }
+            for (int i = 0; i < ms.Count; i++)
+            {
+                var d = ms[i];
+                if (d == null) continue;
+                int c = GetCount(d, unit);
+                sum += stacks ? StacksOf(d, c) : c;
+            }
             return sum;
         }
 
         private int GroupEffectiveCount(PscLimitGroup g, PscHaulUnit unit)
         {
+            bool stacks = g.countMode == PscGroupCountMode.Stacks;
             int sum = 0;
             var ms = g.members;
-            for (int i = 0; i < ms.Count; i++) { var d = ms[i]; if (d != null) sum += GetEffectiveCount(d, unit); }
+            for (int i = 0; i < ms.Count; i++)
+            {
+                var d = ms[i];
+                if (d == null) continue;
+                int c = GetEffectiveCount(d, unit);
+                // Effective stacks = ceil((physical+reserved)/stackLimit) per member; reservedInbound stays
+                // per-member items and rolls up here, so it needs no unit change.
+                sum += stacks ? StacksOf(d, c) : c;
+            }
             return sum;
+        }
+
+        // No-reentry mode-aware member sum, read straight from the `counts` cache (NOT GetCount). Used by
+        // the refill recompute paths, which have already forced dirty siblings fresh via RecountDef — so
+        // this must never call GetCount/GroupCount (that re-enters RecomputeDef).
+        private int GroupModeSumFromCounts(PscLimitGroup g)
+        {
+            bool stacks = g.countMode == PscGroupCountMode.Stacks;
+            int sum = 0;
+            var ms = g.members;
+            for (int i = 0; i < ms.Count; i++)
+            {
+                var d = ms[i];
+                if (d == null) continue;
+                counts.TryGetValue(d, out var c);
+                sum += stacks ? StacksOf(d, c) : c;
+            }
+            return sum;
+        }
+
+        // Max additional ITEMS of `def` admissible before the group (or per-def limit) reaches `upper`.
+        // This is the single seam that keeps a haul-trip clamp in items even when the group counts in
+        // stacks: an item budget, never a stack count. Three cases:
+        //   ungrouped         -> upper - effective/physical items (the original room math)
+        //   grouped, Items    -> upper - group item-sum
+        //   grouped, Stacks   -> member-specific stacks->items conversion (StacksModeItemRoom)
+        // `upper` is in the group's unit (items or stacks). All callers that previously did
+        // `upper - GetGroupAware*Count` route through here so room is always items.
+        public int GroupAwareItemRoom(ThingDef def, PscHaulUnit unit, int upper, bool includeReserved)
+        {
+            if (def != null && defToGroup.TryGetValue(def, out var g))
+            {
+                if (g.countMode == PscGroupCountMode.Stacks)
+                    return StacksModeItemRoom(g, def, unit, upper, includeReserved);
+                int used = includeReserved ? GroupEffectiveCount(g, unit) : GroupCount(g, unit);
+                return Mathf.Max(0, upper - used);
+            }
+            int n = includeReserved ? GetEffectiveCount(def, unit) : GetCount(def, unit);
+            return Mathf.Max(0, upper - n);
+        }
+
+        // Items of `def` admissible before a STACKS-mode group hits `upperStacks`. Adding to `def` only
+        // raises the group's packed-stack count when it crosses a multiple of def.stackLimit: the first
+        // PartialTopOff items fill def's existing partial stack (zero new stacks), then each further block
+        // of stackLimit adds one. So the budget is top-off + freeStacks*stackLimit, member-specific via
+        // both def.stackLimit and def's own partial remainder. freeStacks<=0 -> only top-off fits (may be 0).
+        private int StacksModeItemRoom(PscLimitGroup g, ThingDef def, PscHaulUnit unit, int upperStacks, bool incl)
+        {
+            int usedStacks = incl ? GroupEffectiveCount(g, unit) : GroupCount(g, unit);
+            int freeStacks = upperStacks - usedStacks;
+            int top = PartialTopOff(def, unit, incl);
+            return freeStacks <= 0 ? top : top + freeStacks * Mathf.Max(1, def.stackLimit);
+        }
+
+        // Items that fill `def`'s current partial top stack without adding a new packed stack (0 if its
+        // count is an exact multiple of stackLimit, i.e. no partial).
+        private int PartialTopOff(ThingDef def, PscHaulUnit unit, bool incl)
+        {
+            int s = Mathf.Max(1, def.stackLimit);
+            int cur = incl ? GetEffectiveCount(def, unit) : GetCount(def, unit);
+            int rem = cur % s;
+            return rem == 0 ? 0 : (s - rem);
         }
 
         // Over-cap drain budget for `def` in `unit` (physical). Ungrouped: count - per-def upper.
@@ -436,10 +515,23 @@ namespace PrecisionStockpileControl
             if (defToGroup.TryGetValue(def, out var g))
             {
                 if (g.limit == null || !g.limit.Upper.HasValue) return false;
-                int over = GroupCount(g, unit) - g.limit.Upper.Value;
+                int over = GroupCount(g, unit) - g.limit.Upper.Value;   // mode-aware (items or stacks)
                 if (over <= 0) return false;
                 if (SelectDrainMember(g, unit) != def) return false;     // only the chosen member drains
-                excess = Mathf.Min(over, GetCount(def, unit));
+                int memberItems = GetCount(def, unit);
+                if (g.countMode == PscGroupCountMode.Stacks)
+                {
+                    // `over` is in stacks; drain whole stacks from the chosen member down toward the cap.
+                    // targetStacks = its stack count minus the overage (floored at 0); the item budget is
+                    // whatever exceeds targetStacks*stackLimit. Lands on/just-above the cap, converges.
+                    int s = Mathf.Max(1, def.stackLimit);
+                    int targetStacks = Mathf.Max(0, StacksOf(def, memberItems) - over);
+                    excess = Mathf.Min(memberItems, memberItems - targetStacks * s);
+                }
+                else
+                {
+                    excess = Mathf.Min(over, memberItems);
+                }
                 return excess > 0;
             }
             var lim = GetLimit(def);
@@ -450,24 +542,27 @@ namespace PrecisionStockpileControl
             return true;
         }
 
-        // The single deterministic drain member: largest current count, tie-broken by the lower
-        // shortHash so admission and the clamp agree frame-to-frame.
+        // The single deterministic drain member, tie-broken by the lower shortHash so admission and the
+        // clamp agree frame-to-frame. Mode-aware ranking: in Items mode, largest item count; in Stacks
+        // mode, MOST STACKS first (then item count), so the member actually contributing the most stack
+        // overage is drained — not a huge item-count def that happens to pack into few stacks.
         private ThingDef SelectDrainMember(PscLimitGroup g, PscHaulUnit unit)
         {
+            bool stacks = g.countMode == PscGroupCountMode.Stacks;
             ThingDef best = null;
-            int bestCount = -1;
+            int bestKey = -1, bestItems = -1;
             var ms = g.members;
             for (int i = 0; i < ms.Count; i++)
             {
                 var d = ms[i];
                 if (d == null) continue;
-                int c = GetCount(d, unit);
-                if (c <= 0) continue;
-                if (c > bestCount || (c == bestCount && (best == null || d.shortHash < best.shortHash)))
-                {
-                    best = d;
-                    bestCount = c;
-                }
+                int items = GetCount(d, unit);
+                if (items <= 0) continue;
+                int key = stacks ? StacksOf(d, items) : items;
+                bool better = key > bestKey
+                    || (key == bestKey && items > bestItems)
+                    || (key == bestKey && items == bestItems && (best == null || d.shortHash < best.shortHash));
+                if (better) { best = d; bestKey = key; bestItems = items; }
             }
             return best;
         }
@@ -520,24 +615,16 @@ namespace PrecisionStockpileControl
                 counts.TryGetValue(kv.Key, out var c);
                 UpdateRefilling(kv.Value, c);
             }
-            // Group pass: one refill state per group, derived from the member SUM. Member counts are
-            // already in `counts` from the single HeldThings walk above, so this adds no scan.
+            // Group pass: one refill state per group, derived from the mode-aware member sum. Member
+            // counts are already in `counts` from the single HeldThings walk above, so this adds no scan.
+            // GroupModeSumFromCounts reads `counts` directly (no GetCount), so no re-entry here.
             if (limitGroups != null)
             {
                 for (int gi = 0; gi < limitGroups.Count; gi++)
                 {
                     var g = limitGroups[gi];
                     if (g == null || g.limit == null) continue;
-                    int sum = 0;
-                    var ms = g.members;
-                    for (int i = 0; i < ms.Count; i++)
-                    {
-                        var d = ms[i];
-                        if (d == null) continue;
-                        counts.TryGetValue(d, out var c);
-                        sum += c;
-                    }
-                    UpdateRefilling(g.limit, sum);
+                    UpdateRefilling(g.limit, GroupModeSumFromCounts(g));
                 }
             }
         }
@@ -578,17 +665,15 @@ namespace PrecisionStockpileControl
         private void UpdateGroupRefilling(PscLimitGroup g, PscHaulUnit unit)
         {
             if (g.limit == null) return;
-            int sum = 0;
+            // Force any still-dirty sibling fresh via the inner RecountDef, then sum from `counts`
+            // (mode-aware) without re-entering GetCount/RecomputeDef.
             var ms = g.members;
             for (int i = 0; i < ms.Count; i++)
             {
                 var d = ms[i];
-                if (d == null) continue;
-                if (dirtyDefs.Contains(d)) RecountDef(d, unit);
-                counts.TryGetValue(d, out var c);
-                sum += c;
+                if (d != null && dirtyDefs.Contains(d)) RecountDef(d, unit);
             }
-            UpdateRefilling(g.limit, sum);
+            UpdateRefilling(g.limit, GroupModeSumFromCounts(g));
         }
 
         // Hysteresis edge logic (D15), writing the PERSISTED lim.refill: ON (Refilling) at count <= lower,
@@ -653,9 +738,8 @@ namespace PrecisionStockpileControl
         {
             MarkAllDirty();
             if (g?.limit == null || !g.limit.Lower.HasValue) return;
-            int sum = 0;
-            var ms = g.members;
-            for (int i = 0; i < ms.Count; i++) { var d = ms[i]; if (d != null) sum += GetCount(d, unit); }
+            // Edit-time seeder (not called from a recompute), so the public mode-aware GroupCount is safe.
+            int sum = GroupCount(g, unit);
             g.limit.refill = (g.limit.Upper.HasValue && sum >= g.limit.Upper.Value)
                 ? PscRefillState.Satisfied : PscRefillState.Refilling;
         }
@@ -688,10 +772,21 @@ namespace PrecisionStockpileControl
                 {
                     var g = limitGroups[gi];
                     if (g?.limit == null || g.limit.IsDefault) continue;
-                    int maxStack = 1;
-                    for (int i = 0; i < g.members.Count; i++)
-                        if (g.members[i] != null) maxStack = Mathf.Max(maxStack, g.members[i].stackLimit);
-                    int max = slots * maxStack;
+                    int max;
+                    if (g.countMode == PscGroupCountMode.Stacks)
+                    {
+                        // Limit is in packed stacks; a group can occupy at most `slots` stacks.
+                        max = Mathf.Max(1, slots);
+                    }
+                    else
+                    {
+                        // Items basis: a shared total spans defs, so cap against slots * largest member
+                        // stackLimit (generous — the hard cap still enforces real physical room).
+                        int maxStack = 1;
+                        for (int i = 0; i < g.members.Count; i++)
+                            if (g.members[i] != null) maxStack = Mathf.Max(maxStack, g.members[i].stackLimit);
+                        max = slots * maxStack;
+                    }
                     int? lo = g.limit.Lower, up = g.limit.Upper;
                     PscDefLimit.ClampPair(ref lo, ref up, max);
                     g.limit.Lower = lo;

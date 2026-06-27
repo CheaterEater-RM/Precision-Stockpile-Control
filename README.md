@@ -5,6 +5,7 @@ Precision Stockpile Control is a RimWorld 1.6 mod built around opt-in, low-overh
 ## Features
 
 - Per-item stockpile maximums and refill thresholds (per stockpile / shelf / linked group)
+- **Limit groups** — bundle several item types under ONE shared limit on their *combined* total (e.g. keep all meats between 6 and 8 stacks together). Groups count in **stacks** by default (different item types can't share a stack, so stacks are the natural unit when sizes differ); switch to **items** when you prefer a raw count. Create one from the search ("Group these") or right-click any item → "New group" / "Add to group", and grow it in the group editor.
 - Batch hauling, both directions — **batch fill** (never *add* fewer than N items in a trip) and **batch empty** (never *remove* fewer than N items in a trip)
 - Routes that feed items from one storage into another (source → destination)
 - Four per-storage **modes** — normal / frozen / fill only / drain only (Flickable-style)

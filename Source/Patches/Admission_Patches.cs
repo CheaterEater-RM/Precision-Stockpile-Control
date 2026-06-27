@@ -159,10 +159,11 @@ namespace PrecisionStockpileControl
                     var lim = data.GetEffectiveLimit(t.def);
                     if (lim.Upper.HasValue)
                     {
-                        // Effective room (physical + reserved-inbound). The current job is NOT yet
-                        // registered (that happens after all clamps below), so this excludes its own
+                        // Effective room (physical + reserved-inbound), ALWAYS in items via the helper —
+                        // a stacks-mode group converts to a member-specific item budget. The current job is
+                        // NOT yet registered (that happens after all clamps below), so this excludes its own
                         // reservation -> automatic self-exclusion. No-op when the feature is off.
-                        int room = Math.Max(0, lim.Upper.Value - data.GetGroupAwareEffectiveCount(t.def, targetUnit));
+                        int room = data.GroupAwareItemRoom(t.def, targetUnit, lim.Upper.Value, includeReserved: true);
                         if (room <= 0)
                         {
                             // No room (reservation-overshoot window between admission and job build):

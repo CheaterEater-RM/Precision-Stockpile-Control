@@ -230,7 +230,7 @@ namespace PrecisionStockpileControl
             }
             else
             {
-                Messages.Message("PSC_GroupNeedsTwo".Translate(), MessageTypeDefOf.RejectInput, false);
+                Messages.Message("PSC_GroupNeedsOne".Translate(), MessageTypeDefOf.RejectInput, false);
             }
         }
 

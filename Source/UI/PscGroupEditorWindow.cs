@@ -5,10 +5,10 @@ using Verse;
 
 namespace PrecisionStockpileControl
 {
-    // Editor for one limit group: its shared combined limit (pooled, raw item totals), an optional
-    // name, the member list (X to remove), a search-to-add box (defs not already grouped), and Ungroup.
-    // The limit and name apply live; membership edits go through PscEdit (which re-normalizes + notifies).
-    // Closes itself when the group no longer exists (e.g. it auto-dissolved below the 2-member minimum).
+    // Editor for one limit group: its shared combined limit (pooled — stacks or items, per the group's
+    // count mode), an optional name, and one UNIFIED search box that both filters the current member list
+    // (X to remove) and offers matching non-members to add (+). The limit, count mode, and name apply
+    // live. Closes itself when the group no longer exists (e.g. its last member was removed).
     public class PscGroupEditorWindow : Window
     {
         private readonly StorageSettings settings;
@@ -17,12 +17,12 @@ namespace PrecisionStockpileControl
         private readonly PscLimitEditor editor = new PscLimitEditor { pooled = true };
 
         private string nameBuf;
-        private string addBuf = "";
-        private readonly QuickSearchFilter addFilter = new QuickSearchFilter();
+        private string searchBuf = "";
+        private readonly QuickSearchFilter searchFilter = new QuickSearchFilter();
         private Vector2 memberScroll;
         private Vector2 addScroll;
 
-        public override Vector2 InitialSize => new Vector2(540f, 560f);
+        public override Vector2 InitialSize => new Vector2(560f, 600f);
 
         public PscGroupEditorWindow(StorageSettings settings, PscHaulUnit unit, PscLimitGroup group)
         {
@@ -30,10 +30,15 @@ namespace PrecisionStockpileControl
             this.unit = unit;
             this.group = group;
             nameBuf = group?.name ?? "";
+            // The pooled editor edits the limit in the group's own unit; seed its mode from the group, then
+            // load the raw values (LoadFrom preserves stacksMode for pooled).
+            editor.stacksMode = group != null && group.countMode == PscGroupCountMode.Stacks;
             editor.LoadFrom(group?.limit);
             doCloseX = true;
             draggable = true;
-            closeOnClickedOutside = true;
+            // No closeOnClickedOutside: this window is opened from inside a right-click FloatMenuOption
+            // callback, and the same mouse event would be read as a click-outside and self-close it.
+            // Dismissal is covered by the X and the explicit Close button.
             layer = WindowLayer.Super;
         }
 
@@ -42,20 +47,26 @@ namespace PrecisionStockpileControl
             var data = PscStorageDataStore.TryGet(settings);
             if (data == null || group == null || !data.limitGroups.Contains(group)) { Close(false); return; }
 
+            // Member-derived stack context: uniform vs mixed stack sizes drives the editor's stacks/items
+            // conversion. Rebuilt each frame because membership changes live.
+            var target = PscLimitEditorTarget.FromDefs(group.members);
+
             var list = new Listing_Standard();
             list.Begin(inRect);
 
             Text.Font = GameFont.Medium;
-            list.Label("PSC_GroupEditorTitle".Translate(string.IsNullOrEmpty(group.letter) ? "?" : group.letter));
+            list.Label(string.IsNullOrEmpty(group.name)
+                ? "PSC_GroupTitleLetter".Translate(LetterOf())
+                : "PSC_GroupTitleNamed".Translate(LetterOf(), group.name));
             Text.Font = GameFont.Small;
             list.GapLine();
 
-            // Optional name (applies live).
-            var nameRow = list.GetRect(Text.LineHeight + 4f);
-            var nameLabel = new Rect(nameRow.x, nameRow.y, 90f, nameRow.height);
-            var nameField = new Rect(nameLabel.xMax + 6f, nameRow.y, nameRow.width - nameLabel.width - 6f, nameRow.height);
-            Widgets.Label(nameLabel, "PSC_GroupName".Translate());
-            string editedName = Widgets.TextField(nameField, nameBuf ?? "");
+            // Optional name (applies live). Auto-size the label so "(optional)" never clips.
+            var nameRow = list.GetRect(28f);
+            float nameLabelW = Text.CalcSize("PSC_GroupName".Translate()).x + 10f;
+            Widgets.Label(new Rect(nameRow.x, nameRow.y + 4f, nameLabelW, nameRow.height), "PSC_GroupName".Translate());
+            string editedName = Widgets.TextField(
+                new Rect(nameRow.x + nameLabelW, nameRow.y, nameRow.width - nameLabelW, nameRow.height), nameBuf ?? "");
             if (editedName != nameBuf)
             {
                 nameBuf = editedName;
@@ -64,31 +75,54 @@ namespace PrecisionStockpileControl
 
             list.Gap(6f);
 
-            // Shared combined limit (pooled, raw items). Apply live when it changes.
+            // Shared combined limit (pooled). Apply live when the values OR the count mode change (a
+            // mixed-stack toggle keeps the numbers, so the mode change must be tracked too).
             int? prevLower = editor.lowerVal, prevUpper = editor.upperVal;
-            editor.Draw(list, unit);
-            if (editor.lowerVal != prevLower || editor.upperVal != prevUpper)
-                PscEdit.ApplyGroupLimit(settings, unit, group, editor.ToRawLimit());
+            bool prevStacks = editor.stacksMode;
+            editor.Draw(list, unit, target);
+            if (editor.lowerVal != prevLower || editor.upperVal != prevUpper || editor.stacksMode != prevStacks)
+                PscEdit.ApplyGroupLimit(settings, unit, group, editor.ToRawLimit(),
+                    editor.stacksMode ? PscGroupCountMode.Stacks : PscGroupCountMode.Items);
 
             list.Gap(6f);
-            list.Label("PSC_Preview".Translate(editor.PreviewString()));
+            list.Label("PSC_Preview".Translate(editor.PreviewString(target)));
             list.GapLine();
 
-            // Member list with remove buttons.
+            if (group.members.Count == 1)
+            {
+                Text.Font = GameFont.Tiny;
+                GUI.color = PscUiTheme.NoteText;
+                list.Label("PSC_GroupOneMemberHint".Translate());
+                GUI.color = Color.white;
+                Text.Font = GameFont.Small;
+            }
+
             list.Label("PSC_GroupMembersHeader".Translate(group.members.Count));
-            float memberAreaH = 130f;
-            var memberOuter = list.GetRect(memberAreaH);
-            DrawMemberList(memberOuter);
 
-            list.Gap(6f);
-
-            // Add-by-search box.
-            list.Label("PSC_GroupAddHeader".Translate());
+            // Unified search: filters members AND surfaces matching non-members to add.
             var searchRow = list.GetRect(28f);
-            addBuf = Widgets.TextField(searchRow, addBuf ?? "");
-            addFilter.Text = addBuf;
-            var addOuter = list.GetRect(110f);
-            DrawAddCandidates(addOuter, data);
+            searchBuf = Widgets.TextField(searchRow, searchBuf ?? "");
+            searchFilter.Text = searchBuf;
+            bool searching = searchFilter.Active;
+
+            // Split the remaining vertical space so the buttons always sit at the bottom (no overflow —
+            // the old layout ran the add box off the window). GetRect(0) reports the cursor without
+            // consuming space. Listing.Begin does BeginGroup(inRect), so curY is 0-based and the usable
+            // bottom is inRect.height (NOT inRect.yMax).
+            float curY = list.GetRect(0f).y;
+            float reserved = 8f + 30f;                       // gap + button row
+            float avail = Mathf.Max(80f, inRect.height - curY - reserved);
+            float addH = searching ? Mathf.Min(140f, avail * 0.42f) : 0f;
+            float addHeaderH = searching ? Text.LineHeight : 0f;
+            float membersH = avail - addH - addHeaderH;
+
+            DrawMemberList(list.GetRect(membersH), searching);
+
+            if (searching)
+            {
+                list.Label("PSC_GroupAddMatching".Translate());
+                DrawAddCandidates(list.GetRect(addH), data);
+            }
 
             list.Gap(8f);
             var btnRow = list.GetRect(30f);
@@ -107,20 +141,31 @@ namespace PrecisionStockpileControl
             list.End();
         }
 
-        private void DrawMemberList(Rect outer)
+        private string LetterOf() => string.IsNullOrEmpty(group.letter) ? "?" : group.letter;
+
+        private void DrawMemberList(Rect outer, bool searching)
         {
             Widgets.DrawMenuSection(outer);
             var inner = outer.ContractedBy(4f);
+
+            // Filter the member list by the unified search (all members when not searching).
             var members = group.members;
-            float rowH = 26f;
-            var view = new Rect(0f, 0f, inner.width - 16f, members.Count * rowH);
-            Widgets.BeginScrollView(inner, ref memberScroll, view);
-            float y = 0f;
-            ThingDef toRemove = null;
+            var shown = new List<ThingDef>();
             for (int i = 0; i < members.Count; i++)
             {
                 var d = members[i];
                 if (d == null) continue;
+                if (!searching || PscSearchMatch.Matches(searchFilter, d)) shown.Add(d);
+            }
+
+            float rowH = 26f;
+            var view = new Rect(0f, 0f, inner.width - 16f, shown.Count * rowH);
+            Widgets.BeginScrollView(inner, ref memberScroll, view);
+            float y = 0f;
+            ThingDef toRemove = null;
+            for (int i = 0; i < shown.Count; i++)
+            {
+                var d = shown[i];
                 var row = new Rect(0f, y, view.width, rowH);
                 if (i % 2 == 1) Widgets.DrawLightHighlight(row);
                 Widgets.ThingIcon(new Rect(row.x, row.y + 2f, 22f, 22f), d);
@@ -149,20 +194,21 @@ namespace PrecisionStockpileControl
                 var row = new Rect(0f, y, view.width, rowH);
                 if (Mouse.IsOver(row)) Widgets.DrawHighlight(row);
                 Widgets.ThingIcon(new Rect(row.x, row.y + 2f, 22f, 22f), d);
-                if (Widgets.ButtonInvisible(row)) toAdd = d;
-                Widgets.Label(new Rect(row.x + 26f, row.y, row.width - 26f, rowH), d.LabelCap);
+                Widgets.Label(new Rect(row.x + 26f, row.y, row.width - 26f - 24f, rowH), d.LabelCap);
+                if (Widgets.ButtonText(new Rect(row.xMax - 24f, row.y + 2f, 22f, 22f), "+"))
+                    toAdd = d;
                 y += rowH;
             }
             Widgets.EndScrollView();
-            if (toAdd != null) { PscEdit.AddToGroup(settings, unit, group, toAdd); addBuf = ""; }
+            if (toAdd != null) PscEdit.AddToGroup(settings, unit, group, toAdd);
         }
 
-        // Storable, player-acquirable defs this unit can hold that match the add-search and are NOT
-        // already in a group. Capped so the list never explodes; mirrors PscControlWindow's filtering.
+        // Storable, player-acquirable defs this unit can hold that match the search and are NOT already in
+        // a group. Capped so the list never explodes; mirrors PscControlWindow's filtering.
         private List<ThingDef> AddCandidates(PscStorageData data)
         {
             var result = new List<ThingDef>();
-            if (!addFilter.Active) return result;
+            if (!searchFilter.Active) return result;
             ThingFilter parentFilter = settings.owner?.GetParentStoreSettings()?.filter;
             var all = DefDatabase<ThingDef>.AllDefsListForReading;
             for (int i = 0; i < all.Count && result.Count < 30; i++)
@@ -170,7 +216,7 @@ namespace PrecisionStockpileControl
                 var d = all[i];
                 if (!d.EverStorable(false) || !d.PlayerAcquirable || d.virtualDefParent != null) continue;
                 if (data.GroupOf(d) != null) continue;
-                if (!PscSearchMatch.Matches(addFilter, d)) continue;
+                if (!PscSearchMatch.Matches(searchFilter, d)) continue;
                 if (parentFilter != null)
                 {
                     if (!parentFilter.Allows(d)) continue;

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using HarmonyLib;
+using RimWorld;
 using UnityEngine;
 using Verse;
 
@@ -13,17 +14,24 @@ namespace PrecisionStockpileControl
     [HarmonyPatch(typeof(Listing_TreeThingFilter), "DoThingDef")]
     public static class Listing_TreeThingFilter_DoThingDef_Patch
     {
-        private static void OpenItemMenu(ThingDef tDef)
+        // settings/unit passed in (not read from PscUiContext) for the same reason as OpenGroupEditor:
+        // the float-menu callback runs after the tab cleared PscUiContext, which would leave the menu
+        // operating on null settings.
+        private static void OpenItemMenu(StorageSettings settings, PscHaulUnit unit, ThingDef tDef)
         {
             Find.WindowStack.WindowOfType<PscItemLimitMenu>()?.Close(false);
-            Find.WindowStack.Add(new PscItemLimitMenu(PscUiContext.Settings, PscUiContext.Unit,
-                new List<ThingDef> { tDef }, tDef.LabelCap));
+            Find.WindowStack.Add(new PscItemLimitMenu(settings, unit, new List<ThingDef> { tDef }, tDef.LabelCap));
         }
 
-        private static void OpenGroupEditor(PscLimitGroup g)
+        // settings/unit are passed in (captured at the call site), NOT read from PscUiContext here: a
+        // right-click float-menu callback fires AFTER the storage tab's Finalizer has cleared
+        // PscUiContext, so reading it at click time yields null settings and the editor self-closes on its
+        // first frame (the validity guard). The left-click caller runs during the tab draw, but passes the
+        // (still-valid) context values too for one consistent path.
+        private static void OpenGroupEditor(StorageSettings settings, PscHaulUnit unit, PscLimitGroup g)
         {
             Find.WindowStack.WindowOfType<PscGroupEditorWindow>()?.Close(false);
-            Find.WindowStack.Add(new PscGroupEditorWindow(PscUiContext.Settings, PscUiContext.Unit, g));
+            Find.WindowStack.Add(new PscGroupEditorWindow(settings, unit, g));
         }
 
         // Right-click float menu for a single item row: edit its limit (per-item menu, or the group
@@ -37,9 +45,9 @@ namespace PrecisionStockpileControl
             var opts = new List<FloatMenuOption>();
 
             if (group != null)
-                opts.Add(new FloatMenuOption("PSC_EditGroupLimit".Translate(group.letter), () => OpenGroupEditor(group)));
+                opts.Add(new FloatMenuOption("PSC_EditGroupLimit".Translate(group.letter), () => OpenGroupEditor(settings, unit, group)));
             else
-                opts.Add(new FloatMenuOption("PSC_EditItemLimit".Translate(), () => OpenItemMenu(tDef)));
+                opts.Add(new FloatMenuOption("PSC_EditItemLimit".Translate(), () => OpenItemMenu(settings, unit, tDef)));
 
             if (data?.limitGroups != null)
             {
@@ -52,11 +60,28 @@ namespace PrecisionStockpileControl
                 }
             }
 
+            // Ad-hoc creation: start a new group seeded with just this item, then open the editor to grow
+            // it / set its shared limit. Only for an ungrouped def (a grouped one uses Add-to / Remove).
+            if (group == null)
+                opts.Add(new FloatMenuOption("PSC_NewGroup".Translate(), () => NewGroupFromDef(settings, unit, data, tDef)));
+
             if (group != null)
                 opts.Add(new FloatMenuOption("PSC_RemoveFromGroup".Translate(),
                     () => PscEdit.RemoveFromGroup(settings, tDef)));
 
             if (opts.Count > 0) Find.WindowStack.Add(new FloatMenu(opts));
+        }
+
+        // Create a single-item group from `tDef`. If the def already carries a per-def cap, seed the new
+        // group's shared limit from it in Items mode (preserve the exact number — CreateGroup copies it
+        // before NormalizeGroups strips the per-def entry); otherwise a fresh stacks-mode draft.
+        private static void NewGroupFromDef(StorageSettings settings, PscHaulUnit unit, PscStorageData data, ThingDef tDef)
+        {
+            bool hasPerDef = data != null && data.HasLimit(tDef);
+            var seed = hasPerDef ? data.GetLimit(tDef) : new PscDefLimit();
+            var mode = hasPerDef ? PscGroupCountMode.Items : PscGroupCountMode.Stacks;
+            var g = PscEdit.CreateGroup(settings, unit, new List<ThingDef> { tDef }, seed, mode: mode);
+            if (g != null) OpenGroupEditor(settings, unit, g);
         }
 
         public static void Prefix(Listing_TreeThingFilter __instance, ThingDef tDef, out float __state)
@@ -80,7 +105,7 @@ namespace PrecisionStockpileControl
 
                 if (e.button == 0 && checkRect.Contains(e.mousePosition))
                 {
-                    if (group != null) { OpenGroupEditor(group); e.Use(); return; }
+                    if (group != null) { OpenGroupEditor(PscUiContext.Settings, PscUiContext.Unit, group); e.Use(); return; }
                     if (hasPerDef)
                     {
                         PscFilterPaint.Begin(0, PscUiContext.Settings, PscUiContext.Unit, tDef, limit, e.mousePosition);
