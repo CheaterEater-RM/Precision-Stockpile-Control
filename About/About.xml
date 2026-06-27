@@ -6,8 +6,8 @@
   <supportedVersions>
     <li>1.6</li>
   </supportedVersions>
-  <description>Set exact per-storage limits, refill thresholds, and hauling batch sizes. Route items from one storage into another, fine-tune priority, or switch a storage to fill-only / drain-only / frozen. Stockpiles you don't configure behave exactly like vanilla.</description>
-  <modVersion>0.1.0</modVersion>
+  <description>Take control of your storages with limits, feeder links, batch fills and empties, alarms, toggles and many more options.</description>
+  <modVersion>1.0</modVersion>
   <url>https://github.com/CheaterEater-RM/Precision-Stockpile-Control</url>
 
   <modDependencies>
