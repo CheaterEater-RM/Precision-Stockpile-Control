@@ -426,7 +426,7 @@ namespace PrecisionStockpileControl
         // ---- feeder facade: thin pass-throughs to PscFeederManager (logic lives there) ----
 
         public bool AddFeederLink(PscHaulUnit source, PscHaulUnit dest) => feeder.AddFeederLink(source, dest);
-        public void SeedFeederStrictnessIfFunctional(PscHaulUnit source, PscHaulUnit dest) => feeder.SeedFeederStrictnessIfFunctional(source, dest);
+        public void SeedFeederStrictness(PscHaulUnit source, PscHaulUnit dest) => feeder.SeedFeederStrictness(source, dest);
         public void BreakFeederLink(PscHaulUnit self, PscHaulUnit other) => feeder.BreakFeederLink(self, other);
         public void ClearAllFeederLinks() => feeder.ClearAllFeederLinks();
         public void ClearFeederLinksFor(PscHaulUnit unit) => feeder.ClearFeederLinksFor(unit);

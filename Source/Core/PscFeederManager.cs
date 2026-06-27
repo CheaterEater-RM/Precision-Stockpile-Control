@@ -39,8 +39,8 @@ namespace PrecisionStockpileControl
         // Create a directed link source -> dest. Returns true only when a NEW edge was created, so callers
         // (the link designator) can run one-shot follow-ups (auto-priority, strictness seeding) without
         // re-firing on a re-painted, already-linked unit. Strictness seeding is NOT done here — it is the
-        // designator's job AFTER auto-priority, via SeedFeederStrictnessIfFunctional, so a route that
-        // auto-priority makes functional gets seeded and a still-dead route does not (F4).
+        // designator's job AFTER auto-priority, via SeedFeederStrictness, which seeds the player's default
+        // flag on the new route whether or not it is functional yet (a dead route is surfaced separately).
         //
         // A pair carries at most ONE direction: setting s -> d first drops any existing reverse d -> s,
         // so linking each of two piles to the other flips the direction instead of forming a
@@ -62,18 +62,22 @@ namespace PrecisionStockpileControl
             return created;
         }
 
-        // Seed the default pull/push strictness flags for a freshly created route — but ONLY when the route
-        // is actually FUNCTIONAL (dest outranks source). Seeding strict flags onto a DEAD route (same- or
-        // reverse-priority, auto-priority off) would lock both piles: the source's onlyToDestinations stops
-        // it draining elsewhere and the dest's onlyFromSource stops it accepting elsewhere, while no item
-        // can legally flow the route (F4). The designator calls this AFTER auto-priority, so a nudge that
-        // makes the route functional still gets seeded. Each flag seeds only on the unit's FIRST
-        // source/destination (count == 1 post-add) so a later route never re-enables a flag the player
-        // turned off. Gizmo-only (clipboard/lifecycle paths add edges directly and never seed defaults).
-        public void SeedFeederStrictnessIfFunctional(PscHaulUnit source, PscHaulUnit dest)
+        // Seed the default pull/push strictness flags for a freshly created route. We obey the player's
+        // configured default whether or not the route is FUNCTIONAL yet: a priority mismatch (same- or
+        // reverse-priority dest, auto-priority off) is something the player will fix shortly, and the
+        // designator already surfaces a dead route via the WarnIfDeadRoute message — so withholding the
+        // flag would silently second-guess the player's setting instead of surfacing the real problem.
+        // Yes, seeding onto a dead route can stall both piles (source won't drain elsewhere, dest won't
+        // accept elsewhere) until priority is fixed; that is the configured behaviour, not a bug. The
+        // designator calls this AFTER auto-priority, so a nudge that makes the route functional is reflected
+        // too. Each flag seeds only on the unit's FIRST source/destination (count == 1 post-add) so a later
+        // route never re-enables a flag the player turned off. We still require a STRUCTURAL edge (the route
+        // was actually created) — only the priority/Outranks gate is dropped. Gizmo-only (clipboard/lifecycle
+        // paths add edges directly and never seed defaults).
+        public void SeedFeederStrictness(PscHaulUnit source, PscHaulUnit dest)
         {
             if (PscMod.Settings == null) return;
-            if (!HasFunctionalFeederEdge(source, dest)) return;
+            if (!HasStructuralFeederEdge(source, dest)) return;
             string s = source.UniqueLoadID, d = dest.UniqueLoadID;
             if (s == null || d == null) return;
             if (PscMod.Settings.defaultOnlyFromSource && links.SourceCount(d) == 1)
@@ -211,6 +215,16 @@ namespace PrecisionStockpileControl
         }
 
         // ---- queries ----
+
+        // Structural edge only (validity + same map + the edge exists), WITHOUT the priority (Outranks)
+        // gate. Used by strictness seeding, which obeys the player's default flag even on a not-yet-
+        // functional route; the designator's dead-route warning surfaces the priority mismatch instead.
+        private bool HasStructuralFeederEdge(PscHaulUnit source, PscHaulUnit dest)
+        {
+            if (!source.IsValid || !dest.IsValid) return false;
+            if (source.Map != map || dest.Map != map) return false;
+            return links.HasEdge(source.UniqueLoadID, dest.UniqueLoadID);
+        }
 
         public bool HasFunctionalFeederEdge(PscHaulUnit source, PscHaulUnit dest)
         {

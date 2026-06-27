@@ -99,11 +99,13 @@ namespace PrecisionStockpileControl
                 case PscFeederLinkMode.Source:                                            // picked unit feeds self
                     if (psc.AddFeederLink(other, self))
                     {
-                        // Auto-priority FIRST, then seed strictness only if the route is functional now, so a
-                        // nudge that fixes the order gets its flags but a still-dead route doesn't lock the
-                        // piles (F4). Skip the dead-route warning when auto-priority already explained why.
+                        // Auto-priority FIRST (a nudge that fixes the order is reflected in the seeded route),
+                        // then seed the player's default strictness regardless of whether the route is
+                        // functional yet. A still-dead route keeps its flags and is surfaced by the warning
+                        // below — we obey the setting rather than silently withholding it. Skip the dead-route
+                        // warning when auto-priority already explained why.
                         bool messaged = AutoPriority(dest: self, source: other);
-                        psc.SeedFeederStrictnessIfFunctional(other, self);
+                        psc.SeedFeederStrictness(other, self);
                         if (!messaged) WarnIfDeadRoute(psc, source: other, dest: self);
                     }
                     break;
@@ -111,7 +113,7 @@ namespace PrecisionStockpileControl
                     if (psc.AddFeederLink(self, other))
                     {
                         bool messaged = AutoPriority(dest: other, source: self);
-                        psc.SeedFeederStrictnessIfFunctional(self, other);
+                        psc.SeedFeederStrictness(self, other);
                         if (!messaged) WarnIfDeadRoute(psc, source: self, dest: other);
                     }
                     break;
