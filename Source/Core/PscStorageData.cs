@@ -1025,8 +1025,8 @@ namespace PrecisionStockpileControl
                 if (toRemove != null)
                     foreach (var k in toRemove) limits.Remove(k);
                 if (perTileLimit < 0) perTileLimit = 0;   // defensive: a stray negative degrades to off
-                // Groups self-heal: resolve member names, drop unresolved, prune groups under the
-                // 2-member minimum (1 survivor -> per-def limit), dedupe letters, strip grouped defs from
+                // Groups self-heal: resolve member names, drop unresolved, prune only fully-empty groups
+                // (a 1-member group stays a valid draft), dedupe letters, strip grouped defs from
                 // `limits`, and rebuild the reverse index. Runs after the limits prune so a def claimed by
                 // both heals group-wins-and-strip-limits.
                 if (limitGroups == null) limitGroups = new List<PscLimitGroup>();

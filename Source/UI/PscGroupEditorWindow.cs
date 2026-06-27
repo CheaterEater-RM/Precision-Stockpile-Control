@@ -160,7 +160,7 @@ namespace PrecisionStockpileControl
 
         // Live "now: N / cap unit" read-out: the enforced (mode-aware) current count vs the upper cap, so
         // a full group's "no more intake" state is visible. Uses the same enforced count the admission
-        // gate reads (packed stacks in Stacks mode, item sum in Items mode).
+        // gate reads (occupied cells in Stacks mode, item sum in Items mode).
         private void DrawNowLine(Listing_Standard list, PscStorageData data)
         {
             int now = data.GroupEnforcedCount(group, unit);

@@ -50,8 +50,8 @@ namespace PrecisionStockpileControl
 
         // ---- Limit groups ----
 
-        // Create a new group from `defs` with the shared `lim` (in `mode`'s unit — items or packed
-        // stacks). Pulls members out of any existing group, strips their per-def limits, assigns a letter,
+        // Create a new group from `defs` with the shared `lim` (in `mode`'s unit — items or occupied
+        // cells). Pulls members out of any existing group, strips their per-def limits, assigns a letter,
         // and seeds refill. Returns the new group, or null if no valid members. A 1-member group is legal
         // (the ad-hoc "New group from this item" draft — grow it via the editor / right-click "Add to").
         // Seed ordering is load-bearing: g.limit is copied from `lim` HERE, before NormalizeGroups strips
@@ -135,7 +135,7 @@ namespace PrecisionStockpileControl
             PscMapComponent.NotifyPolicyChanged(settings);
         }
 
-        // Set a group's shared limit (in `mode`'s unit — items or packed stacks), its count mode, and
+        // Set a group's shared limit (in `mode`'s unit — items or occupied cells), its count mode, and
         // re-seed its refill state. The editor calls this when the values OR the count mode change.
         public static void ApplyGroupLimit(StorageSettings settings, PscHaulUnit unit, PscLimitGroup g,
             PscDefLimit lim, PscGroupCountMode mode)

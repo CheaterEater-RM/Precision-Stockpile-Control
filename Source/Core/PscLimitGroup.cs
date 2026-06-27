@@ -6,10 +6,11 @@ namespace PrecisionStockpileControl
     // How a limit group counts its combined total. Stored by Scribe_Values, which writes the NAME —
     // reorder-safe, but NEVER rename a value (save-compat surface). Append-only.
     //   Items  — Σ member item-counts (the original behaviour; limit value is in items).
-    //   Stacks — Σ ceil(memberItems / member.stackLimit), i.e. PACKED stack-equivalents (limit value is
-    //            in stacks). This is the count of maximally-consolidated stacks, exact for a normal
-    //            stockpile (vanilla keeps one cell per def until stackLimit), NOT physical occupied cells
-    //            — the only divergence is multiple partial stacks of the same def under deep-storage mods.
+    //   Stacks — Σ member OCCUPIED CELLS (one Thing instance = one cell), i.e. "the stacks you see"
+    //            (limit value is in occupied cells). Enforced cell-aware (PscGroupCells). For a normally
+    //            consolidated single def this equals ceil(memberItems / stackLimit), since vanilla keeps
+    //            one cell per def until stackLimit; the two diverge only with multiple partial stacks of
+    //            the same def under deep-storage mods (a documented edge).
     //            This is the documented, scoped exception to PSC's "counts are items, not stacks" rule.
     public enum PscGroupCountMode : byte
     {
@@ -20,12 +21,13 @@ namespace PrecisionStockpileControl
     // A limit group: several ThingDefs in one stockpile sharing ONE limit that governs their COMBINED
     // total (e.g. all meats kept between 6 and 8 stacks TOTAL). The shared limit lives here exactly once,
     // so editing any member edits the whole group. The limit value is in `countMode`'s unit: raw items, or
-    // packed stack-equivalents. A def is in at most one group, and a grouped def is NOT also in `limits`.
+    // occupied cells. A def is in at most one group, and a grouped def is NOT also in `limits`.
     //
     // Per-unit; rides PscStorageData's <psc> node (write-nothing-when-empty). Removal-safe: members are
     // persisted as defNames (LookMode.Value) so a removed CONTENT mod degrades quietly — the runtime
-    // `members` list is re-resolved from the names on load (PscStorageData self-heals groups that drop
-    // below the 2-member minimum). The shared limit's PscRefillState rides this group's Deep round-trip,
+    // `members` list is re-resolved from the names on load (PscStorageData drops a group only when it
+    // loses EVERY member; a lone survivor stays a valid 1-member draft). The shared limit's PscRefillState
+    // rides this group's Deep round-trip,
     // so a deliberately-drained Satisfied group reloads Satisfied (reconciled, not re-seeded).
     public class PscLimitGroup : IExposable
     {
@@ -43,7 +45,7 @@ namespace PrecisionStockpileControl
         // never on the cramped filter row, which shows just the letter.
         public string name;
 
-        // How the combined limit is counted (items vs packed stacks). Policy, like lower/upper — it must
+        // How the combined limit is counted (items vs occupied cells). Policy, like lower/upper — it must
         // survive copy/paste (unlike refill). Default Items so an absent field on an old save keeps that
         // save's existing item-valued numbers correct; new groups are created Stacks by PscEdit.CreateGroup.
         public PscGroupCountMode countMode = PscGroupCountMode.Items;
