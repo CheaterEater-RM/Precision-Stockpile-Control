@@ -113,7 +113,6 @@
   <PSC_PasteEverythingTip>Pastes every setting, including priorities. Same as left-clicking Paste.</PSC_PasteEverythingTip>
 
   <!-- On-map storage overlay (bottom-right play-settings toggle + per-storage info panels) -->
-  <PSC_OverlayToggle>Storage overlay</PSC_OverlayToggle>
   <PSC_OverlayToggleTip>Show storage priority panels and all feeder routes on the map. Panels appear when you zoom in.</PSC_OverlayToggleTip>
   <PSC_OverlayLimits>Item limits set</PSC_OverlayLimits>
 

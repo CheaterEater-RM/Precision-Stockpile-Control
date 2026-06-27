@@ -11,7 +11,7 @@
   <PropertyGroup>
     <TargetFramework>net48</TargetFramework>
     <OutputType>Library</OutputType>
-    <LangVersion>latest</LangVersion>
+    <LangVersion>9.0</LangVersion>
     <RootNamespace>PrecisionStockpileControl</RootNamespace>
     <AssemblyName>PrecisionStockpileControl</AssemblyName>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>

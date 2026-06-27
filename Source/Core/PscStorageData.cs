@@ -984,7 +984,7 @@ namespace PrecisionStockpileControl
             Scribe_Values.Look(ref subTier, "subTier", (byte)0);
             Scribe_Values.Look(ref letter, "letter");
             Scribe_Values.Look(ref mode, "mode", PscStorageMode.Normal);
-            Scribe_Values.Look(ref perTileLimit, "perTile", 0);
+            Scribe_Values.Look(ref perTileLimit, "perTileLimit", 0);
 
             // Alarm: write the <alarm> child only when armed (write-nothing-when-empty contract). On
             // load (LoadingVars) read it back; null stays the valid "no alarm" state (no PostLoadInit

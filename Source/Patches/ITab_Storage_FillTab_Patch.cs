@@ -43,9 +43,12 @@ namespace PrecisionStockpileControl
                 // create a first limit. The per-row label still only draws when a limit exists.
                 PscUiContext.Set(settings, PscHaulUnit.ResolveSettings(settings));
             }
-            catch
+            catch (System.Exception e)
             {
-                // UI reflection is best-effort; never let it break the storage tab.
+                // UI reflection is best-effort; never let it break the storage tab. Surface it once
+                // (keyed, so it can't spam this per-frame path) so future RimWorld UI drift is visible.
+                Log.WarningOnce("[PSC] storage-tab setup failed (RimWorld UI may have changed): " + e,
+                    0x12C5_F11B);
             }
         }
 
