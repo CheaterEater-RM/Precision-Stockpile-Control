@@ -41,7 +41,11 @@ namespace PrecisionStockpileControl
 
                 // Always set the context (even with no PSC data yet) so right-click on a row can
                 // create a first limit. The per-row label still only draws when a limit exists.
-                PscUiContext.Set(settings, PscHaulUnit.ResolveSettings(settings));
+                // For an unbuilt storage (blueprint / frame) the unit is invalid; stash the built
+                // shelf's stack capacity from its BuildDef so the limit sliders show the same ceiling
+                // they will once built (PscLimitEditor falls back to it).
+                var unit = PscHaulUnit.ResolveSettings(settings);
+                PscUiContext.Set(settings, unit, unit.IsValid ? 0 : PreviewStackSlots(parent));
             }
             catch (System.Exception e)
             {
@@ -82,6 +86,21 @@ namespace PrecisionStockpileControl
 
             // Quick-toggle strip (batch in/out, only-from/to-routes, alarm) right of the button.
             PscToggleStrip.Draw(__state.settings, unit, __state.search);
+        }
+
+        // Stack capacity the built shelf WILL have, for the limit-slider ceiling on an unbuilt
+        // (blueprint / frame) storage whose live unit does not exist yet. Mirrors vanilla's own
+        // capacity formula (Building_Storage.SpaceRemainingFor: maxItemsInCell * Size.Area). A
+        // blueprint/frame Thing's def.entityDefToBuild is the real building def; a built storage's is
+        // null, so this returns 0 there and the live-unit capacity is used instead.
+        private static int PreviewStackSlots(IStoreSettingsParent parent)
+        {
+            if (parent is Thing t && t.def?.entityDefToBuild is ThingDef built)
+            {
+                int perCell = built.building != null ? built.building.maxItemsInCell : 1;
+                return Mathf.Max(1, perCell) * Mathf.Max(1, built.Size.Area);
+            }
+            return 0;
         }
 
         public static void Finalizer()

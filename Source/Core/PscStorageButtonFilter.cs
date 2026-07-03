@@ -36,13 +36,23 @@ namespace PrecisionStockpileControl
         {
             if (parent == null) return false;
 
-            // Built-in single-purpose blacklist — definitive, always on.
-            for (int i = 0; i < BuiltinHiddenTypes.Length; i++)
-                if (BuiltinHiddenTypes[i].IsInstanceOfType(parent))
-                    return true;
+            // The building this parent will BECOME when built, for an unbuilt blueprint/frame; null for
+            // already-built storage (whose own def/type is used directly). This makes a blacklisted
+            // container's blueprint hide PSC exactly like the finished building.
+            ThingDef builtDef = BuiltDef(parent);
 
-            // XML-only path: any ThingDef patched with the PscStorageExclusion mod extension.
-            ThingDef def = ResolveDef(parent);
+            // Built-in single-purpose blacklist — definitive, always on. Match the parent instance
+            // (built storage) OR, for a blueprint/frame, the class of the building it becomes.
+            for (int i = 0; i < BuiltinHiddenTypes.Length; i++)
+            {
+                if (BuiltinHiddenTypes[i].IsInstanceOfType(parent)) return true;
+                if (builtDef?.thingClass != null && BuiltinHiddenTypes[i].IsAssignableFrom(builtDef.thingClass))
+                    return true;
+            }
+
+            // XML-only path: any ThingDef patched with the PscStorageExclusion mod extension. For a
+            // blueprint/frame this is the built def, so the opt-out matches the finished building.
+            ThingDef def = builtDef ?? ResolveDef(parent);
             return def != null && def.HasModExtension<PscStorageExclusion>();
         }
 
@@ -55,5 +65,11 @@ namespace PrecisionStockpileControl
             if (parent is ThingComp c) return c.parent?.def;
             return null;
         }
+
+        // For an unbuilt storage (Blueprint_Storage / storage Frame) the parent is a Thing whose def
+        // has entityDefToBuild set to the real building ThingDef. Comp-backed containers key their
+        // blacklist on a comp (not thingClass), so their unbuilt form is a documented minor edge.
+        private static ThingDef BuiltDef(IStoreSettingsParent parent)
+            => parent is Thing t && t.def?.entityDefToBuild is ThingDef built ? built : null;
     }
 }

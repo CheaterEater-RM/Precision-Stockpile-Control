@@ -28,18 +28,18 @@ namespace PrecisionStockpileControl
         private static readonly Color PaintedColor = new Color(0.40f, 0.90f, 0.45f, 0.75f);
         private static readonly Color HoverColor = new Color(1f, 0.95f, 0.45f, 0.95f);
 
-        private readonly PscHaulUnit seed;
+        private readonly PscPaintTarget seed;
         private readonly StoragePriority band;   // seed's band, frozen for the session
         private readonly byte subTier;           // seed's sub-tier, frozen for the session
         private readonly string seedId;
         private string currentLetter;            // last letter assigned; starts as the seed's letter
 
-        private readonly HashSet<string> painted = new HashSet<string>();   // dedup by UniqueLoadID
-        private readonly List<PscHaulUnit> paintedUnits = new List<PscHaulUnit>(); // for highlights
+        private readonly HashSet<string> painted = new HashSet<string>();   // dedup by target Id
+        private readonly List<PscPaintTarget> paintedUnits = new List<PscPaintTarget>(); // for highlights
         private readonly List<IntVec3> cellBuffer = new List<IntVec3>();    // reused per frame, never retains CellsList
         private IntVec3 lastPaintedCell = IntVec3.Invalid;
 
-        public Designator_PscSubpriorityPaint(PscHaulUnit seed, StoragePriority band, byte subTier,
+        public Designator_PscSubpriorityPaint(PscPaintTarget seed, StoragePriority band, byte subTier,
             string startingLetter, Texture2D icon)
         {
             this.seed = seed;
@@ -51,7 +51,7 @@ namespace PrecisionStockpileControl
             defaultDesc = "PSC_PaintSubpriorityDesc".Translate();
             useMouseIcon = true;
             soundSucceeded = SoundDefOf.Click;
-            seedId = seed.UniqueLoadID;
+            seedId = seed.Id;
             if (seedId != null) painted.Add(seedId);  // the seed never repaints itself
         }
 
@@ -61,12 +61,11 @@ namespace PrecisionStockpileControl
         {
             var map = TargetMap;
             if (map == null || !c.InBounds(map)) return false;
-            var u = PscHaulUnit.ResolveCell(c, map);
-            if (!u.IsValid || u.Equals(seed)) return false;
+            if (!PscPaintTarget.TryResolveCell(c, map, out var u) || u.SameAs(seed)) return false;
             // Do NOT reject when the sequence is exhausted (currentLetter == z): the click must still
             // reach DesignateSingleCell so it can show the message and exit the tool (the chosen
             // "message + exit" behaviour). Already-painted units are rejected here (no backtracking).
-            string id = u.UniqueLoadID;
+            string id = u.Id;
             return id == null || !painted.Contains(id);
         }
 
@@ -82,9 +81,8 @@ namespace PrecisionStockpileControl
             }
             var map = TargetMap;
             if (map == null) return;
-            var other = PscHaulUnit.ResolveCell(c, map);
-            if (!other.IsValid || other.Equals(seed)) return;
-            string id = other.UniqueLoadID;
+            if (!PscPaintTarget.TryResolveCell(c, map, out var other) || other.SameAs(seed)) return;
+            string id = other.Id;
             if (id == null || painted.Contains(id)) return;       // no backtracking
 
             // Reached the bottom: assign nothing more, tell the player once, and exit the tool.
@@ -124,14 +122,14 @@ namespace PrecisionStockpileControl
         // is selected (mesh edges belong in the Update phase, like vanilla area designators).
         private void DrawSessionHighlights(Map map)
         {
-            DrawUnitEdges(seed, SeedColor);
+            DrawTargetEdges(seed, SeedColor);
 
             // Combine painted units into a single field-edge call (CellsList is a shared static temp, so
             // copy each unit's cells out into our buffer before the next fetch overwrites it).
             cellBuffer.Clear();
             for (int i = 0; i < paintedUnits.Count; i++)
             {
-                var cells = paintedUnits[i].group?.CellsList;
+                var cells = paintedUnits[i].Cells;
                 if (cells != null) cellBuffer.AddRange(cells);
             }
             if (cellBuffer.Count > 0) GenDraw.DrawFieldEdges(cellBuffer, PaintedColor);
@@ -139,16 +137,15 @@ namespace PrecisionStockpileControl
             if (Mouse.IsInputBlockedNow) return;
             IntVec3 c = UI.MouseCell();
             if (!c.InBounds(map)) return;
-            var hover = PscHaulUnit.ResolveCell(c, map);
-            if (!hover.IsValid || hover.Equals(seed)) return;
-            string id = hover.UniqueLoadID;
+            if (!PscPaintTarget.TryResolveCell(c, map, out var hover) || hover.SameAs(seed)) return;
+            string id = hover.Id;
             if (id != null && painted.Contains(id)) return;
-            DrawUnitEdges(hover, HoverColor);
+            DrawTargetEdges(hover, HoverColor);
         }
 
-        private static void DrawUnitEdges(PscHaulUnit u, Color color)
+        private static void DrawTargetEdges(in PscPaintTarget u, Color color)
         {
-            var cells = u.group?.CellsList;   // static temp — passed to DrawFieldEdges immediately, never retained
+            var cells = u.Cells;   // built: static temp — passed to DrawFieldEdges immediately, never retained
             if (cells == null || cells.Count == 0) return;
             GenDraw.DrawFieldEdges(cells, color);
         }

@@ -21,7 +21,12 @@ namespace PrecisionStockpileControl
         // force a priority control onto those. Refreshed every time the getter is evaluated.
         internal static bool LastPriorityVisibleOriginal;
 
-        private static bool NumberingOn => PscMod.Settings != null && PscMod.Settings.priorityNumbering;
+        // Suppress vanilla's priority button only where PSC actually draws its level box: numbering on
+        // AND the PSC tab UI is shown for this storage (PscUiContext.Active, set by the FillTab prefix
+        // before these getters are read). This keeps the storage tab byte-identical to vanilla on
+        // blacklisted / non-PSC storages, and lets a blueprint's tab match a built shelf.
+        private static bool SuppressActive =>
+            PscMod.Settings != null && PscMod.Settings.priorityNumbering && PscUiContext.Active;
 
         [HarmonyPatch(typeof(ITab_Storage), "IsPrioritySettingVisible", MethodType.Getter)]
         public static class IsPrioritySettingVisible_Patch
@@ -29,7 +34,7 @@ namespace PrecisionStockpileControl
             public static void Postfix(ref bool __result)
             {
                 LastPriorityVisibleOriginal = __result;
-                if (NumberingOn && __result)
+                if (SuppressActive && __result)
                     __result = false; // hide vanilla's band button; PSC draws the level box instead
             }
         }
@@ -43,7 +48,7 @@ namespace PrecisionStockpileControl
                 // postfix, so LastPriorityVisibleOriginal is always current here regardless of where
                 // FillTab calls TopAreaHeight. Restore the priority-visible height that our
                 // IsPrioritySettingVisible suppression would otherwise have collapsed to 20.
-                if (NumberingOn && LastPriorityVisibleOriginal)
+                if (SuppressActive && LastPriorityVisibleOriginal)
                     __result = 35f;
             }
         }

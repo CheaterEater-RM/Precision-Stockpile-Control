@@ -27,8 +27,9 @@ namespace PrecisionStockpileControl
         public static void Draw(StorageSettings settings)
         {
             if (settings == null) return;
-            var unit = PscHaulUnit.ResolveSettings(settings);
-            if (!unit.IsValid) return;
+            // Fine-order (letter / 1-10 level) is pure StorageSettings policy, so it draws on an
+            // unbuilt storage (blueprint / frame) too and carries to the built shelf via CopyFrom.
+            // No unit is needed.
 
             // Both fine-order dimensions are opt-in: nothing to draw here when both are off (the level
             // box rides 1-10 numbering, the letter box rides a-z subpriorities).

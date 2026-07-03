@@ -42,7 +42,11 @@ namespace PrecisionStockpileControl
         // Drawn in the FillTab postfix's window space (origin x=10), anchored to the entry button.
         public static void Draw(StorageSettings settings, PscHaulUnit unit, QuickSearchFilter search)
         {
-            if (settings == null || !unit.IsValid) return;
+            // Draws on an unbuilt storage (blueprint / frame) too: batch and alarm are pure policy
+            // data that carries to the built shelf. The only-from / only-to route toggles below stay
+            // disabled there (no live map / links resolve for an invalid unit) until Phase 2 gives
+            // blueprints edge-capable endpoints.
+            if (settings == null) return;
 
             var btn = PscUiWidgets.EntryButtonRect();
             float y = btn.y + (btn.height - IconSize) / 2f;

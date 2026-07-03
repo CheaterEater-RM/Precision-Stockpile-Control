@@ -285,9 +285,15 @@ namespace PrecisionStockpileControl
         }
 
         // Shares PscHaulUnit.TryGetStackSlots with the paste-time capacity clamp so the slider cap
-        // and the clamp use the identical capacity basis. Falls back to 1 for a unit with no cells.
+        // and the clamp use the identical capacity basis. For an unbuilt storage (blueprint / frame)
+        // the unit has no cells, so fall back to the BuildDef-derived preview capacity stashed by the
+        // FillTab prefix — the slider then shows the same ceiling the built shelf will have. Falls
+        // back to 1 only when neither is available (a truly cell-less unit with no preview).
         private static int StackSlots(PscHaulUnit unit)
-            => unit.TryGetStackSlots(out int slots) ? slots : 1;
+        {
+            if (unit.TryGetStackSlots(out int slots)) return slots;
+            return PscUiContext.PreviewStackSlots > 0 ? PscUiContext.PreviewStackSlots : 1;
+        }
 
         private string SliderHint(PscLimitEditorTarget target)
         {

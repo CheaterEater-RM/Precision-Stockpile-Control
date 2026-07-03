@@ -22,7 +22,10 @@ namespace PrecisionStockpileControl
 
         public static IEnumerable<Gizmo> GizmosFor(StorageSettings settings, PscHaulUnit unit)
         {
-            if (settings == null || !unit.IsValid) yield break;
+            // The alarm config is pure PscStorageData policy, so it also shows on an unbuilt storage
+            // (blueprint / frame) whose unit is invalid — it carries to the built shelf via CopyFrom.
+            // The only map touch (DisarmAllAlarms via unit.Map) is null-safe on an invalid unit.
+            if (settings == null) yield break;
             bool armed = PscStorageDataStore.TryGet(settings)?.alarm?.IsActive ?? false;
 
             yield return new Command_PscAlarm

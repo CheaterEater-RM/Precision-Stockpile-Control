@@ -30,7 +30,10 @@ namespace PrecisionStockpileControl
 
         public static IEnumerable<Gizmo> GizmosFor(StorageSettings settings, PscHaulUnit unit)
         {
-            if (settings == null || !unit.IsValid) yield break;
+            // Storage mode is pure PscStorageData policy, so it also shows on an unbuilt storage
+            // (blueprint / frame) whose unit is invalid — it carries to the built shelf via CopyFrom.
+            // SetMode's only map touch (RefreshHaulables via unit.Map) is null-safe on an invalid unit.
+            if (settings == null) yield break;
             var current = PscStorageDataStore.TryGet(settings)?.mode ?? PscStorageMode.Normal;
 
             yield return new Command_Action
