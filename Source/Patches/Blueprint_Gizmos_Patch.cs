@@ -20,7 +20,7 @@ namespace PrecisionStockpileControl
         {
             if (Find.Selector.NumSelected != 1) yield break;
             if (parent is Thing t && !t.Spawned) yield break;
-            if (PscStorageButtonFilter.ShouldHide(parent)) yield break;  // opt-out hides gizmos too
+            if (PscStorageButtonFilter.ShouldHideLimits(parent)) yield break;  // opt-out hides gizmos too
             var settings = parent.GetStoreSettings();
             if (settings == null) yield break;
 

@@ -22,11 +22,13 @@ namespace PrecisionStockpileControl
         internal static bool LastPriorityVisibleOriginal;
 
         // Suppress vanilla's priority button only where PSC actually draws its level box: numbering on
-        // AND the PSC tab UI is shown for this storage (PscUiContext.Active, set by the FillTab prefix
-        // before these getters are read). This keeps the storage tab byte-identical to vanilla on
-        // blacklisted / non-PSC storages, and lets a blueprint's tab match a built shelf.
+        // AND the PSC tab UI is shown for this storage (PscUiContext.PriorityActive, set by the FillTab
+        // prefix before these getters are read). PriorityActive is the wider gate than Active: the
+        // level box now also draws on limit-hidden storage (graves), so the suppression must cover
+        // exactly the set where the level box draws — including those. This keeps the storage tab
+        // byte-identical to vanilla on non-PSC storages, and lets a blueprint's tab match a built shelf.
         private static bool SuppressActive =>
-            PscMod.Settings != null && PscMod.Settings.priorityNumbering && PscUiContext.Active;
+            PscMod.Settings != null && PscMod.Settings.priorityNumbering && PscUiContext.PriorityActive;
 
         [HarmonyPatch(typeof(ITab_Storage), "IsPrioritySettingVisible", MethodType.Getter)]
         public static class IsPrioritySettingVisible_Patch

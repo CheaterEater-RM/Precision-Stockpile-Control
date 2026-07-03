@@ -301,10 +301,10 @@ namespace PrecisionStockpileControl
 
                 var parent = StoreParentFromSelected(selected[0]);
                 if (parent == null || parent.GetStoreSettings() == null) return false;
-                // Excluded storage (grave / bookcase / gene bank / comp-backed special storage): the FillTab
-                // prefix hides PSC controls for these and won't retarget the window to them, so close rather
-                // than linger over a unit PSC can't edit (F5).
-                if (PscStorageButtonFilter.ShouldHide(parent)) return false;
+                // Limit-excluded storage (grave / feedstock / comp-backed special storage): the FillTab
+                // prefix shows only the fine-order priority box for these and won't retarget the window
+                // to them, so close rather than linger over a unit whose limits PSC can't edit (F5).
+                if (PscStorageButtonFilter.ShouldHideLimits(parent)) return false;
                 return true;
             }
             catch (Exception ex)

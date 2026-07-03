@@ -19,6 +19,7 @@ namespace PrecisionStockpileControl
         {
             public StorageSettings settings;
             public QuickSearchFilter search;
+            public bool priorityOnly;
         }
 
         public static void Prefix(ITab_Storage __instance, out State __state)
@@ -31,10 +32,18 @@ namespace PrecisionStockpileControl
                 var settings = parent.GetStoreSettings();
                 if (settings == null) return;
 
-                // Blacklisted storage (bookcases, graves, etc.): leave __state.settings null so the
-                // postfix draws nothing, and skip PscUiContext.Set so per-row right-click limits are
-                // suppressed too. PSC then behaves exactly like vanilla on these units.
-                if (PscStorageButtonFilter.ShouldHide(parent)) return;
+                // Limit-hidden storage (graves, feedstock vats, shell holders): a count limit is
+                // meaningless here, so no limits context (no per-row limit UI, entry button, or toggle
+                // strip). It DOES still get the fine-order priority box, which self-gates on vanilla's
+                // priority visibility (only graves have a band). Mark the priority-only path and set
+                // just the priority context, then let the postfix draw the level box alone.
+                if (PscStorageButtonFilter.ShouldHideLimits(parent))
+                {
+                    __state.settings = settings;
+                    __state.priorityOnly = true;
+                    PscUiContext.SetPriorityOnly(settings);
+                    return;
+                }
 
                 __state.settings = settings;
                 __state.search = PscReflection.GetQuickSearchFilter(__instance);
@@ -60,8 +69,16 @@ namespace PrecisionStockpileControl
         {
             if (__state.settings == null) return;
 
+            // Limit-hidden storage (graves): draw only the fine-order level box (no letter box, no
+            // entry button / toggle strip / window retarget), then stop.
+            if (__state.priorityOnly)
+            {
+                PscPriorityBox.Draw(__state.settings, priorityOnly: true);
+                return;
+            }
+
             // Fine-order controls (letter / 1-10 level) beside the vanilla Priority button.
-            PscPriorityBox.Draw(__state.settings);
+            PscPriorityBox.Draw(__state.settings, priorityOnly: false);
 
             var unit = PscHaulUnit.ResolveSettings(__state.settings);
 

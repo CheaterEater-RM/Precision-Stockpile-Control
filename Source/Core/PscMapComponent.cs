@@ -94,6 +94,15 @@ namespace PrecisionStockpileControl
         // can read it when rebuilding the prefilter below.
         internal readonly HashSet<StorageSettings> tracked = new HashSet<StorageSettings>();
 
+        // Container storage (graves/sarcophagi — IHaulDestination buildings that are NOT slot groups, so
+        // PscHaulUnit can't resolve them). They can only carry fine-order policy (the priority-only tab
+        // path), and the ONLY consumer of this set is RecomputeFineOrderActive: it must arm the
+        // container-path fine-order patches (FineOrder_HaulDestination_Patches). Deliberately separate
+        // from `tracked` so container settings never leak into the slot-group machinery (admission
+        // index, counts, alarms, batch), which assumes resolvable units. A destroyed grave's entry can
+        // linger until the next rebuild — that only over-arms a perf gate, never affects correctness.
+        internal readonly HashSet<StorageSettings> trackedContainers = new HashSet<StorageSettings>();
+
         // Soft def->units "maybe-accepts" prefilter (store-search rewrite, Phase 1). Managed units whose
         // filter allows the def AND whose mode permits intake. Rebuilt from `tracked` on the same seams that
         // maintain the gates (UpdateTracking / RebuildTrackingFromStore / the resync backstop) via
@@ -185,7 +194,19 @@ namespace PrecisionStockpileControl
         public static void NotifyPolicyChanged(StorageSettings settings)
         {
             var unit = PscHaulUnit.ResolveSettings(settings);
-            if (!unit.IsValid) return;
+            if (!unit.IsValid)
+            {
+                // Container storage (grave/sarcophagus): no haul unit resolves, but a fine-order edit
+                // from the priority-only tab path still needs tracking so anyFineOrderActive arms the
+                // container-path patches. Clipboard / unspawned settings resolve to no owner map and
+                // remain a no-op, exactly as before.
+                if (settings?.owner is Thing th && th.Spawned && th.Map != null)
+                {
+                    For(th.Map)?.UpdateContainerTracking(settings);
+                    settings.owner.Notify_SettingsChanged();
+                }
+                return;
+            }
             For(unit.Map)?.UpdateTracking(settings);
             // Wake vanilla's haulables lister for this unit's cells. A PSC-only policy edit (cap lowered,
             // freeze mode, feeder flags, batch) changes whether already-stored items are valid, but vanilla
@@ -195,6 +216,22 @@ namespace PrecisionStockpileControl
             // uses for filter edits (StorageSettings.TryNotifyChanged -> owner.Notify_SettingsChanged ->
             // listerHaulables.Notify_SlotGroupChanged); it does not call back into PSC, so no re-entrancy.
             settings.owner?.Notify_SettingsChanged();
+        }
+
+        // Container (non-slot-group) mirror of UpdateTracking: maintains trackedContainers and the one
+        // gate it feeds. No admission index / counts / alarm work — containers carry fine-order only.
+        internal void UpdateContainerTracking(StorageSettings settings)
+        {
+            var data = PscStorageDataStore.TryGet(settings);
+            bool active = data != null && data.HasPersistentPolicy;
+            if (active)
+                trackedContainers.Add(settings);
+            else
+            {
+                trackedContainers.Remove(settings);
+                PscStorageDataStore.Remove(settings);
+            }
+            RecomputeFineOrderActive();
         }
 
         private void UpdateTracking(StorageSettings settings)
@@ -248,6 +285,15 @@ namespace PrecisionStockpileControl
                     if (d == null) continue;
                     if ((numbering && d.subTier != 0) || (letters && !string.IsNullOrEmpty(d.letter))) { any = true; break; }
                 }
+                // Container storage (graves) carries fine-order too, via its own tracking set — it must
+                // arm the gate or the container-path patches (FineOrder_HaulDestination_Patches) never run.
+                if (!any)
+                    foreach (var s in trackedContainers)
+                    {
+                        var d = PscStorageDataStore.TryGet(s);
+                        if (d == null) continue;
+                        if ((numbering && d.subTier != 0) || (letters && !string.IsNullOrEmpty(d.letter))) { any = true; break; }
+                    }
             }
             if (PscLog.Enabled && any != anyFineOrderActive)
                 PscLog.Msg($"order: gate anyFineOrderActive {anyFineOrderActive} -> {any}");
@@ -388,13 +434,23 @@ namespace PrecisionStockpileControl
         internal void RebuildTrackingFromStore(bool markDirty)
         {
             tracked.Clear();
+            trackedContainers.Clear();
             if (!PscStorageDataStore.IsEmpty)
             {
                 foreach (var kv in PscStorageDataStore.All)
                 {
                     if (!kv.Value.HasPersistentPolicy) continue;
                     var unit = PscHaulUnit.ResolveSettings(kv.Key);
-                    if (unit.IsValid && unit.Map == map)
+                    if (!unit.IsValid)
+                    {
+                        // Container storage (grave/sarcophagus): no haul unit, but its fine-order policy
+                        // must survive a load — re-track it by its spawned owner so anyFineOrderActive
+                        // (recomputed below) arms the container-path patches again.
+                        if (kv.Key.owner is Thing th && th.Spawned && th.Map == map)
+                            trackedContainers.Add(kv.Key);
+                        continue;
+                    }
+                    if (unit.Map == map)
                     {
                         tracked.Add(kv.Key);
                         // markDirty == true only at load (FinalizeInit). Hysteresis state (lim.refill) is now
@@ -431,6 +487,10 @@ namespace PrecisionStockpileControl
             var unit = PscHaulUnit.ResolveSettings(settings);
             if (unit.IsValid)
                 unit.Map?.haulDestinationManager?.Notify_HaulDestinationChangedPriority();
+            // Container storage (grave): no unit, but a sub-tier edit still changes the tie-broken
+            // haul-destination order (the band setter only resorts on a BAND change), so resort here too.
+            else if (settings?.owner is Thing th && th.Spawned)
+                th.Map?.haulDestinationManager?.Notify_HaulDestinationChangedPriority();
         }
 
         public override void ExposeData()

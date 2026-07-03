@@ -4,10 +4,21 @@ using Verse;
 
 namespace PrecisionStockpileControl
 {
-    // Decides whether to suppress PSC's storage-tab button + adjacent controls for a given storage.
-    // PSC is opt-in and useless on single-purpose vanilla/DLC containers: bookcases (books only, no
-    // priority, fixed capacity), graves/sarcophagi (one corpse), outfit stands (one apparel/weapon),
-    // feedstock vats (growth vat / biosculpter pod), mortar shell holders, and gene banks.
+    // Decides whether to suppress PSC's LIMITS / policy UI (per-row limit rows, the PSC entry button,
+    // the quick-toggle strip, and the storage gizmos) for a given storage. It NO LONGER governs PSC's
+    // fine-order priority controls: the 1-10 level box now draws on any ITab_Storage-family tab whose
+    // vanilla IsPrioritySettingVisible is true (graves/sarcophagi), independent of this list.
+    //
+    // A count limit is meaningless on a single-purpose / automated container, so those keep their
+    // limits UI hidden: graves/sarcophagi (one corpse), feedstock vats (growth vat / biosculpter pod),
+    // and mortar shell holders. Of these only graves have a vanilla priority band, so only graves get
+    // the priority-only path; the feedstock/shell tabs are IsPrioritySettingVisible => false in vanilla,
+    // so no priority UI appears there by vanilla's own design (nothing to suppress or add).
+    //
+    // Bookcases (ITab_ContentsBooks) and gene banks (ITab_ContentsGenepackHolder) derive from
+    // ITab_ContentsBase, NOT ITab_Storage, so PSC's FillTab tab seam never fires there — their old
+    // entries were dead no-ops and are removed. Genuine bookcase / gene-bank control is future work
+    // that needs a new contents-tab seam, not an entry in this limits filter.
     //
     // Keyed by TYPE rather than defName so modded subclasses of these containers are caught too. All
     // referenced types live in Assembly-CSharp regardless of which DLC is active, so the direct
@@ -24,15 +35,13 @@ namespace PrecisionStockpileControl
     {
         private static readonly Type[] BuiltinHiddenTypes =
         {
-            typeof(Building_Bookcase),        // books only, no priority, fixed capacity
             typeof(Building_CorpseCasket),    // base of Building_Grave: graves + sarcophagi, one corpse
             typeof(Building_GrowthVat),       // nutrition feedstock, not a stockpile (Biotech)
             typeof(CompBiosculpterPod),       // nutrition feedstock (parent is the comp)
             typeof(CompChangeableProjectile), // mortar/turret loaded shells (parent is the comp)
-            typeof(CompGenepackContainer),    // gene bank (parent is the comp)
         };
 
-        public static bool ShouldHide(IStoreSettingsParent parent)
+        public static bool ShouldHideLimits(IStoreSettingsParent parent)
         {
             if (parent == null) return false;
 

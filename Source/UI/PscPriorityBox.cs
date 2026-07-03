@@ -24,7 +24,7 @@ namespace PrecisionStockpileControl
         private const float Gap = 6f;
         private const float LetterW = 40f;
 
-        public static void Draw(StorageSettings settings)
+        public static void Draw(StorageSettings settings, bool priorityOnly = false)
         {
             if (settings == null) return;
             // Fine-order (letter / 1-10 level) is pure StorageSettings policy, so it draws on an
@@ -35,6 +35,10 @@ namespace PrecisionStockpileControl
             // box rides 1-10 numbering, the letter box rides a-z subpriorities).
             bool numbering = PscMod.Settings != null && PscMod.Settings.priorityNumbering;
             bool letters = PscMod.Settings != null && PscMod.Settings.subpriorityLetters;
+            // On priority-only (container) storage — graves, a non-slot-group haul destination — PSC
+            // enforces the 1-10 level via the haul-destination fine-order patches, but a-z letters are
+            // NOT enforced on that path yet. Force the letter box off so no inert UI faces the player.
+            if (priorityOnly) letters = false;
             if (!numbering && !letters) return;
 
             var data = PscStorageDataStore.TryGet(settings);

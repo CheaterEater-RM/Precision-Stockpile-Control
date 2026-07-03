@@ -7,7 +7,7 @@
     <li>1.6</li>
   </supportedVersions>
   <description>Take control of your storages with limits, feeder links, batch fills and empties, alarms, toggles and many more options.</description>
-  <modVersion>1.0</modVersion>
+  <modVersion>1.01</modVersion>
   <url>https://github.com/CheaterEater-RM/Precision-Stockpile-Control</url>
 
   <modDependencies>
