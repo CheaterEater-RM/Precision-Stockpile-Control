@@ -40,6 +40,12 @@ namespace PrecisionStockpileControl
         // [StaticConstructorOnStartup] runs), so it already captured size=300 and this overwrite
         // can't reach it — the frame is corrected separately by InspectTabBase_TabRect_Patch.
         //
+        // This is only the INITIAL seed / the StorageTabWidened gate. InspectTabBase_TabRect_Patch
+        // re-derives the width each frame as max(StorageTabWidth, live WinSize.x) and writes it to
+        // BOTH surfaces, so another mod that rewrites WinSize in its own OnOpen (e.g. Resize Filter
+        // Tab) can no longer leave the content and frame diverged — PSC defers up to a wider setting
+        // and holds this floor for a narrower one.
+        //
         // Cosmetic only — does not touch any storage behaviour. Fail-safe: on reflection failure,
         // log, leave the vanilla width, and leave StorageTabWidened false so the frame stays 300
         // too (the label still hugs its text, so it degrades to plain vanilla geometry).

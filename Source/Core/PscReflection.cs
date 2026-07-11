@@ -20,6 +20,7 @@ namespace PrecisionStockpileControl
     //   Widgets.checkboxPainting              (private static)  — vanilla allow/disallow paint in progress
     //   Widgets.checkboxPaintingState         (private static)  — value being painted (true = allow)
     //   InspectTabBase.size                   (protected field) — the live storage-tab frame size (widen)
+    //   ITab_Storage.WinSize                  (private static)  — the storage-tab CONTENT + filter-tree width
     //   ITab_Storage.SelStoreSettingsParent   (property getter) — the selected storage's settings parent
     //   ITab_Storage.thingFilterState.quickSearch.filter        — the tab's quick-search filter
     //   Widgets.Checkbox(float,float,bool&,float,bool,bool,Texture2D,Texture2D)  (overload)
@@ -71,6 +72,38 @@ namespace PrecisionStockpileControl
         {
             try { return AccessTools.FieldRefAccess<InspectTabBase, Vector2>("size"); }
             catch (Exception ex) { LogMissing("InspectTabBase.size", ex); return null; }
+        }
+
+        // ---- ITab_Storage.WinSize (storage-tab CONTENT + filter-tree width) ------------------------
+        // Vanilla reads this static Vector2 live each FillTab to size both the content rect and the
+        // filter-tree column (new Rect(0,0,WinSize.x,WinSize.y) -> DoThingFilterConfigWindow). PSC
+        // seeds it to StorageTabWidth at startup; the TabRect prefix re-reads it live so a mod that
+        // rewrites WinSize (e.g. Resize Filter Tab, in its OnOpen prefix) can widen PSC's content, and
+        // PSC mirrors that width onto the frame instead of the two diverging.
+        private static readonly AccessTools.FieldRef<Vector2> WinSizeRef = ResolveWinSize();
+
+        // Live storage-tab content width. Degrades to the PSC floor if the seam is gone.
+        public static float GetStorageContentWidth()
+            => WinSizeRef != null ? WinSizeRef().x : PscStartup.StorageTabWidth;
+
+        // Set the storage-tab content width, preserving height. Guarded so a per-frame call that
+        // matches the current value is a no-op. No-op if the seam is gone.
+        public static void SetStorageContentWidth(float width)
+        {
+            if (WinSizeRef == null) return;
+            ref Vector2 s = ref WinSizeRef();
+            if (s.x != width) s.x = width;
+        }
+
+        private static AccessTools.FieldRef<Vector2> ResolveWinSize()
+        {
+            try
+            {
+                var f = AccessTools.Field(typeof(ITab_Storage), "WinSize");
+                if (f == null) { LogMissing("ITab_Storage.WinSize", null); return null; }
+                return AccessTools.StaticFieldRefAccess<Vector2>(f);
+            }
+            catch (Exception ex) { LogMissing("ITab_Storage.WinSize", ex); return null; }
         }
 
         // ---- ITab_Storage private accessors -------------------------------------------------------
