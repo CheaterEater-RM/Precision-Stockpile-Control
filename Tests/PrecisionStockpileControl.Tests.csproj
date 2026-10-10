@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <Import Project="..\..\RimWorld.Paths.props" />
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('RimWorld.Paths.props', '$(MSBuildProjectDirectory)'))" />
 
   <PropertyGroup>
     <TargetFramework>net48</TargetFramework>
